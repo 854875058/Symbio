@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="assets/symbio-logo.png" width="200" height="200" alt="Symbio Logo">
+
 # 🧬 SYMBIO（共生）
 
 ### 新一代 AI 基础设施 · 多 Agent 协同框架
@@ -7,6 +9,8 @@
 **从"LLM 套壳工具"升维为"具备自我进化能力的企业级 AI 基础设施"**
 
 [English](README_en.md) | **中文** | [日本語](README_ja.md)
+
+<img src="assets/symbio-banner.png" width="100%" alt="Symbio Banner">
 
 ---
 
