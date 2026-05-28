@@ -59,6 +59,10 @@ symbio/
 │       └── router.py      # 消息路由
 │   ├── hitl.py            # HITL 人类介入审批总线
 │   ├── api.py             # FastAPI 服务端接口
+│   ├── edge/              # 边缘计算
+│   │   ├── runtime.py     # 轻量级运行时
+│   │   ├── mobile_sdk.py  # 移动端 SDK
+│   │   └── iot_manager.py # IoT 设备管理
 ├── evolution/             # 进化引擎
 │   ├── feedback.py        # 反馈收集
 │   ├── analyzer.py        # 模式分析
@@ -80,11 +84,20 @@ symbio/
 ├── config/                # 配置
 │   ├── settings.py        # 全局配置
 │   ├── models.py          # 模型配置
-│   └── project.py         # 项目级配置隔离
+│   ├── project.py         # 项目级配置隔离
+│   └── migration.py       # 版本迁移工具
+├── security/              # 安全模块
+│   ├── privacy.py         # 隐私计算（联邦学习、差分隐私）
+│   ├── sanitizer.py       # 数据脱敏引擎
+│   └── audit.py           # 审计日志
+├── docs/                  # 文档生成
+│   ├── generator.py       # 自动文档生成器
+│   └── examples/          # 示例项目
 └── utils/                 # 工具函数
     ├── logger.py
     ├── helpers.py
-    └── types.py
+    ├── types.py
+    └── memory_manager.py  # 内存管理与垃圾回收
 ```
 
 ---
