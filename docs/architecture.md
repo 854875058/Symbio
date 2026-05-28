@@ -80,20 +80,30 @@ class TaskComplexity(Enum):
 
 **Agent 基类：**
 ```python
-class BaseAgent:
+class BaseAgent(ABC):
     name: str
-    capabilities: list[str]
-    model: str
+    capabilities: list[str]                    # 能力声明
+    state_schema: type[pydantic.BaseModel]     # 强制的全局状态契约
 
-    async def execute(self, task: Task) -> Result
-    async def delegate(self, subtask: Task) -> SubAgent
-    async def report(self, result: Result) -> None
+    @abstractmethod
+    async def execute_node(self, node_context: DAGNode) -> NodeObservation:
+        """接收图节点上下文，返回包含测试结果与状态变更的观测值"""
+        pass
+
+    async def delegate(self, subtask: Task, target_agent: str = None) -> DAGNode:
+        """派发子任务，返回新的 DAG 节点"""
+        pass
+
+    async def report_observation(self, observation: NodeObservation) -> None:
+        """向 DAG 引擎汇报观测结果，触发可能的拓扑重构"""
+        pass
 ```
 
 **SubAgent 机制：**
-- 主 Agent 可以拆解任务并派发给 SubAgent
-- SubAgent 执行完成后向主 Agent 汇报
-- 支持并行执行多个 SubAgent
+- 主 Agent 通过 DAG 引擎派发子任务，生成新的 DAG 节点
+- SubAgent 执行完成后向 DAG 引擎汇报观测结果
+- DAG 引擎根据观测结果决定是否触发动态拓扑重构
+- 支持并行执行多个 SubAgent，通过状态机协调
 
 ### 4. 工具层 (Tool Layer)
 

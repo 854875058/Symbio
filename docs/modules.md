@@ -46,6 +46,7 @@ symbio/
 │   ├── git.py             # Git 操作
 │   ├── http.py            # HTTP 请求
 │   ├── sandbox.py         # 沙箱执行器
+│   ├── test_runner.py     # 测试框架驱动器 (pytest/npm test)
 │   └── multimodal.py      # 多模态处理 (图片/文档/音频)
 ├── interfaces/            # 接入层
 │   ├── cli.py             # CLI 入口
@@ -63,12 +64,6 @@ symbio/
 │   │   ├── runtime.py     # 轻量级运行时
 │   │   ├── mobile_sdk.py  # 移动端 SDK
 │   │   └── iot_manager.py # IoT 设备管理
-├── evolution/             # 进化引擎
-│   ├── feedback.py        # 反馈收集
-│   ├── analyzer.py        # 模式分析
-│   ├── optimizer.py       # 策略优化
-│   ├── promptops.py       # Prompt 版本管理与 A/B 测试
-│   └── eval_pipeline.py   # 自动化评测管道
 ├── skills/                # Skills 仓库
 │   ├── registry.py        # Skills 注册中心
 │   ├── builtin/           # 内置 Skills
@@ -80,6 +75,7 @@ symbio/
 │   ├── optimizer.py       # 策略优化
 │   ├── promptops.py       # Prompt 版本管理与 A/B 测试
 │   ├── eval_pipeline.py   # 自动化评测管道
+│   ├── dataset_exporter.py # 微调语料清洗与导出管道
 │   └── self_optimizer.py  # Agent 自我进化引擎
 ├── config/                # 配置
 │   ├── settings.py        # 全局配置
