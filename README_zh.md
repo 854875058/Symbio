@@ -179,7 +179,7 @@ symbio init
 symbio start
 
 # 打开 Web UI
-open http://localhost:8000
+open http://localhost:9090
 ```
 
 ---

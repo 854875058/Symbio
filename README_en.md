@@ -180,7 +180,7 @@ symbio init
 symbio start
 
 # Open Web UI
-open http://localhost:8000
+open http://localhost:9090
 ```
 
 ---
@@ -353,7 +353,7 @@ symbio init
 symbio start
 
 # 打开 Web UI
-open http://localhost:8000
+open http://localhost:9090
 ```
 
 ---
@@ -457,7 +457,7 @@ symbio init
 symbio start
 
 # Web UI を開く
-open http://localhost:8000
+open http://localhost:9090
 ```
 
 ---
