@@ -11,17 +11,22 @@ symbio/
 │   ├── task_queue.py      # 任务队列
 │   ├── guardrail.py       # 预算熔断与安全拦截
 │   ├── rate_limiter.py    # 并发流控 (令牌桶/漏桶)
-│   └── checkpoint.py      # 状态持久化与断点续传
+│   ├── checkpoint.py      # 状态持久化与断点续传
+│   ├── dag_engine.py      # 动态 DAG 引擎
+│   ├── context_pruner.py  # 上下文智能剪枝
+│   └── cache_aligner.py   # Prompt Cache 对齐器
 ├── agents/                # Agent 模块
 │   ├── base.py            # Agent 基类
 │   ├── registry.py        # Agent 注册中心
 │   ├── builtin/           # 内置 Agent
-│   └── subagent.py        # SubAgent 管理
+│   ├── subagent.py        # SubAgent 管理
+│   └── debate.py          # 多代理共识辩论
 ├── memory/                # 记忆模块
 │   ├── manager.py         # 记忆管理器
 │   ├── short_term.py      # 短期记忆
 │   ├── long_term.py       # 长期记忆（LanceDB）
-│   └── retriever.py       # 记忆检索
+│   ├── retriever.py       # 记忆检索
+│   └── knowledge_graph.py # 知识图谱 (Graph-RAG)
 ├── tools/                 # 工具模块
 │   ├── registry.py        # 工具注册中心
 │   ├── cc.py              # Claude Code
@@ -475,5 +480,340 @@ class EvalPipeline:
             actual_tools=result.tools_used,
             actual_output=result.content,
             token_usage=result.token_usage
+        )
+```
+
+---
+
+## 骨灰级高阶模块详解
+
+### 13. 动态 DAG 引擎 (DAGEngine)
+
+**职责：** 运行时动态重构任务拓扑，实现"兵无常势，水无常形"
+
+```python
+class DAGNode:
+    """DAG 节点"""
+    node_id: str
+    agent: BaseAgent
+    task: Task
+    dependencies: list[str]  # 依赖的节点 ID
+    status: NodeStatus
+    result: Optional[Result]
+
+class DAGEngine:
+    """动态 DAG 执行引擎"""
+
+    def __init__(self, orchestrator: Orchestrator):
+        self.orchestrator = orchestrator
+        self.nodes: dict[str, DAGNode] = {}
+        self.execution_order: list[str] = []
+
+    async def execute(self, initial_dag: DAG) -> Result:
+        """执行 DAG，支持运行时动态修改"""
+        self.nodes = initial_dag.nodes
+
+        while not self._is_complete():
+            # 获取可执行节点（依赖已完成）
+            ready_nodes = self._get_ready_nodes()
+
+            # 并行执行
+            tasks = [self._execute_node(node) for node in ready_nodes]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            # 处理结果，可能触发动态重构
+            for node, result in zip(ready_nodes, results):
+                node.result = result
+                node.status = NodeStatus.COMPLETED
+
+                # 关键：根据中间结果决定是否重构后续拓扑
+                should_replan = await self._evaluate_replan_need(node, result)
+                if should_replan:
+                    await self._replan_dag(node, result)
+
+        return self._aggregate_results()
+
+    async def _replan_dag(self, completed_node: DAGNode, result: Result) -> None:
+        """根据中间结果动态重构 DAG"""
+        # 调用 Orchestrator 重新规划后续步骤
+        new_subgraph = await self.orchestrator.replan(
+            completed_node=completed_node,
+            observation=result,
+            current_dag=self.nodes
+        )
+
+        # 合并新子图到现有 DAG
+        self._merge_subgraph(new_subgraph)
+
+        # 检查是否可以合并并行链路
+        self._optimize_parallel_paths()
+
+    def _optimize_parallel_paths(self) -> None:
+        """优化：合并可并行的节点，拆分过重的节点"""
+        # 识别独立子树并行化
+        # 识别串行瓶颈并拆分
+        pass
+```
+
+### 14. 上下文智能剪枝器 (ContextPruner)
+
+**职责：** 语义级上下文压缩，而非粗暴滑动窗口
+
+```python
+class ContextPruner:
+    """基于语义的上下文智能剪枝"""
+
+    def __init__(self, config: PrunerConfig):
+        self.summary_model = config.summary_model  # 用于提取关键点的小模型
+        self.cache_block_size = config.cache_block_size
+
+    async def prune(self, history: list[Message], max_tokens: int) -> list[Message]:
+        """智能剪枝历史消息"""
+        if self._count_tokens(history) <= max_tokens:
+            return history
+
+        # 第一步：提取每条消息的"决策关键点"
+        key_points = await self._extract_key_points(history)
+
+        # 第二步：识别"状态增量"（哪些消息改变了系统状态）
+        state_changes = self._identify_state_changes(history)
+
+        # 第三步：裁剪无用中间体（原始 HTML、大段日志等）
+        pruned = self._remove_noise(history, key_points, state_changes)
+
+        # 第四步：如果仍然超限，合并相似消息
+        if self._count_tokens(pruned) > max_tokens:
+            pruned = await self._merge_similar(pruned)
+
+        return pruned
+
+    async def _extract_key_points(self, history: list[Message]) -> list[str]:
+        """用小模型提取每条消息的决策关键点"""
+        # 对于工具输出，提取：成功/失败、关键数值、错误原因
+        # 对于对话，提取：用户意图、决策、约束条件
+        pass
+
+    def _remove_noise(self, history: list[Message], key_points: list[str], state_changes: list[int]) -> list[Message]:
+        """移除噪声，保留信号"""
+        pruned = []
+        for i, msg in enumerate(history):
+            if i in state_changes:
+                pruned.append(msg)  # 状态变更消息必须保留
+            elif self._is_noise(msg):
+                # 替换为关键点摘要
+                pruned.append(Message(content=f"[Summary: {key_points[i]}]"))
+            else:
+                pruned.append(msg)
+        return pruned
+```
+
+### 15. Prompt Cache 对齐器 (CacheAligner)
+
+**职责：** 按模型缓存规则优化记忆布局，最大化缓存命中
+
+```python
+class CacheAligner:
+    """Prompt Cache 深度对齐"""
+
+    def __init__(self, model: str):
+        self.model = model
+        self.cache_prefix_rules = self._load_cache_rules(model)
+
+    def align_memory_blocks(self, messages: list[Message]) -> list[Message]:
+        """重新排列消息以最大化缓存命中"""
+        # Claude 缓存规则：前缀匹配，越长的静态前缀命中率越高
+
+        # 1. 分离静态内容（系统提示、工具定义）和动态内容（对话）
+        static_blocks, dynamic_blocks = self._split_blocks(messages)
+
+        # 2. 将静态内容放在最前面，形成稳定的缓存前缀
+        aligned = static_blocks + dynamic_blocks
+
+        # 3. 确保动态内容中的"准静态"部分（如长文档）也参与缓存
+        aligned = self._promote_quasi_static(aligned)
+
+        return aligned
+
+    def estimate_cache_savings(self, messages: list[Message]) -> dict:
+        """估算缓存带来的成本节省"""
+        total_tokens = self._count_tokens(messages)
+        cacheable_tokens = self._count_cacheable_tokens(messages)
+        hit_rate = cacheable_tokens / total_tokens
+
+        return {
+            "total_tokens": total_tokens,
+            "cacheable_tokens": cacheable_tokens,
+            "estimated_hit_rate": hit_rate,
+            "estimated_cost_reduction": hit_rate * 0.5,  # 缓存命中通常节省 50% 成本
+            "estimated_ttft_improvement": f"{hit_rate * 70:.0f}%"  # TTFT 改善
+        }
+```
+
+### 16. 多代理共识辩论 (MultiAgentDebate)
+
+**职责：** 高精度任务的多轮辩论与交叉验证
+
+```python
+class DebateRole(str, Enum):
+    PROPOSER = "proposer"   # 创造者：提出方案
+    CRITIC = "critic"       # 批判者：找问题
+    REFINER = "refiner"     # 修正者：综合改进
+
+class MultiAgentDebate:
+    """多代理共识辩论引擎"""
+
+    def __init__(self, config: DebateConfig):
+        self.max_rounds = config.max_rounds  # 最大辩论轮次
+        self.consensus_threshold = config.consensus_threshold  # 共识阈值
+
+    async def debate(self, task: Task, context: str) -> DebateResult:
+        """启动三方辩论"""
+        # 克隆 3 个不同角色的 SubAgent
+        proposer = self._create_agent(DebateRole.PROPOSER, task)
+        critic = self._create_agent(DebateRole.CRITIC, task)
+        refiner = self._create_agent(DebateRole.REFINER, task)
+
+        history = []
+        current_proposal = None
+
+        for round_num in range(self.max_rounds):
+            # Proposer 提出方案
+            if round_num == 0:
+                current_proposal = await proposer.execute(task)
+            else:
+                current_proposal = await proposer.refine(history)
+
+            # Critic 批判
+            critique = await critic.analyze(current_proposal)
+
+            # 检查是否达成共识
+            if self._is_consensus(critique):
+                return DebateResult(
+                    final_output=current_proposal,
+                    rounds=round_num + 1,
+                    consensus=True,
+                    history=history
+                )
+
+            # Refiner 修正
+            refined = await refiner.synthesize(current_proposal, critique)
+
+            history.append({
+                "round": round_num,
+                "proposal": current_proposal,
+                "critique": critique,
+                "refinement": refined
+            })
+
+            current_proposal = refined
+
+        # 超过最大轮次，投票决定
+        return DebateResult(
+            final_output=self._vote(history),
+            rounds=self.max_rounds,
+            consensus=False,
+            history=history
+        )
+
+    def _create_agent(self, role: DebateRole, task: Task) -> BaseAgent:
+        """根据角色创建辩论 Agent"""
+        prompts = {
+            DebateRole.PROPOSER: "You are a creative problem solver. Propose solutions.",
+            DebateRole.CRITIC: "You are a rigorous critic. Find flaws and risks.",
+            DebateRole.REFINER: "You are a synthesizer. Combine the best ideas and fix issues."
+        }
+        return SubAgent(
+            task=task,
+            system_prompt=prompts[role],
+            model="sonnet"  # 辩论用中等模型，节省成本
+        )
+```
+
+### 17. 知识图谱引擎 (KnowledgeGraphEngine)
+
+**职责：** 向量+知识图谱双驱动记忆，赋予 Agent 常识联想能力
+
+```python
+class Entity:
+    """知识图谱实体"""
+    entity_id: str
+    name: str
+    entity_type: str  # person, module, concept, etc.
+    properties: dict[str, Any]
+    embedding: list[float]
+
+class Relation:
+    """实体关系"""
+    source_id: str
+    target_id: str
+    relation_type: str  # depends_on, prefers, created_by, etc.
+    weight: float
+    metadata: dict[str, Any]
+
+class KnowledgeGraphEngine:
+    """Vector + Knowledge Graph 双驱动记忆引擎"""
+
+    def __init__(self, config: KGConfig):
+        self.vector_store = LanceDB(config.lancedb_path)
+        self.graph_store = GraphStore(config.graph_db_path)  # SQLite 或 Neo4j
+        self.entity_extractor = EntityExtractor(config.llm)
+
+    async def ingest(self, content: str, metadata: dict) -> None:
+        """摄入新知识：向量化 + 实体抽取"""
+        # 1. 向量化存储
+        embedding = await self.embed(content)
+        await self.vector_store.insert(content, embedding, metadata)
+
+        # 2. 实体-关系抽取
+        entities, relations = await self.entity_extractor.extract(content)
+
+        # 3. 写入知识图谱
+        for entity in entities:
+            await self.graph_store.upsert_entity(entity)
+        for relation in relations:
+            await self.graph_store.upsert_relation(relation)
+
+    async def hybrid_retrieve(self, query: str, top_k: int = 5) -> RetrievalResult:
+        """混合检索：向量相似 + 图关联"""
+        # 1. 向量检索
+        query_embedding = await self.embed(query)
+        vector_results = await self.vector_store.search(query_embedding, top_k)
+
+        # 2. 识别查询中的实体
+        entities = await self.entity_extractor.identify(query)
+
+        # 3. 图关联扩展
+        graph_context = []
+        for entity in entities:
+            # 获取实体的邻居节点（1-2 跳）
+            neighbors = await self.graph_store.get_neighbors(entity.entity_id, hops=2)
+            graph_context.extend(neighbors)
+
+        # 4. 融合排序
+        combined = self._merge_and_rank(vector_results, graph_context)
+
+        return RetrievalResult(
+            vector_results=vector_results,
+            graph_context=graph_context,
+            combined=combined,
+            entities_mentioned=entities
+        )
+
+    async def get_entity_context(self, entity_name: str) -> EntityContext:
+        """获取实体的完整上下文"""
+        entity = await self.graph_store.find_entity(entity_name)
+        if not entity:
+            return None
+
+        # 获取所有关系
+        relations = await self.graph_store.get_relations(entity.entity_id)
+
+        # 获取相关记忆片段
+        memories = await self.vector_store.search_by_entity(entity.entity_id)
+
+        return EntityContext(
+            entity=entity,
+            relations=relations,
+            related_memories=memories
         )
 ```
