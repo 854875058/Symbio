@@ -359,6 +359,90 @@ Skills 是可复用的 Agent 能力单元，包含 Prompt、工具组合和执�
 
 ---
 
+## 9. 深度隔离与自我进化 (Deep Isolation & Self-Evolution)
+
+### 9.1 project.py — 项目级深度隔离管理器
+
+**传统平庸设计：** 所有项目共用一套配置和记忆，数据混乱。
+
+**Symbio 超前思维：** 多租户记忆宇宙（Multi-Tenant Memory Universe）。
+
+**深度解密：**
+
+每个项目是一个独立的"记忆宇宙"：
+- **记忆隔离** — 每个项目独立的 LanceDB 表、本体图谱、向量空间
+- **配置三级继承** — 全局配置 → 项目配置 → 任务配置，支持覆盖
+- **数据物理隔离** — 项目间数据完全隔离，支持导入/导出/备份/恢复
+- **资源配额** — 每个项目独立的 Token 预算、存储配额、并发限制
+
+**核心壁垒：** 真正的多租户物理隔离，而非逻辑隔离。
+
+---
+
+### 9.2 skills/ — Skills 标准化与生态系统
+
+**传统平庸设计：** 每个工具都是硬编码的 Python 函数，无法共享。
+
+**Symbio 超前思维：** 标准化的 Skill 生命周期管理（Standardized Skill Lifecycle）。
+
+**深度解密：**
+
+定义 Skill 的标准格式（JSON Schema）：
+```json
+{
+  "name": "code_reviewer",
+  "version": "1.2.0",
+  "description": "自动代码审查 Skill",
+  "prompt": "你是代码审查专家...",
+  "tools": ["git_diff", "ast_parser"],
+  "config": {"max_files": 50},
+  "tests": ["test_basic_review.py"]
+}
+```
+
+- **生命周期管理** — 注册、版本控制、依赖管理、废弃策略
+- **组合与编排** — 多个 Skill 可组合成复合 Skill
+- **市场生态** — 官方 + 社区共建，形成网络效应
+
+---
+
+### 9.3 evolution/self_optimizer.py — Agent 自我进化引擎
+
+**传统平庸设计：** Prompt 写死，不会根据效果自动优化。
+
+**Symbio 超前思维：** 基于历史数据的 Prompt 自优化（Data-Driven Prompt Self-Optimization）。
+
+**深度解密：**
+
+- **Prompt 效果追踪** — 记录每次 Prompt 的成功率、Token 消耗、用户满意度
+- **自动 Prompt 优化** — 基于历史数据自动调整 Prompt 措辞
+- **A/B 测试框架** — 在线对比不同 Prompt 版本的效果
+- **进化日志** — 记录每次优化的原因和效果，可审计可回滚
+
+**核心壁垒：** Agent 不仅执行任务，还能优化自己，越用越聪明。
+
+---
+
+## 10. 开发者体验优先 (Developer Experience First)
+
+### 10.1 快速上手哲学
+
+**传统平庸设计：** 复杂的配置、大量的概念、陡峭的学习曲线。
+
+**Symbio 超前思维：** 渐进式复杂度（Progressive Complexity）。
+
+**深度解密：**
+
+- **5 分钟 Quick Start** — `pip install symbio && symbio init` 一条命令启动
+- **最小化配置** — 默认配置开箱即用，高级配置按需开启
+- **智能错误提示** — 错误信息包含原因、修复建议、文档链接
+- **交互式调试** — CLI 支持断点、单步执行、状态查看
+- **丰富的示例** — 覆盖常见场景的端到端示例项目
+
+**核心壁垒：** 简单用法简单，高级用法可选，降低学习曲线。
+
+---
+
 ## 设计哲学总结
 
 **"大处着眼，小处着手（Think Big, Start Small）。"** 这是顶级代码架构师的最高心法。

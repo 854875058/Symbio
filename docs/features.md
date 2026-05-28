@@ -190,6 +190,39 @@
 - [ ] 状态驱动通信 — Agent 间读写全局状态对象，消除对话传递，Token 成本降低 80%+
 - [ ] 跨模型协同 — 执行层（Claude Sonnet）专注编码，审计层（Gemini Pro）端到端审查
 
+### 0.25 项目级深度隔离与多租户 (Deep Project Isolation & Multi-Tenancy)
+> 每个项目是独立的"记忆宇宙"，互不干扰。
+
+- [ ] 记忆宇宙隔离 — 每个项目独立的 LanceDB 表、本体图谱、向量空间
+- [ ] 配置继承与覆盖 — 全局配置 → 项目配置 → 任务配置三级继承
+- [ ] 数据物理隔离 — 项目间数据完全隔离，支持导入/导出/备份/恢复
+- [ ] 资源配额管理 — 每个项目独立的 Token 预算、存储配额、并发限制
+
+### 0.26 Skills 标准化与生态系统 (Skills Standardization & Ecosystem)
+> 让 Agent 能力可复用、可组合、可共享。
+
+- [ ] Skill 标准格式 — 定义 Skill 的 JSON Schema（Prompt + Tools + Config + Tests）
+- [ ] Skill 生命周期管理 — 注册、版本控制、依赖管理、废弃策略
+- [ ] Skill 组合与编排 — 多个 Skill 可组合成复合 Skill
+- [ ] Skill 市场 — 官方 + 社区共建的 Skill 生态
+
+### 0.27 开发者体验优先 (Developer Experience First)
+> 降低学习曲线，让开发者 5 分钟上手。
+
+- [ ] 5 分钟 Quick Start — 一条命令启动，最小化配置
+- [ ] 智能错误提示 — 错误信息包含原因、修复建议、文档链接
+- [ ] 交互式调试 — CLI 支持断点、单步执行、状态查看
+- [ ] 丰富的示例 — 覆盖常见场景的端到端示例项目
+- [ ] 渐进式复杂度 — 简单用法简单，高级用法可选
+
+### 0.28 Agent 自我进化与 Prompt 自优化 (Agent Self-Evolution)
+> Agent 不仅执行任务，还能优化自己的 Prompt。
+
+- [ ] Prompt 效果追踪 — 记录每次 Prompt 的成功率、Token 消耗、用户满意度
+- [ ] 自动 Prompt 优化 — 基于历史数据自动调整 Prompt 措辞
+- [ ] A/B 测试框架 — 在线对比不同 Prompt 版本的效果
+- [ ] 进化日志 — 记录每次优化的原因和效果，可审计可回滚
+
 ---
 
 ## 1. 核心骨架与运行时 (Core Foundation)

@@ -68,7 +68,15 @@ symbio/
 ├── skills/                # Skills 仓库
 │   ├── registry.py        # Skills 注册中心
 │   ├── builtin/           # 内置 Skills
-│   └── marketplace.py     # Skills 市场
+│   ├── marketplace.py     # Skills 市场
+│   └── schema.py          # Skill 标准格式定义
+├── evolution/             # 进化引擎
+│   ├── feedback.py        # 反馈收集
+│   ├── analyzer.py        # 模式分析
+│   ├── optimizer.py       # 策略优化
+│   ├── promptops.py       # Prompt 版本管理与 A/B 测试
+│   ├── eval_pipeline.py   # 自动化评测管道
+│   └── self_optimizer.py  # Agent 自我进化引擎
 ├── config/                # 配置
 │   ├── settings.py        # 全局配置
 │   ├── models.py          # 模型配置
