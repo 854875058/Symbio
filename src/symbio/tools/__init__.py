@@ -1,0 +1,63 @@
+"""Symbio tooling layer — tool registry, test runner, shell executor, file ops, etc."""
+
+from symbio.tools.registry import (
+    BaseTool,
+    BrowserTool,
+    CCTool,
+    FileTool,
+    GitTool,
+    PermissionLevel,
+    ShellTool,
+    ToolMetadata,
+    ToolParameter,
+    ToolPermission,
+    ToolRegistry,
+    ToolSchema,
+    ToolStats,
+    get_tool_registry,
+    register_tool,
+)
+from symbio.tools.test_runner import (
+    FrameworkAdapter,
+    JestAdapter,
+    NpmTestAdapter,
+    PytestAdapter,
+    TestCase,
+    TestCaseResult,
+    TestFramework,
+    TestResult,
+    TestRunner,
+    TestStatus,
+    TestSuite,
+)
+
+__all__ = [
+    # Registry
+    "BaseTool",
+    "BrowserTool",
+    "CCTool",
+    "FileTool",
+    "GitTool",
+    "PermissionLevel",
+    "ShellTool",
+    "ToolMetadata",
+    "ToolParameter",
+    "ToolPermission",
+    "ToolRegistry",
+    "ToolSchema",
+    "ToolStats",
+    "get_tool_registry",
+    "register_tool",
+    # Test runner
+    "FrameworkAdapter",
+    "JestAdapter",
+    "NpmTestAdapter",
+    "PytestAdapter",
+    "TestCase",
+    "TestCaseResult",
+    "TestFramework",
+    "TestResult",
+    "TestRunner",
+    "TestStatus",
+    "TestSuite",
+]

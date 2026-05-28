@@ -1,5 +1,82 @@
-"""Core modules: orchestrator, event bus, model router."""
+"""Core modules: orchestrator, event bus, model router, semantic cache, DAG engine, tracer."""
 
+from .dag_engine import (
+    DAGEngine,
+    DAGNode,
+    DAGStats,
+    NodeObservation,
+    NodeStatus,
+    TopologyAction,
+    TopologyChange,
+)
 from .event_bus import EventBus, Event
+from .resource_manager import (
+    AggregateStats,
+    CircuitLevel,
+    ResourceBudget,
+    ResourceManager,
+    ResourceStatusSnapshot,
+)
+from .semantic_cache import (
+    CacheEntry,
+    CacheStats,
+    InvalidationStrategy,
+    SemanticCacheConfig,
+    SemanticCacheEngine,
+)
+from .tracer import (
+    ExporterType,
+    MetricType,
+    MetricRecord,
+    MemorySnapshot,
+    SpanData,
+    SpanEvent,
+    TokenHeatmapEntry,
+    TokenHeatmapSummary,
+    TokenUsageSnapshot,
+    TraceConfig,
+    Tracer,
+    get_tracer,
+    init_tracer,
+    shutdown_tracer,
+    trace_agent,
+    trace_tool,
+)
 
-__all__ = ["EventBus", "Event"]
+__all__ = [
+    "EventBus",
+    "Event",
+    "DAGEngine",
+    "DAGNode",
+    "DAGStats",
+    "NodeObservation",
+    "NodeStatus",
+    "TopologyAction",
+    "TopologyChange",
+    "AggregateStats",
+    "CircuitLevel",
+    "ResourceBudget",
+    "ResourceManager",
+    "ResourceStatusSnapshot",
+    "CacheEntry",
+    "CacheStats",
+    "InvalidationStrategy",
+    "SemanticCacheConfig",
+    "SemanticCacheEngine",
+    "ExporterType",
+    "MetricType",
+    "MetricRecord",
+    "MemorySnapshot",
+    "SpanData",
+    "SpanEvent",
+    "TokenHeatmapEntry",
+    "TokenHeatmapSummary",
+    "TokenUsageSnapshot",
+    "TraceConfig",
+    "Tracer",
+    "get_tracer",
+    "init_tracer",
+    "shutdown_tracer",
+    "trace_agent",
+    "trace_tool",
+]
