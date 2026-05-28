@@ -16,13 +16,20 @@ symbio/
 │   ├── context_pruner.py  # 上下文智能剪枝
 │   ├── cache_aligner.py   # Prompt Cache 对齐器
 │   ├── resource_manager.py # 资源管控 (Token 预算、步数、超时)
-│   └── tracer.py           # 可观测性 (运行轨迹追踪、Trace 可视化)
+│   ├── tracer.py          # 可观测性 (OTel 链路追踪)
+│   ├── semantic_cache.py  # 语义缓存
+│   └── injection_guard.py # Prompt Injection 防护
 ├── agents/                # Agent 模块
 │   ├── base.py            # Agent 基类
 │   ├── registry.py        # Agent 注册中心
-│   ├── builtin/           # 内置 Agent
+│   ├── builtin/           # 内置预制 Agent
+│   │   ├── ui_designer.py     # UI 设计 Agent
+│   │   ├── code_reviewer.py   # 代码审查 Agent
+│   │   ├── data_analyst.py    # 数据分析 Agent
+│   │   └── doc_writer.py      # 文档撰写 Agent
 │   ├── subagent.py        # SubAgent 管理
-│   └── debate.py          # 多代理共识辩论
+│   ├── debate.py          # 多代理共识辩论
+│   └── simulator.py       # Agent 仿真测试
 ├── memory/                # 记忆模块
 │   ├── manager.py         # 记忆管理器
 │   ├── short_term.py      # 短期记忆
@@ -31,11 +38,14 @@ symbio/
 │   └── ontology.py        # 本体引擎 (Ontology-Enhanced Memory)
 ├── tools/                 # 工具模块
 │   ├── registry.py        # 工具注册中心
+│   ├── mcp.py             # MCP 协议网关
 │   ├── cc.py              # Claude Code
 │   ├── shell.py           # Shell 命令
 │   ├── file.py            # 文件操作
 │   ├── git.py             # Git 操作
-│   └── http.py            # HTTP 请求
+│   ├── http.py            # HTTP 请求
+│   ├── sandbox.py         # 沙箱执行器
+│   └── multimodal.py      # 多模态处理 (图片/文档/音频)
 ├── interfaces/            # 接入层
 │   ├── cli.py             # CLI 入口
 │   ├── web/               # Web UI
@@ -47,10 +57,16 @@ symbio/
 ├── evolution/             # 进化引擎
 │   ├── feedback.py        # 反馈收集
 │   ├── analyzer.py        # 模式分析
-│   └── optimizer.py       # 策略优化
+│   ├── optimizer.py       # 策略优化
+│   └── promptops.py       # Prompt 版本管理与 A/B 测试
+├── skills/                # Skills 仓库
+│   ├── registry.py        # Skills 注册中心
+│   ├── builtin/           # 内置 Skills
+│   └── marketplace.py     # Skills 市场
 ├── config/                # 配置
 │   ├── settings.py        # 全局配置
-│   └── models.py          # 模型配置
+│   ├── models.py          # 模型配置
+│   └── project.py         # 项目级配置隔离
 └── utils/                 # 工具函数
     ├── logger.py
     ├── helpers.py
