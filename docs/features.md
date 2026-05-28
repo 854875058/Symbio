@@ -181,6 +181,15 @@
 - [ ] Agent Protocol (AG2) 兼容 — REST API 标准接口，对接外部生态
 - [ ] 并行工具调用 — 支持 parallel tool calling，一次返回多个工具调用
 
+### 0.24 防过早完成与测试驱动闭环 (Anti-Premature Completion & TDD Loop)
+> 从根源解决"代理过早宣布完成"的行业顽疾。
+
+- [ ] 强制 Tool Calling 结束 — Agent 必须调用 submit_task() 才能结束，绕过 EOS 提前停机
+- [ ] 显式未完成清单 — JSON Checklist + 测试用例桩代码，将"完成"标准以代码固化
+- [ ] 测试验证闭环 — Testing Agent 执行真实测试，用工程化结果取代模型主观判断
+- [ ] 状态驱动通信 — Agent 间读写全局状态对象，消除对话传递，Token 成本降低 80%+
+- [ ] 跨模型协同 — 执行层（Claude Sonnet）专注编码，审计层（Gemini Pro）端到端审查
+
 ---
 
 ## 1. 核心骨架与运行时 (Core Foundation)

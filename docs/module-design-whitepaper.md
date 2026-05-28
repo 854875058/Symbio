@@ -18,6 +18,20 @@
 
 **核心壁垒：** 彻底解决复杂长链任务中"一处报错，全盘崩溃"的痛点。
 
+**痛点深剖：代理过早宣布完成的根本原因**
+
+当前多 Agent 系统普遍存在的"代理过早宣布完成"问题，根源在于：
+1. **缺乏外部参照** — Agent 只看到自己的对话历史，没有全局视角
+2. **模型自洽倾向** — LLM 倾向于认为自己已完成任务，不会主动质疑
+3. **EOS token 的训练偏差** — 模型被训练为"尽快结束对话"
+
+**Symbio 解决方案：显式未完成清单 + 严格测试验证闭环**
+
+- **状态驱动而非对话驱动** — Agent 间不传递对话历史，而是读写同一个全局状态对象（JSON Checklist）
+- **强制 Tool Calling 结束** — Agent 必须调用 `submit_task(task_id, files_changed)` 才能结束任务，从工程上绕过 EOS 提前停机
+- **测试验证闭环** — Testing Agent 执行真实测试（`pytest`/`npm test`），将 stderr/stdout 反馈给流程控制器，用工程化的测试结果取代模型主观判断
+- **跨模型协同** — 执行层（Claude Sonnet）专注编码，审计层（Gemini Pro）利用超长上下文进行端到端审查
+
 ---
 
 ### 1.2 router.py & evaluator.py — 前端可配置的智能路由矩阵
@@ -101,6 +115,36 @@ Agent 类定义不依赖硬编码。每个 Agent 通过 Pydantic 极其严密地
 彻底解耦计算边界。在设计上，SubAgent 继承或被装饰为 Ray Actor。主 Agent 派发子任务时，整个子 Agent 的上下文、状态机和提示词会作为一个有界的 Actor 被远程投递（remote()）到集群中空闲的物理节点上执行。本地无网开发时，它退化为轻量级的单机 asyncio.Task。
 
 **核心壁垒：** 框架天然具备横向推平万卡/万核集群的工业底座实力。
+
+**痛点深剖：多 Agent 通信成本爆炸**
+
+传统多 Agent 系统让 Agent 互相"聊天"传递信息，导致：
+1. **传话游戏效应** — 关键信息在传递中丢失
+2. **Token 爆炸** — 携带大量冗余历史对话
+3. **钻牛角尖** — Agent 陷入自己的对话上下文无法自拔
+
+**Symbio 解决方案：基于共享状态机的零对话通信**
+
+```
+┌─────────────────────────────────────────────┐
+│           全局状态对象 (JSON Checklist)        │
+│  Single Source of Truth - 唯一事实来源         │
+└──────────────────┬──────────────────────────┘
+                   │
+       ┌───────────┼───────────┐
+       ▼           ▼           ▼
+   Initializer   Coder      Tester
+   Agent         Agent      Agent
+       │           │           │
+       └───────────┴───────────┘
+                   │
+            状态读写，非对话传递
+```
+
+- **每个 Agent 启动时只接收**：当前状态 JSON + 代码 Diff + 单一任务指令
+- **Agent 结束后只输出**：状态更新 + 测试结果
+- **清空会话历史** — 每轮任务完成后重置，防止上下文污染
+- **Token 成本降低 80%+** — 消除冗余对话传递
 
 ---
 
@@ -208,7 +252,44 @@ Agent 类定义不依赖硬编码。每个 Agent 通过 Pydantic 极其严密地
 
 ---
 
-## 7. 安全与多模态扩展 (Security & Multi-Modal Extensions)
+## 7. 防过早完成与测试驱动闭环 (Anti-Premature Completion & TDD Loop)
+
+### 7.1 防过早完成引擎 (Anti-Premature Completion Engine)
+
+**传统平庸设计：** 让 Agent 自己判断是否完成，依赖 EOS token 自然停止。
+
+**Symbio 超前思维：** 强制 Tool Calling 结束 + 测试验证闭环（Tool-Forced Termination + Test-Driven Verification）。
+
+**深度解密：**
+
+从工程上绕过模型 EOS 提前停机问题：
+
+1. **强制 Tool Calling** — Agent 必须调用 `submit_task(task_id, files_changed)` 才能结束任务，不允许自然输出 EOS
+2. **显式未完成清单** — 初始化器生成 JSON Checklist + 测试用例桩代码，将"完成"标准以代码形式固化
+3. **测试验证闭环** — Testing Agent 执行真实测试（`pytest`/`npm test`），将 stderr/stdout 反馈给流程控制器
+4. **状态机驱动** — 用工程化的测试结果取代模型主观判断，打破 AI 编码能力天花板
+
+**核心壁垒：** 从根源解决"代理过早宣布完成"的行业顽疾。
+
+---
+
+### 7.2 跨模型协同策略 (Cross-Model Synergy)
+
+**传统平庸设计：** 所有任务用同一个模型，要么太贵要么太弱。
+
+**Symbio 超前思维：** 执行层与审计层分离的多模型协同（Doer-Reviewer Separation）。
+
+**深度解密：**
+
+- **执行层 (Doer)** — Claude 3.5 Sonnet，聚焦当前细粒度任务，编写具体逻辑，只需极短上下文
+- **审计层 (Reviewer)** — Gemini 1.5 Pro，利用原生超长上下文窗口，在工作流节点上进行端到端审查和逻辑纠偏
+- **自动化脚本驱动** — Testing Agent 不靠"看代码"判断，而是执行真实测试，抓取终端 stderr/stdout
+
+**核心壁垒：** 用最少的 Token 消耗实现最高的代码质量。
+
+---
+
+## 8. 安全与多模态扩展 (Security & Multi-Modal Extensions)
 
 ### 7.1 injection_guard.py — Prompt Injection 防护引擎
 
