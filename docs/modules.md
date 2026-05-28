@@ -14,7 +14,8 @@ symbio/
 │   ├── checkpoint.py      # 状态持久化与断点续传
 │   ├── dag_engine.py      # 动态 DAG 引擎
 │   ├── context_pruner.py  # 上下文智能剪枝
-│   └── cache_aligner.py   # Prompt Cache 对齐器
+│   ├── cache_aligner.py   # Prompt Cache 对齐器
+│   └── resource_manager.py # 资源管控 (Token 预算、步数、超时)
 ├── agents/                # Agent 模块
 │   ├── base.py            # Agent 基类
 │   ├── registry.py        # Agent 注册中心
@@ -370,7 +371,120 @@ class RateLimiter:
         raise RateLimitExhaustedError(f"Rate limit retries exhausted for {model}")
 ```
 
-### 11. 状态检查点 (Checkpoint)
+### 11. 资源管控器 (ResourceManager)
+
+**职责：** Token 预算、步数限制、超时控制，防止系统自杀或烧光额度
+
+```python
+class ResourceTicket:
+    """资源支票：任务启动时签发的总预算"""
+
+    def __init__(self, config: ResourceConfig):
+        self.max_cost_usd: float = config.max_cost_usd       # 最大 Token 费用 (美元)
+        self.max_steps: int = config.max_steps                 # 最大执行步数
+        self.max_tokens: int = config.max_tokens               # 最大 Token 总量
+        self.timeout_seconds: int = config.timeout_seconds     # 单步超时
+
+        # 实时消耗追踪
+        self.consumed_cost: float = 0.0
+        self.consumed_steps: int = 0
+        self.consumed_tokens: int = 0
+        self.created_at: datetime = datetime.now()
+
+    def deduct(self, usage: TokenUsage) -> None:
+        """扣减资源额度"""
+        self.consumed_cost += usage.cost_usd
+        self.consumed_tokens += usage.total_tokens
+        self.consumed_steps += 1
+
+    def is_exhausted(self) -> bool:
+        """检查是否耗尽"""
+        return (
+            self.consumed_cost >= self.max_cost_usd or
+            self.consumed_steps >= self.max_steps or
+            self.consumed_tokens >= self.max_tokens
+        )
+
+    def remaining(self) -> dict:
+        """返回剩余配额"""
+        return {
+            "cost_usd": max(0, self.max_cost_usd - self.consumed_cost),
+            "steps": max(0, self.max_steps - self.consumed_steps),
+            "tokens": max(0, self.max_tokens - self.consumed_tokens),
+        }
+
+    def is_expired(self) -> bool:
+        """检查是否超时"""
+        elapsed = (datetime.now() - self.created_at).total_seconds()
+        return elapsed > self.timeout_seconds
+
+
+class ResourceManager:
+    """资源管控网关：Token 预算 + 步数熔断 + 超时控制"""
+
+    def __init__(self, config: ResourceConfig):
+        self.default_config = config
+        self.active_tickets: dict[str, ResourceTicket] = {}  # task_id -> ticket
+
+    def issue_ticket(self, task_id: str, overrides: dict = None) -> ResourceTicket:
+        """为任务签发资源支票"""
+        config = self.default_config.model_copy(update=overrides or {})
+        ticket = ResourceTicket(config)
+        self.active_tickets[task_id] = ticket
+        logger.info(f"Resource ticket issued for {task_id}: {ticket.remaining()}")
+        return ticket
+
+    async def check_and_deduct(self, task_id: str, usage: TokenUsage) -> bool:
+        """检查资源并扣减额度，返回是否允许继续"""
+        ticket = self.active_tickets.get(task_id)
+        if not ticket:
+            return True  # 无票证任务不限制
+
+        # 扣减
+        ticket.deduct(usage)
+
+        # 检查是否耗尽
+        if ticket.is_exhausted():
+            remaining = ticket.remaining()
+            logger.warning(f"Resource exhausted for {task_id}: {remaining}")
+            raise ResourceExhaustedError(
+                task_id=task_id,
+                reason="Budget exhausted",
+                consumed={"cost": ticket.consumed_cost, "steps": ticket.consumed_steps},
+                remaining=remaining
+            )
+
+        if ticket.is_expired():
+            raise ResourceExhaustedError(
+                task_id=task_id,
+                reason="Timeout exceeded",
+                consumed={"cost": ticket.consumed_cost, "steps": ticket.consumed_steps}
+            )
+
+        return True
+
+    def release_ticket(self, task_id: str) -> None:
+        """任务完成，释放资源支票"""
+        self.active_tickets.pop(task_id, None)
+
+    def get_status(self, task_id: str) -> dict:
+        """获取任务资源消耗状态"""
+        ticket = self.active_tickets.get(task_id)
+        if not ticket:
+            return {"status": "no_ticket"}
+        return {
+            "status": "active",
+            "consumed": {
+                "cost_usd": ticket.consumed_cost,
+                "steps": ticket.consumed_steps,
+                "tokens": ticket.consumed_tokens,
+            },
+            "remaining": ticket.remaining(),
+            "expired": ticket.is_expired(),
+        }
+```
+
+### 12. 状态检查点 (Checkpoint)
 
 **职责：** 任务状态持久化与断点续传
 
