@@ -82,6 +82,41 @@
 | 隔离 Mock | pytest-mock | 用于对大模型 API、沙箱工具执行进行确定性模拟测试 |
 | 代码覆盖率 | coverage | 确保核心 Infra 的测试覆盖率维持在生产线以上 |
 
+## 可观测性与监控
+
+| 组件 | 选型 | 说明 |
+|------|------|------|
+| 链路追踪 | opentelemetry-sdk | OpenTelemetry 官方 Python SDK |
+| 指标采集 | prometheus-client | Prometheus 指标暴露 |
+| 可视化 | Grafana + Jaeger | 链路追踪与指标可视化 |
+| LLM 监控 | Langfuse / Helicone | LLM 专用可观测平台（可选） |
+
+## 隐私计算与数据安全
+
+| 组件 | 选型 | 说明 |
+|------|------|------|
+| 联邦学习 | PySyft / Flower | 联邦学习框架（可选） |
+| 差分隐私 | opacus / diffprivlib | 差分隐私库（可选） |
+| 数据脱敏 | presidio-analyzer | PII 检测与脱敏 |
+| 密钥管理 | python-keyring | 系统密钥环管理 |
+
+## 边缘计算与嵌入式
+
+| 组件 | 选型 | 说明 |
+|------|------|------|
+| 端侧推理 | onnxruntime | ONNX 模型推理（可选） |
+| 移动端 | React Native / Flutter | 移动端 SDK（远期） |
+| IoT 协议 | paho-mqtt | MQTT 协议支持（可选） |
+
+## 多模态处理
+
+| 组件 | 选型 | 说明 |
+|------|------|------|
+| 图片理解 | anthropic-vision / openai-vision | 视觉模型 API |
+| 文档解析 | unstructured / pdfplumber | 文档智能提取 |
+| 音频转写 | whisper / funasr | 语音转文字 |
+| OCR | paddleocr / tesseract | 文字识别 |
+
 ## 依赖管理与项目元数据
 
 | 工具 | 说明 |

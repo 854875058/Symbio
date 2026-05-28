@@ -556,6 +556,45 @@ Skills 是可复用的 Agent 能力单元，包含 Prompt、工具组合和执�
 
 ---
 
+## 16. 可观测性架构 (Observability Architecture)
+
+### 16.1 tracer.py — 分布式链路追踪引擎
+
+**传统平庸设计：** 打日志，出问题时 grep 日志文件。
+
+**Symbio 超前思维：** 原生 OpenTelemetry 集成的全链路追踪（Native OTel Integration）。
+
+**深度解密：**
+
+- **Span 自动采集** — 每个 Agent/工具调用自动生成 Span，包含耗时、Token 消耗、输入输出
+- **Trace 关联** — 从主 Agent → SubAgent → 工具调用的完整链路追踪
+- **指标暴露** — 通过 Prometheus 客户端暴露 Counter/Histogram/Gauge 指标
+- **可视化** — 原生对接 Jaeger/Grafana，开箱即用
+
+**核心壁垒：** 多 Agent 系统不再是黑盒，一切行为可观测。
+
+---
+
+## 17. 前沿协议兼容 (Cutting-Edge Protocol Support)
+
+### 17.1 多协议适配层
+
+**传统平庸设计：** 只支持自家协议，封闭生态。
+
+**Symbio 超前思维：** 协议无关的适配层（Protocol-Agnostic Adapter Layer）。
+
+**深度解密：**
+
+- **A2A 协议** — 与 Google ADK、CrewAI 等外部 Agent 互通
+- **Structured Output** — JSON Schema 强制约束 LLM 输出格式
+- **Computer Use** — 屏幕截图 → 视觉理解 → GUI 操控闭环
+- **Agent Protocol (AG2)** — REST API 标准接口，对接外部生态
+- **并行工具调用** — 一次返回多个工具调用，提升效率
+
+**核心壁垒：** 站在巨人肩膀上，兼容最前沿的行业标准。
+
+---
+
 ## 设计哲学总结
 
 **"大处着眼，小处着手（Think Big, Start Small）。"** 这是顶级代码架构师的最高心法。
