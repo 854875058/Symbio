@@ -15,7 +15,8 @@ symbio/
 │   ├── dag_engine.py      # 动态 DAG 引擎
 │   ├── context_pruner.py  # 上下文智能剪枝
 │   ├── cache_aligner.py   # Prompt Cache 对齐器
-│   └── resource_manager.py # 资源管控 (Token 预算、步数、超时)
+│   ├── resource_manager.py # 资源管控 (Token 预算、步数、超时)
+│   └── tracer.py           # 可观测性 (运行轨迹追踪、Trace 可视化)
 ├── agents/                # Agent 模块
 │   ├── base.py            # Agent 基类
 │   ├── registry.py        # Agent 注册中心

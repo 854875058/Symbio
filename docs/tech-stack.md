@@ -112,5 +112,22 @@ dependencies = [
     "aiofiles>=23.0.0",       # 确保文件层全异步
     "aiosqlite>=0.20.0",       # 确保快照与飞书/微信数据持久化全异步
     "prompt-toolkit>=3.0.0",
+    "pyyaml>=6.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-mock>=3.14.0",
+    "coverage>=7.0.0",
+    "ruff>=0.5.0",
+]
+im = [
+    "nonebot2>=2.3.0",        # QQ/微信机器人框架
+]
+cluster = [
+    "ray>=2.55.0",            # 分布式 Agent 运行时 (远期)
+    "kubernetes>=30.0.0",     # K8s 沙箱调度 (远期)
 ]
 ```
