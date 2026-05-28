@@ -1,5 +1,27 @@
 """Core modules: orchestrator, event bus, model router, semantic cache, DAG engine, tracer."""
 
+from .cache_aligner import (
+    AlignmentResult,
+    AlignmentStrategy,
+    CacheAligner,
+    CacheAlignerConfig,
+    CacheProvider,
+    CacheableRequest,
+    HitRateEstimate,
+    PrefixGroup,
+    PrefixSegment,
+)
+from .context_pruner import (
+    ContextMessage,
+    ContextPruner,
+    DecisionKeyPoint,
+    ImportanceLevel,
+    MessageRole,
+    PrunerConfig,
+    PruneResult,
+    PruneStrategy,
+    StateDelta,
+)
 from .dag_engine import (
     DAGEngine,
     DAGNode,
@@ -10,6 +32,17 @@ from .dag_engine import (
     TopologyChange,
 )
 from .event_bus import EventBus, Event
+from .injection_guard import (
+    AttackType,
+    AuditRecord,
+    DefenseLayer,
+    DetectionResult,
+    InjectionError,
+    InjectionGuard,
+    InjectionGuardConfig,
+    SanitizeResult,
+    ThreatLevel,
+)
 from .resource_manager import (
     AggregateStats,
     CircuitLevel,
@@ -44,6 +77,37 @@ from .tracer import (
 )
 
 __all__ = [
+    # Cache Aligner
+    "AlignmentResult",
+    "AlignmentStrategy",
+    "CacheAligner",
+    "CacheAlignerConfig",
+    "CacheProvider",
+    "CacheableRequest",
+    "HitRateEstimate",
+    "PrefixGroup",
+    "PrefixSegment",
+    # Context Pruner
+    "ContextMessage",
+    "ContextPruner",
+    "DecisionKeyPoint",
+    "ImportanceLevel",
+    "MessageRole",
+    "PrunerConfig",
+    "PruneResult",
+    "PruneStrategy",
+    "StateDelta",
+    # Injection Guard
+    "AttackType",
+    "AuditRecord",
+    "DefenseLayer",
+    "DetectionResult",
+    "InjectionError",
+    "InjectionGuard",
+    "InjectionGuardConfig",
+    "SanitizeResult",
+    "ThreatLevel",
+    # Event Bus
     "EventBus",
     "Event",
     "DAGEngine",
