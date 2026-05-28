@@ -46,6 +46,7 @@ SubAgent (子任务派发)
 
 - [功能清单](docs/features.md)
 - [架构设计](docs/architecture.md)
+- [模块设计白皮书](docs/module-design-whitepaper.md)
 - [开发路线图](docs/roadmap.md)
 - [模块规划](docs/modules.md)
 - [技术栈选型](docs/tech-stack.md)
