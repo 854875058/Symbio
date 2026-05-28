@@ -484,7 +484,7 @@ class FederatedLearningEngine:
         num_rounds: int = 10,
         aggregation_strategy: AggregationStrategy = AggregationStrategy.FEDERATED_AVERAGING,
         privacy_params: DifferentialPrivacyParams | None = None,
-        client_fraction: float = Field(default=1.0, ge=0.0, le=1.0),
+        client_fraction: float = 1.0,
     ):
         self.num_rounds = num_rounds
         self.client_fraction = client_fraction
