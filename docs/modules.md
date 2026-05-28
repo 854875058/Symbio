@@ -26,7 +26,7 @@ symbio/
 │   ├── short_term.py      # 短期记忆
 │   ├── long_term.py       # 长期记忆（LanceDB）
 │   ├── retriever.py       # 记忆检索
-│   └── knowledge_graph.py # 知识图谱 (Graph-RAG)
+│   └── ontology.py        # 本体引擎 (Ontology-Enhanced Memory)
 ├── tools/                 # 工具模块
 │   ├── registry.py        # 工具注册中心
 │   ├── cc.py              # Claude Code
@@ -729,91 +729,116 @@ class MultiAgentDebate:
         )
 ```
 
-### 17. 知识图谱引擎 (KnowledgeGraphEngine)
+### 17. 本体引擎 (OntologyEngine)
 
-**职责：** 向量+知识图谱双驱动记忆，赋予 Agent 常识联想能力
+**职责：** 向量+本体(Ontology)双驱动记忆，赋予 Agent 领域语义理解与推理能力
 
 ```python
-class Entity:
-    """知识图谱实体"""
-    entity_id: str
-    name: str
-    entity_type: str  # person, module, concept, etc.
-    properties: dict[str, Any]
-    embedding: list[float]
+class OntologyClass:
+    """本体类定义"""
+    class_id: str
+    name: str                          # 类名 (如: Module, User, Task)
+    description: str                   # 类描述
+    parent_classes: list[str]          # 父类 (继承层次)
+    properties: list[OntologyProperty] # 类属性定义
+    constraints: list[Constraint]      # 约束条件
 
-class Relation:
-    """实体关系"""
-    source_id: str
-    target_id: str
-    relation_type: str  # depends_on, prefers, created_by, etc.
-    weight: float
-    metadata: dict[str, Any]
+class OntologyProperty:
+    """本体属性定义"""
+    property_id: str
+    name: str                          # 属性名 (如: depends_on, prefers, created_by)
+    domain: str                        # 定义域 (适用的类)
+    range_type: str                    # 值域 (属性值类型)
+    is_functional: bool                # 是否函数性 (单值)
+    inverse_of: Optional[str]          # 逆属性 (如: depends_on 的逆是 depended_by)
 
-class KnowledgeGraphEngine:
-    """Vector + Knowledge Graph 双驱动记忆引擎"""
+class OntologyInstance:
+    """本体实例 (具体个体)"""
+    instance_id: str
+    class_id: str                      # 所属类
+    name: str                          # 实例名
+    property_values: dict[str, Any]    # 属性值
+    embedding: list[float]             # 向量嵌入
 
-    def __init__(self, config: KGConfig):
+class OntologyEngine:
+    """Vector + Ontology 双驱动记忆引擎"""
+
+    def __init__(self, config: OntologyConfig):
         self.vector_store = LanceDB(config.lancedb_path)
-        self.graph_store = GraphStore(config.graph_db_path)  # SQLite 或 Neo4j
-        self.entity_extractor = EntityExtractor(config.llm)
+        self.ontology_store = OntologyStore(config.ontology_db_path)
+        self.reasoner = OntologyReasoner()
+        self.instance_extractor = InstanceExtractor(config.llm)
+
+    async def define_class(self, cls: OntologyClass) -> None:
+        """定义本体类"""
+        await self.ontology_store.upsert_class(cls)
 
     async def ingest(self, content: str, metadata: dict) -> None:
-        """摄入新知识：向量化 + 实体抽取"""
+        """摄入新知识：向量化 + 实例抽取"""
         # 1. 向量化存储
         embedding = await self.embed(content)
         await self.vector_store.insert(content, embedding, metadata)
 
-        # 2. 实体-关系抽取
-        entities, relations = await self.entity_extractor.extract(content)
+        # 2. 实例抽取 (识别内容中的具体个体及其属性)
+        instances = await self.instance_extractor.extract(content, self.ontology_store)
 
-        # 3. 写入知识图谱
-        for entity in entities:
-            await self.graph_store.upsert_entity(entity)
-        for relation in relations:
-            await self.graph_store.upsert_relation(relation)
+        # 3. 写入本体实例库
+        for instance in instances:
+            await self.ontology_store.upsert_instance(instance)
 
     async def hybrid_retrieve(self, query: str, top_k: int = 5) -> RetrievalResult:
-        """混合检索：向量相似 + 图关联"""
+        """混合检索：向量相似 + 本体推理"""
         # 1. 向量检索
         query_embedding = await self.embed(query)
         vector_results = await self.vector_store.search(query_embedding, top_k)
 
-        # 2. 识别查询中的实体
-        entities = await self.entity_extractor.identify(query)
+        # 2. 识别查询涉及的本体类和实例
+        mentioned = await self.instance_extractor.identify(query, self.ontology_store)
 
-        # 3. 图关联扩展
-        graph_context = []
-        for entity in entities:
-            # 获取实体的邻居节点（1-2 跳）
-            neighbors = await self.graph_store.get_neighbors(entity.entity_id, hops=2)
-            graph_context.extend(neighbors)
+        # 3. 本体推理扩展
+        ontology_context = []
+        for instance in mentioned:
+            # 获取实例的直接关系
+            direct_relations = await self.ontology_store.get_instance_relations(instance.instance_id)
+            ontology_context.extend(direct_relations)
 
-        # 4. 融合排序
-        combined = self._merge_and_rank(vector_results, graph_context)
+            # 推理：利用本体规则推导隐含关系
+            inferred = await self.reasoner.infer(instance, self.ontology_store)
+            ontology_context.extend(inferred)
+
+        # 4. 继承层次查询
+        for cls_id in set(i.class_id for i in mentioned):
+            parent_instances = await self.ontology_store.get_instances_by_class(cls_id, include_subclasses=True)
+            ontology_context.extend(parent_instances)
+
+        # 5. 融合排序
+        combined = self._merge_and_rank(vector_results, ontology_context)
 
         return RetrievalResult(
             vector_results=vector_results,
-            graph_context=graph_context,
+            ontology_context=ontology_context,
             combined=combined,
-            entities_mentioned=entities
+            mentioned_instances=mentioned
         )
 
-    async def get_entity_context(self, entity_name: str) -> EntityContext:
-        """获取实体的完整上下文"""
-        entity = await self.graph_store.find_entity(entity_name)
-        if not entity:
-            return None
+class OntologyReasoner:
+    """本体推理引擎"""
 
-        # 获取所有关系
-        relations = await self.graph_store.get_relations(entity.entity_id)
+    async def infer(self, instance: OntologyInstance, store: OntologyStore) -> list:
+        """基于本体规则推导隐含知识"""
+        inferred = []
 
-        # 获取相关记忆片段
-        memories = await self.vector_store.search_by_entity(entity.entity_id)
+        # 规则1：传递性推理 (如: A depends_on B, B depends_on C → A depends_on C)
+        transitive_relations = await self._infer_transitive(instance, store)
+        inferred.extend(transitive_relations)
 
-        return EntityContext(
-            entity=entity,
-            relations=relations,
-            related_memories=memories
-        )
+        # 规则2：继承推理 (如: User_X is_a PremiumUser, PremiumUser has_feature PrioritySupport → User_X has_feature PrioritySupport)
+        inherited = await self._infer_inheritance(instance, store)
+        inferred.extend(inherited)
+
+        # 规则3：逆属性推理 (如: A created_by B → B created A)
+        inverse = await self._infer_inverse(instance, store)
+        inferred.extend(inverse)
+
+        return inferred
 ```
