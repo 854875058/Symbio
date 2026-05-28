@@ -33,8 +33,23 @@ dev = [
     "coverage>=7.0.0",
     "ruff>=0.5.0",
 ]
+server = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+]
 im = [
     "nonebot2>=2.3.0",
+    "wechaty>=0.10.0",
+]
+ml = [
+    "litellm>=1.50.0",
+    "openai>=1.50.0",
+    "sentence-transformers>=3.0.0",
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+]
+browser = [
+    "playwright>=1.40.0",
 ]
 cluster = [
     "ray>=2.55.0",

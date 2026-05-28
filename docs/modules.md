@@ -18,7 +18,8 @@ symbio/
 │   ├── resource_manager.py # 资源管控 (Token 预算、步数、超时)
 │   ├── tracer.py          # 可观测性 (OTel 链路追踪)
 │   ├── semantic_cache.py  # 语义缓存
-│   └── injection_guard.py # Prompt Injection 防护
+│   ├── injection_guard.py # Prompt Injection 防护
+│   └── event_bus.py       # 事件总线 (Agent 间通信)
 ├── agents/                # Agent 模块
 │   ├── base.py            # Agent 基类
 │   ├── registry.py        # Agent 注册中心
@@ -53,12 +54,17 @@ symbio/
 │   └── im/                # IM 接入
 │       ├── qq.py
 │       ├── wechat.py
+│       ├── feishu.py      # 飞书接入
+│       ├── dingtalk.py    # 钉钉接入
 │       └── router.py      # 消息路由
+│   ├── hitl.py            # HITL 人类介入审批总线
+│   ├── api.py             # FastAPI 服务端接口
 ├── evolution/             # 进化引擎
 │   ├── feedback.py        # 反馈收集
 │   ├── analyzer.py        # 模式分析
 │   ├── optimizer.py       # 策略优化
-│   └── promptops.py       # Prompt 版本管理与 A/B 测试
+│   ├── promptops.py       # Prompt 版本管理与 A/B 测试
+│   └── eval_pipeline.py   # 自动化评测管道
 ├── skills/                # Skills 仓库
 │   ├── registry.py        # Skills 注册中心
 │   ├── builtin/           # 内置 Skills
@@ -114,23 +120,87 @@ class Orchestrator:
 
 ### 2. 模型路由器 (ModelRouter)
 
-**职责：** 根据任务复杂度选择合适的模型
+**职责：** 根据任务复杂度选择合适的模型，支持前端可配置
+
+**设计哲学：** 模型路由不硬编码，用户在 Web UI 中自由配置模型池和任务-模型绑定策略。
 
 ```python
+class ModelConfig(BaseModel):
+    """单个模型配置"""
+    model_id: str                    # 模型标识 (如 "claude-sonnet-4-20250514")
+    provider: str                    # 供应商 (anthropic/openai/local)
+    display_name: str                # 显示名称
+    api_key: str = ""                # API Key (加密存储)
+    base_url: str = ""               # 自定义 Base URL
+    max_tokens: int = 4096           # 最大输出 Token
+    cost_per_1k_input: float = 0.0   # 输入成本 ($/1K tokens)
+    cost_per_1k_output: float = 0.0  # 输出成本 ($/1K tokens)
+    is_local: bool = False           # 是否本地模型
+    enabled: bool = True             # 是否启用
+
+class TaskModelBinding(BaseModel):
+    """任务-模型绑定策略"""
+    task_type: str                   # 任务类型 (code/chat/research/planning)
+    complexity_level: Complexity     # 复杂度等级
+    preferred_model_id: str          # 首选模型 ID
+    fallback_model_id: str = ""      # 备选模型 ID
+
 class ModelRouter:
-    MODELS = {
-        Complexity.LOW: "claude-haiku-4-5",
-        Complexity.MEDIUM: "claude-sonnet-4-6",
-        Complexity.HIGH: "claude-opus-4-7",
-    }
+    """可配置的模型路由器"""
 
-    def select(self, complexity: Complexity) -> str:
-        return self.MODELS[complexity]
+    def __init__(self, config: RouterConfig):
+        self.model_pool: dict[str, ModelConfig] = {}  # 模型池 (从配置加载)
+        self.bindings: list[TaskModelBinding] = []     # 绑定策略 (从配置加载)
+        self.load_from_config(config)
 
-    def select_with_override(self, complexity: Complexity, user_preference: str = None) -> str:
-        if user_preference:
-            return user_preference
-        return self.MODELS[complexity]
+    def load_from_config(self, config: RouterConfig) -> None:
+        """从配置文件/数据库加载模型池和绑定策略"""
+        self.model_pool = {m.model_id: m for m in config.models}
+        self.bindings = config.bindings
+
+    def select(self, task_type: str, complexity: Complexity) -> str:
+        """根据任务类型和复杂度选择模型"""
+        # 1. 查找用户配置的绑定
+        binding = self._find_binding(task_type, complexity)
+        if binding and binding.preferred_model_id in self.model_pool:
+            model = self.model_pool[binding.preferred_model_id]
+            if model.enabled:
+                return model.model_id
+
+        # 2. 降级到备选模型
+        if binding and binding.fallback_model_id in self.model_pool:
+            return binding.fallback_model_id
+
+        # 3. 最终降级：按复杂度自动选择
+        return self._auto_select(complexity)
+
+    def _auto_select(self, complexity: Complexity) -> str:
+        """自动选择：优先本地模型，再按成本排序"""
+        candidates = [m for m in self.model_pool.values() if m.enabled]
+        if not candidates:
+            raise NoModelAvailableError()
+
+        # 按复杂度筛选合适的模型
+        if complexity == Complexity.LOW:
+            # 优先本地模型
+            local = [m for m in candidates if m.is_local]
+            if local:
+                return local[0].model_id
+
+        # 按成本排序
+        candidates.sort(key=lambda m: m.cost_per_1k_input)
+        return candidates[0].model_id
+
+    async def update_model_pool(self, models: list[ModelConfig]) -> None:
+        """热更新模型池（前端调用）"""
+        self.model_pool = {m.model_id: m for m in models}
+        # 持久化到配置文件
+        await self._persist_config()
+
+    async def update_bindings(self, bindings: list[TaskModelBinding]) -> None:
+        """热更新绑定策略（前端调用）"""
+        self.bindings = bindings
+        await self._persist_config()
 ```
 
 ### 3. 复杂度评估器 (ComplexityEvaluator)

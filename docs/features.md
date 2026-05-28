@@ -172,6 +172,15 @@
 - [ ] Agent 模板系统 — 快速创建自定义 Agent 的脚手架
 - [ ] 技能发现与组合 — 基于语义搜索动态发现和组合 Skills
 
+### 0.23 前沿协议与标准兼容 (Cutting-Edge Protocol Support)
+> 站在巨人肩膀上，兼容最前沿的行业标准。
+
+- [ ] Agent-to-Agent (A2A) 协议 — 与 Google ADK、CrewAI 等外部 Agent 互通
+- [ ] Structured Output — JSON Schema 强制约束 LLM 输出格式，确保下游可靠解析
+- [ ] Computer Use — 屏幕截图 → 视觉理解 → GUI 操控闭环
+- [ ] Agent Protocol (AG2) 兼容 — REST API 标准接口，对接外部生态
+- [ ] 并行工具调用 — 支持 parallel tool calling，一次返回多个工具调用
+
 ---
 
 ## 1. 核心骨架与运行时 (Core Foundation)
@@ -180,7 +189,9 @@
 
 ### 1.1 模型路由引擎 (Model Router)
 - [ ] 多模型统一接口封装 (Anthropic, OpenAI, 本地开源模型等)
-- [ ] 动态复杂度路由策略 (Haiku → Sonnet → Opus/GPT-4)
+- [ ] 前端可配置模型池 — 用户在 Web UI 中自由添加/删除/配置模型，而非硬编码
+- [ ] 任务-模型绑定策略 — 用户自主选择哪些任务类型使用哪个模型
+- [ ] 动态复杂度路由策略 — 基于配置的模型池自动选择最优模型
 - [ ] Token 消耗追踪与熔断机制
 
 ### 1.2 状态与生命周期管理

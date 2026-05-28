@@ -31,9 +31,9 @@ class ModelConfig(BaseSettings):
     openai_base_url: str = Field(default="https://api.openai.com/v1", description="OpenAI base URL")
 
     # Model routing
-    model_low: str = Field(default="claude-haiku-4-5", description="Model for simple tasks")
-    model_medium: str = Field(default="claude-sonnet-4-6", description="Model for medium tasks")
-    model_high: str = Field(default="claude-opus-4-7", description="Model for complex tasks")
+    model_low: str = Field(default="claude-3-5-haiku-20241022", description="Model for simple tasks")
+    model_medium: str = Field(default="claude-sonnet-4-20250514", description="Model for medium tasks")
+    model_high: str = Field(default="claude-opus-4-20250514", description="Model for complex tasks")
 
     # Local model fallback
     local_model_enabled: bool = Field(default=False, description="Enable local model fallback")
