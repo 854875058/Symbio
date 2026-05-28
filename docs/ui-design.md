@@ -702,4 +702,819 @@ DELETE /api/memory/{memory_id}
 
 ---
 
-> UI 设计方案完成。信息密度优先，操作效率至上。
+## 11. 动画与过渡效果
+
+### 11.1 核心动画原则
+
+| 原则 | 说明 |
+|------|------|
+| 有意义的动画 | 动画必须传达状态变化，而非装饰 |
+| 快速响应 | 动画时长 150-300ms，不超过 500ms |
+| 流畅曲线 | 使用 ease-out 或 spring 曲线 |
+| 可关闭 | 尊重用户的减少动画偏好 |
+
+### 11.2 核心动画清单
+
+| 场景 | 动画效果 | 时长 |
+|------|----------|------|
+| 页面切换 | 淡入淡出 + 轻微位移 | 200ms |
+| 消息出现 | 从底部滑入 + 淡入 | 150ms |
+| 工具调用展开 | 高度展开 + 淡入 | 200ms |
+| DAG 节点状态变化 | 颜色渐变 + 脉冲效果 | 300ms |
+| 加载状态 | 骨架屏 + 脉冲动画 | 持续 |
+| 按钮点击 | 缩放 0.95 + 涟漪效果 | 100ms |
+| 侧边栏展开/收起 | 宽度变化 + 内容淡入 | 200ms |
+| 模态框出现 | 缩放 0.95 → 1 + 淡入 | 200ms |
+| Toast 通知 | 从右上角滑入 + 自动消失 | 3s |
+| 拖拽反馈 | 轻微放大 + 阴影增强 | 100ms |
+
+### 11.3 流式消息动画
+
+```
+消息输入中...
+├─ 光标闪烁动画 (每 500ms 闪烁一次)
+├─ "思考中..." 文字动画 (点点点循环)
+└─ 进度条动画 (从左到右，无限循环)
+
+消息输出中...
+├─ 文字逐字出现 (每 50ms 一个字)
+├─ 代码块高亮延迟 (等代码完整后一次性高亮)
+└─ 工具调用卡片展开动画 (从折叠到展开)
+```
+
+---
+
+## 12. 状态设计系统
+
+### 12.1 加载状态
+
+| 场景 | 设计 |
+|------|------|
+| 页面初始加载 | 全屏骨架屏 + Logo 脉冲动画 |
+| 列表加载 | 列表项骨架屏（3-5 项） |
+| 消息发送中 | 输入框显示"发送中..." + 禁用按钮 |
+| 工具调用中 | 工具卡片显示"执行中..." + 旋转图标 |
+| 文件上传中 | 进度条 + 百分比显示 |
+| 按钮操作中 | 按钮显示加载图标 + 禁用状态 |
+
+**骨架屏设计：**
+```css
+.skeleton {
+  background: linear-gradient(90deg, #1e1e1e 25%, #262626 50%, #1e1e1e 75%);
+  background-size: 200% 100%;
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+  border-radius: 4px;
+}
+```
+
+### 12.2 空状态设计
+
+| 场景 | 设计 |
+|------|------|
+| 无会话 | 插图 + "开始你的第一次对话" + 快速开始按钮 |
+| 无任务 | 插图 + "暂无运行中的任务" + 创建任务按钮 |
+| 无记忆 | 插图 + "记忆库为空" + 引导说明 |
+| 无搜索结果 | 插图 + "未找到匹配结果" + 修改搜索词建议 |
+| 无 Skills | 插图 + "Skills 市场为空" + 浏览市场按钮 |
+
+**空状态插图风格：**
+- 线条简洁的暗色插图
+- 与暗色主题协调
+- 尺寸：120x120px
+- 位置：居中显示
+
+### 12.3 错误状态设计
+
+| 场景 | 设计 |
+|------|------|
+| 网络错误 | 红色 Toast + "网络连接失败，请检查网络" + 重试按钮 |
+| API 错误 | 红色 Toast + 错误码 + 错误信息 + 复制错误详情按钮 |
+| 模型调用失败 | 消息气泡显示错误 + "重试" / "换模型" 按钮 |
+| 工具执行失败 | 工具卡片显示红色错误 + 错误日志展开 |
+| 权限不足 | 模态框提示 + "去设置" 按钮 |
+| 表单验证错误 | 输入框红色边框 + 底部错误提示文字 |
+
+**错误提示格式：**
+```
+┌─────────────────────────────────────────┐
+│ ❌ 错误标题                              │
+│                                         │
+│ 错误描述：xxx                            │
+│ 错误码：ERR_xxx                         │
+│                                         │
+│ 💡 建议：尝试 xxx                        │
+│                                         │
+│ [重试]  [复制详情]  [查看详情]            │
+└─────────────────────────────────────────┘
+```
+
+### 12.4 成功状态设计
+
+| 场景 | 设计 |
+|------|------|
+| 操作成功 | 绿色 Toast + "操作成功" + 自动消失 (2s) |
+| 任务完成 | 消息气泡显示绿色对勾 + 结果摘要 |
+| 保存成功 | 按钮短暂显示绿色对勾 (1s) 后恢复 |
+| 上传成功 | 绿色对勾 + 文件名 + 文件大小 |
+
+---
+
+## 13. 数据可视化详细设计
+
+### 13.1 Token 消耗图表
+
+**图表类型：** 组合图表（柱状图 + 折线图）
+
+```
+Token 消耗趋势
+│
+│  ████                    ████
+│  ████  ████              ████  ████
+│  ████  ████  ████        ████  ████  ████
+│  ████  ████  ████  ████  ████  ████  ████
+├─────────────────────────────────────────────
+│  1月   2月   3月   4月   5月   6月   7月
+│
+│  ── 累计消耗（美元）
+│  ── 日均消耗（美元）
+```
+
+**图表配置：**
+- 柱状图：显示每日 Token 消耗
+- 折线图：显示累计消耗趋势
+- 悬停显示详细数据
+- 支持时间范围选择（日/周/月/年）
+
+### 13.2 Agent 性能雷达图
+
+**图表类型：** 雷达图
+
+```
+        响应速度
+           │
+    ┌──────┼──────┐
+    │      │      │
+    │      │      │
+可靠性───────准确性
+    │      │      │
+    │      │      │
+    └──────┼──────┘
+           │
+        成本效率
+```
+
+**维度：**
+- 响应速度：平均响应时间
+- 可靠性：任务成功率
+- 准确性：输出质量评分
+- 成本效率：Token 成本/任务价值
+- 工具使用：工具调用准确率
+
+### 13.3 DAG 执行热力图
+
+**图表类型：** 热力图
+
+```
+节点执行时间分布
+│
+│  节点A  ████████████  120s
+│  节点B  ██████        60s
+│  节点C  ████          40s
+│  节点D  ████████████  120s
+│  节点E  ██            20s
+│
+└────────────────────────────
+   0s    30s    60s    90s   120s
+```
+
+**颜色编码：**
+- 绿色 (< 30s)：快速执行
+- 黄色 (30-60s)：正常执行
+- 橙色 (60-90s)：较慢执行
+- 红色 (> 90s)：超时风险
+
+### 13.4 记忆使用统计
+
+**图表类型：** 环形图 + 柱状图
+
+```
+记忆类型分布          记忆访问频率
+    ┌───┐               │
+   ╱     ╲              │  ████
+  │ 短期  │             │  ████  ████
+  │  30%  │             │  ████  ████  ████
+   ╲     ╱              │  ████  ████  ████  ████
+    └───┘               ├─────────────────────
+                        │  周一  周二  周三  周四
+   长期 70%
+```
+
+---
+
+## 14. 交互微动画
+
+### 14.1 按钮交互
+
+```css
+/* 按钮悬停 */
+.btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* 按钮点击 */
+.btn:active {
+  transform: translateY(0) scale(0.98);
+}
+
+/* 按钮加载 */
+.btn.loading {
+  pointer-events: none;
+  opacity: 0.8;
+}
+.btn.loading::after {
+  content: '';
+  width: 16px;
+  height: 16px;
+  border: 2px solid transparent;
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+```
+
+### 14.2 卡片交互
+
+```css
+/* 卡片悬停 */
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  border-color: var(--border-hover);
+}
+
+/* 卡片选中 */
+.card.selected {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 1px var(--accent-primary);
+}
+```
+
+### 14.3 列表项交互
+
+```css
+/* 列表项悬停 */
+.list-item:hover {
+  background-color: var(--bg-hover);
+}
+
+/* 列表项选中 */
+.list-item.selected {
+  background-color: var(--accent-primary-bg);
+  border-left: 3px solid var(--accent-primary);
+}
+
+/* 列表项拖拽 */
+.list-item.dragging {
+  opacity: 0.5;
+  transform: scale(1.02);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+```
+
+### 14.4 输入框交互
+
+```css
+/* 输入框聚焦 */
+.input:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px var(--accent-primary-alpha);
+}
+
+/* 输入框错误 */
+.input.error {
+  border-color: var(--accent-error);
+  box-shadow: 0 0 0 2px var(--accent-error-alpha);
+}
+
+/* 输入框成功 */
+.input.success {
+  border-color: var(--accent-success);
+}
+```
+
+---
+
+## 15. 智能提示系统
+
+### 15.1 命令提示
+
+**触发方式：** 输入 `/` 触发命令提示
+
+```
+┌─────────────────────────────────────┐
+│ /                                   │
+├─────────────────────────────────────┤
+│ /clear    清空当前会话               │
+│ /export   导出会话记录               │
+│ /model    切换模型                   │
+│ /skill    使用 Skill                │
+│ /memory   搜索记忆                   │
+│ /task     查看任务状态               │
+│ /help     显示帮助                   │
+└─────────────────────────────────────┘
+```
+
+### 15.2 @提及提示
+
+**触发方式：** 输入 `@` 触发工具/Agent 提示
+
+```
+┌─────────────────────────────────────┐
+│ @                                   │
+├─────────────────────────────────────┤
+│ @shell      执行 Shell 命令          │
+│ @file       文件操作                 │
+│ @git        Git 操作                │
+│ @code       代码生成                 │
+│ @search     网络搜索                 │
+│ @browser    浏览器操作               │
+└─────────────────────────────────────┘
+```
+
+### 15.3 快捷键提示
+
+**触发方式：** 长按按钮或悬停显示快捷键
+
+```
+┌─────────────────────────────────────┐
+│ 发送消息              Ctrl+Enter    │
+└─────────────────────────────────────┘
+```
+
+### 15.4 智能补全
+
+**触发方式：** 输入时自动触发
+
+```
+┌─────────────────────────────────────┐
+│ 帮我写一个                          │
+├─────────────────────────────────────┤
+│ 帮我写一个 Python 排序算法           │
+│ 帮我写一个 React 组件               │
+│ 帮我写一个 SQL 查询                 │
+│ 帮我写一个 API 接口                 │
+└─────────────────────────────────────┘
+```
+
+---
+
+## 16. 右键菜单系统
+
+### 16.1 消息右键菜单
+
+```
+┌─────────────────────────────────────┐
+│ 复制                  Ctrl+C        │
+│ 编辑                                  │
+│ 重试                                  │
+│ 删除                                  │
+│ ─────────────────────────────────── │
+│ 从这里分支对话                        │
+│ 导出为 Markdown                      │
+│ ─────────────────────────────────── │
+│ 查看 Token 消耗                      │
+│ 查看工具调用详情                      │
+└─────────────────────────────────────┘
+```
+
+### 16.2 会话右键菜单
+
+```
+┌─────────────────────────────────────┐
+│ 重命名                              │
+│ 置顶                                │
+│ ─────────────────────────────────── │
+│ 导出会话                            │
+│ 分享会话                            │
+│ ─────────────────────────────────── │
+│ 删除会话                            │
+└─────────────────────────────────────┘
+```
+
+### 16.3 任务右键菜单
+
+```
+┌─────────────────────────────────────┐
+│ 查看详情                            │
+│ 查看 DAG                            │
+│ ─────────────────────────────────── │
+│ 暂停任务                            │
+│ 恢复任务                            │
+│ 取消任务                            │
+│ ─────────────────────────────────── │
+│ 从失败节点重试                      │
+│ 导出执行日志                        │
+└─────────────────────────────────────┘
+```
+
+---
+
+## 17. 拖拽交互
+
+### 17.1 会话列表拖拽
+
+- 支持拖拽排序会话顺序
+- 拖拽时显示半透明预览
+- 放置时显示插入指示器
+- 支持拖拽到分组
+
+### 17.2 文件上传拖拽
+
+- 拖拽文件到输入框区域
+- 显示蓝色边框高亮
+- 显示文件名和大小预览
+- 支持多文件拖拽
+
+### 17.3 DAG 节点拖拽
+
+- 支持拖拽调整节点位置
+- 拖拽时显示连接线预览
+- 支持自动布局
+
+---
+
+## 18. 无障碍设计 (Accessibility)
+
+### 18.1 ARIA 标签
+
+| 组件 | ARIA 属性 |
+|------|-----------|
+| 按钮 | `role="button"`, `aria-label` |
+| 输入框 | `role="textbox"`, `aria-label`, `aria-describedby` |
+| 对话框 | `role="dialog"`, `aria-modal="true"` |
+| 标签页 | `role="tablist"`, `role="tab"`, `role="tabpanel"` |
+| 进度条 | `role="progressbar"`, `aria-valuenow` |
+| 状态 | `role="status"`, `aria-live="polite"` |
+
+### 18.2 键盘导航
+
+| 按键 | 功能 |
+|------|------|
+| Tab | 移动焦点 |
+| Shift+Tab | 反向移动焦点 |
+| Enter | 激活按钮/链接 |
+| Escape | 关闭模态框/取消操作 |
+| 箭头键 | 列表/菜单导航 |
+| Space | 选择/取消选择 |
+
+### 18.3 屏幕阅读器支持
+
+- 所有图片提供 `alt` 文本
+- 动态内容使用 `aria-live` 区域
+- 表单错误使用 `aria-invalid` 和 `aria-describedby`
+- 跳过导航链接
+
+### 18.4 高对比度模式
+
+```css
+@media (prefers-contrast: high) {
+  :root {
+    --text-primary: #ffffff;
+    --text-secondary: #e0e0e0;
+    --border-default: #404040;
+    --accent-primary: #60a5fa;
+  }
+}
+```
+
+---
+
+## 19. 国际化支持 (i18n)
+
+### 19.1 支持语言
+
+| 语言 | 代码 | 优先级 |
+|------|------|--------|
+| 中文（简体） | zh-CN | P0 |
+| 英文 | en-US | P0 |
+| 中文（繁体） | zh-TW | P1 |
+| 日文 | ja-JP | P1 |
+| 韩文 | ko-KR | P2 |
+
+### 19.2 翻译键命名规范
+
+```typescript
+// 页面级
+'page.chat.title'           // 对话页面标题
+'page.tasks.title'          // 任务页面标题
+
+// 组件级
+'component.message.send'    // 发送按钮
+'component.message.edit'    // 编辑按钮
+
+// 状态级
+'status.loading'            // 加载中
+'status.error'              // 错误
+'status.success'            // 成功
+```
+
+### 19.3 日期时间格式
+
+```typescript
+// 根据语言自动格式化
+const formatDate = (date: Date, locale: string) => {
+  return new Intl.DateTimeFormat(locale, {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(date)
+}
+```
+
+---
+
+## 20. 性能优化策略
+
+### 20.1 代码分割
+
+```typescript
+// 路由级代码分割
+const ChatPage = lazy(() => import('./pages/Chat'))
+const TasksPage = lazy(() => import('./pages/Tasks'))
+const ModelsPage = lazy(() => import('./pages/Models'))
+
+// 组件级代码分割
+const DAGVisualizer = lazy(() => import('./components/DAGVisualizer'))
+const MemoryGraph = lazy(() => import('./components/MemoryGraph'))
+```
+
+### 20.2 虚拟滚动
+
+```typescript
+// 长列表虚拟滚动
+import { useVirtualizer } from '@tanstack/react-virtual'
+
+const MessageList = ({ messages }) => {
+  const virtualizer = useVirtualizer({
+    count: messages.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 80,
+  })
+  // ...
+}
+```
+
+### 20.3 图片懒加载
+
+```typescript
+// 图片懒加载
+<img
+  src={src}
+  loading="lazy"
+  decoding="async"
+  alt={alt}
+/>
+```
+
+### 20.4 状态管理优化
+
+```typescript
+// Zustand 选择器优化
+const useChatStore = create((set) => ({
+  messages: [],
+  addMessage: (message) => set((state) => ({
+    messages: [...state.messages, message]
+  }))
+}))
+
+// 使用选择器避免不必要的重渲染
+const messages = useChatStore((state) => state.messages)
+```
+
+### 20.5 缓存策略
+
+| 数据 | 缓存策略 | 过期时间 |
+|------|----------|----------|
+| 模型列表 | SWR | 5 分钟 |
+| 会话列表 | SWR | 1 分钟 |
+| 记忆数据 | SWR | 5 分钟 |
+| 用户配置 | 本地存储 | 永不过期 |
+| 主题设置 | 本地存储 | 永不过期 |
+
+---
+
+## 21. 主题定制系统
+
+### 21.1 主题结构
+
+```typescript
+interface Theme {
+  name: string
+  colors: {
+    primary: string
+    secondary: string
+    accent: string
+    background: {
+      primary: string
+      secondary: string
+      tertiary: string
+    }
+    text: {
+      primary: string
+      secondary: string
+      tertiary: string
+    }
+    border: {
+      default: string
+      hover: string
+    }
+    status: {
+      success: string
+      warning: string
+      error: string
+      info: string
+    }
+  }
+  fonts: {
+    sans: string
+    mono: string
+  }
+  spacing: Record<string, string>
+  borderRadius: Record<string, string>
+  shadows: Record<string, string>
+}
+```
+
+### 21.2 预设主题
+
+| 主题 | 说明 |
+|------|------|
+| Dark (默认) | 暗色主题，减少视觉疲劳 |
+| Light | 亮色主题，适合白天使用 |
+| Midnight | 深暗色主题，纯黑背景 |
+| Solarized | Solarized Dark 配色 |
+| Nord | Nord 配色方案 |
+| Dracula | Dracula 配色方案 |
+
+### 21.3 自定义主题
+
+```typescript
+// 用户自定义主题
+const customTheme: Theme = {
+  name: 'My Theme',
+  colors: {
+    primary: '#3b82f6',
+    // ...
+  }
+}
+
+// 保存到本地存储
+localStorage.setItem('theme', JSON.stringify(customTheme))
+```
+
+---
+
+## 22. 组件规格详细设计
+
+### 22.1 MessageBubble 组件
+
+```typescript
+interface MessageBubbleProps {
+  message: Message
+  isStreaming?: boolean
+  onRetry?: () => void
+  onEdit?: (content: string) => void
+  onDelete?: () => void
+  onBranch?: () => void
+}
+
+// 消息结构
+interface Message {
+  id: string
+  role: 'user' | 'assistant' | 'system'
+  content: string
+  timestamp: Date
+  tokenUsage?: TokenUsage
+  toolCalls?: ToolCall[]
+  status: 'sending' | 'streaming' | 'complete' | 'error'
+}
+```
+
+**布局规格：**
+```
+┌─────────────────────────────────────────────────────────────┐
+│ [Avatar] 用户名 / Agent 名称              10:30:25          │
+│                                                             │
+│ 消息内容区域                                                 │
+│ - Markdown 渲染                                             │
+│ - 代码块高亮                                                │
+│ - 表格渲染                                                  │
+│ - 图片显示                                                  │
+│                                                             │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ 🔧 工具调用: shell_command                   ▼ 展开     │ │
+│ │ ┌─────────────────────────────────────────────────────┐ │ │
+│ │ │ 输入: ls -la                                        │ │ │
+│ │ │ 输出: (文件列表)                                     │ │ │
+│ │ │ 耗时: 0.5s | Token: 123                             │ │ │
+│ │ └─────────────────────────────────────────────────────┘ │ │
+│ └─────────────────────────────────────────────────────────┘ │
+│                                                             │
+│ [重试] [编辑] [删除]                    Token: 523 | 2.3s   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 22.2 ToolCallCard 组件
+
+```typescript
+interface ToolCallCardProps {
+  toolCall: ToolCall
+  isExpanded?: boolean
+  onToggle?: () => void
+}
+
+interface ToolCall {
+  id: string
+  name: string
+  input: Record<string, any>
+  output?: string
+  error?: string
+  status: 'pending' | 'running' | 'success' | 'error'
+  startTime: Date
+  endTime?: Date
+  tokenUsage?: TokenUsage
+}
+```
+
+**布局规格：**
+```
+┌─────────────────────────────────────────────────────────────┐
+│ ● 工具名称                                    状态图标      │
+│ ─────────────────────────────────────────────────────────── │
+│ 输入参数:                                                   │
+│ {                                                           │
+│   "command": "ls -la",                                      │
+│   "timeout": 30                                             │
+│ }                                                           │
+│                                                             │
+│ 执行结果:                                                   │
+│ total 128                                                   │
+│ drwxr-xr-x  5 user  staff  160 May 28 10:30 .              │
+│ drwxr-xr-x  3 user  staff   96 May 28 10:00 ..             │
+│                                                             │
+│ 耗时: 0.5s | Token: 123 | 模型: claude-sonnet               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 22.3 DAGNode 组件
+
+```typescript
+interface DAGNodeProps {
+  node: DAGNode
+  isSelected?: boolean
+  isHovered?: boolean
+  onClick?: () => void
+  onRetry?: () => void
+  onCancel?: () => void
+}
+
+interface DAGNode {
+  id: string
+  name: string
+  agent: string
+  model: string
+  status: 'pending' | 'running' | 'success' | 'failed' | 'cancelled'
+  tokenUsage: TokenUsage
+  startTime?: Date
+  endTime?: Date
+  dependencies: string[]
+}
+```
+
+**布局规格：**
+```
+┌─────────────────────────────────────────┐
+│ ● 节点名称                              │
+│ ─────────────────────────────────────── │
+│ Agent: CodeAgent                        │
+│ 模型: claude-sonnet                     │
+│ Token: 523                              │
+│ 耗时: 12s                               │
+│ ─────────────────────────────────────── │
+│ [查看详情]  [重试]  [取消]               │
+└─────────────────────────────────────────┘
+```
+
+**状态颜色：**
+- 待执行：灰色边框
+- 运行中：蓝色边框 + 脉冲动画
+- 成功：绿色边框 + 绿色对勾
+- 失败：红色边框 + 红色叉号
+- 已取消：灰色边框 + 灰色减号
+
+---
+
+> UI 设计方案完成。信息密度优先，操作效率至上。细化再细化，打造行业最牛逼的 Agent UI。
