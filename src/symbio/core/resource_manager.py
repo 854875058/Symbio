@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from datetime import datetime
 from enum import Enum
 from typing import Any, Callable, Coroutine, Optional
@@ -382,6 +383,63 @@ class ResourceManager:
         """检查任务是否处于挂起状态"""
         return task_id in self._suspended
 
+    def extend_budget(
+        self,
+        task_id: str,
+        *,
+        extra_cost_usd: float = 0.0,
+        extra_steps: int = 0,
+        extra_tokens: int = 0,
+        extra_timeout_seconds: int = 0,
+    ) -> Optional[ResourceBudget]:
+        """动态扩展任务资源预算
+
+        在任务执行过程中，如果发现需要更多资源（例如用户授权追加），
+        可以调用此方法增加预算上限。
+
+        Args:
+            task_id: 任务唯一标识
+            extra_cost_usd: 追加的美元预算
+            extra_steps: 追加的步数
+            extra_tokens: 追加的 Token 数
+            extra_timeout_seconds: 追加的超时时间（秒）
+
+        Returns:
+            更新后的 ResourceBudget，任务不存在时返回 None
+        """
+        budget = self._budgets.get(task_id)
+        if budget is None:
+            logger.warning(f"扩展预算失败，任务不存在: task_id={task_id}")
+            return None
+
+        budget.max_cost_usd += extra_cost_usd
+        budget.max_steps += extra_steps
+        budget.max_tokens += extra_tokens
+        budget.timeout_seconds += extra_timeout_seconds
+
+        logger.info(
+            f"扩展资源预算: task_id={task_id}, "
+            f"+cost=${extra_cost_usd}, +steps={extra_steps}, "
+            f"+tokens={extra_tokens}, +timeout={extra_timeout_seconds}s"
+        )
+
+        self._emit_event_sync(
+            EventType.TASK_STARTED,
+            source="resource_manager",
+            data={
+                "task_id": task_id,
+                "action": "budget_extended",
+                "extra": {
+                    "cost_usd": extra_cost_usd,
+                    "steps": extra_steps,
+                    "tokens": extra_tokens,
+                    "timeout_seconds": extra_timeout_seconds,
+                },
+            },
+        )
+
+        return budget
+
     # ------------------------------------------------------------------
     # 实时状态查询
     # ------------------------------------------------------------------
@@ -425,14 +483,8 @@ class ResourceManager:
             else 0.0
         )
 
-        # 计算经过时间（通过 guardrail 公开 API 获取状态，避免访问私有成员）
-        elapsed = 0.0
-        # guardrail_status 包含 consumed 信息，但不含 created_at
-        # 通过预算签发时间推算（若 budget 存在则使用 budget 创建时间）
-        # 这里使用一种安全的方式：如果 budget 已知则用 budget 创建时间
-        budget_created = getattr(budget, "created_at", None)
-        if budget_created is not None:
-            elapsed = (datetime.now() - budget_created).total_seconds()
+        # 计算经过时间（使用 budget 的 created_at，不访问 guardrail 私有成员）
+        elapsed = (datetime.now() - budget.created_at).total_seconds()
 
         snapshot = ResourceStatusSnapshot(
             task_id=task_id,
@@ -500,6 +552,61 @@ class ResourceManager:
             suspended_task_count=suspended_count,
             halted_task_count=halted_count,
         )
+
+    # ------------------------------------------------------------------
+    # 上下文管理器
+    # ------------------------------------------------------------------
+
+    @asynccontextmanager
+    async def managed_budget(
+        self,
+        task_id: str,
+        max_cost_usd: float = 10.0,
+        max_steps: int = 50,
+        max_tokens: int = 100000,
+        timeout_seconds: int = 3600,
+        warning_threshold: float = 0.7,
+        critical_threshold: float = 0.9,
+    ):
+        """异步上下文管理器 — 自动签发和释放资源预算
+
+        在 with 块开始时签发预算，结束时自动释放。
+        如果 with 块内发生 BudgetExceededError，会记录日志并重新抛出。
+
+        Args:
+            task_id: 任务唯一标识
+            max_cost_usd: 最大成本（美元）
+            max_steps: 最大步数
+            max_tokens: 最大 Token 数
+            timeout_seconds: 超时时间（秒）
+            warning_threshold: 警告阈值
+            critical_threshold: 临界阈值
+
+        Usage::
+
+            async with resource_manager.managed_budget("task-1", max_cost_usd=5.0) as budget:
+                # 执行任务，资源自动管理
+                snapshot = resource_manager.consume("task-1", tokens=100, cost_usd=0.01)
+        """
+        budget = self.issue_budget(
+            task_id=task_id,
+            max_cost_usd=max_cost_usd,
+            max_steps=max_steps,
+            max_tokens=max_tokens,
+            timeout_seconds=timeout_seconds,
+            warning_threshold=warning_threshold,
+            critical_threshold=critical_threshold,
+        )
+        try:
+            yield budget
+        except BudgetExceededError:
+            logger.warning(f"任务 {task_id} 预算超限，自动挂起")
+            raise
+        except Exception as exc:
+            logger.error(f"任务 {task_id} 异常: {exc}")
+            raise
+        finally:
+            self.release_budget(task_id)
 
     # ------------------------------------------------------------------
     # 成本预估
