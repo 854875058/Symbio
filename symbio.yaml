@@ -13,8 +13,7 @@ hitl:
   notify_chat_id: ''
   notify_platform: ''
 log_file: null
-log_level: !!python/object/apply:symbio.config.settings.LogLevel
-- INFO
+log_level: INFO
 memory:
   auto_summary_threshold: 50
   embedding_dim: 1536
@@ -24,14 +23,14 @@ memory:
   similarity_threshold: 0.7
   window_size: 20
 model:
-  anthropic_api_key: sk-Le0N1WG524PLnkHj3nmXEULHe0zbxGDkEqjVcfqUzu5Nv1hx
-  anthropic_base_url: https://api.penguinsaichat.dpdns.org
+  anthropic_api_key: tp-cng5f556dk7tphn92uwy3tx5xpnds3ll39gsgrn6881v3nsn
+  anthropic_base_url: https://token-plan-cn.xiaomimimo.com/anthropic
   local_model_enabled: false
   local_model_name: qwen2.5:14b
   local_model_url: http://localhost:11434
-  model_high: claude-opus-4-20250514
-  model_low: claude-3-5-haiku-20241022
-  model_medium: claude-sonnet-4-20250514
+  model_high: mimo-v2.5-pro
+  model_low: mimo-v2.5-pro
+  model_medium: mimo-v2.5-pro
   openai_api_key: ''
   openai_base_url: https://api.openai.com/v1
 server:

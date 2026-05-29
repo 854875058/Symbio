@@ -75,13 +75,29 @@ async def chat(request: ChatRequest):
     """对话接口 - 调用真实 LLM"""
     try:
         import anthropic
-        from symbio.config.settings import get_settings
+        from pathlib import Path
+        from symbio.config.settings import Settings
 
-        settings = get_settings()
+        # 从 YAML 加载配置
+        config_path = Path("symbio.yaml")
+        if config_path.exists():
+            settings = Settings.from_yaml(config_path)
+        else:
+            settings = Settings()
+
+        api_key = settings.model.anthropic_api_key
+        base_url = settings.model.anthropic_base_url
+
+        if not api_key:
+            return ChatResponse(
+                success=False,
+                content="错误: 未配置 API Key，请编辑 symbio.yaml 中的 anthropic_api_key",
+                session_id=request.session_id,
+            )
 
         client = anthropic.AsyncAnthropic(
-            api_key=settings.model.anthropic_api_key,
-            base_url=settings.model.anthropic_base_url,
+            api_key=api_key,
+            base_url=base_url,
         )
 
         model = request.model or settings.model.model_medium
