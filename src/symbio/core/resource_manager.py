@@ -52,6 +52,9 @@ class ResourceBudget(BaseModel):
     critical_threshold: float = 0.9   # 90% 时进入临界
     halt_threshold: float = 1.0       # 100% 时熔断停机
 
+    # 创建时间（用于计算经过时间，避免访问底层私有成员）
+    created_at: datetime = Field(default_factory=datetime.now)
+
 
 class ResourceStatusSnapshot(BaseModel):
     """实时资源状态快照 — 用于仪表盘展示"""
@@ -422,11 +425,14 @@ class ResourceManager:
             else 0.0
         )
 
-        # 计算经过时间
+        # 计算经过时间（通过 guardrail 公开 API 获取状态，避免访问私有成员）
         elapsed = 0.0
-        guardrail_ticket = self._guardrail._tickets.get(task_id)
-        if guardrail_ticket is not None:
-            elapsed = (datetime.now() - guardrail_ticket.created_at).total_seconds()
+        # guardrail_status 包含 consumed 信息，但不含 created_at
+        # 通过预算签发时间推算（若 budget 存在则使用 budget 创建时间）
+        # 这里使用一种安全的方式：如果 budget 已知则用 budget 创建时间
+        budget_created = getattr(budget, "created_at", None)
+        if budget_created is not None:
+            elapsed = (datetime.now() - budget_created).total_seconds()
 
         snapshot = ResourceStatusSnapshot(
             task_id=task_id,
@@ -445,7 +451,6 @@ class ResourceManager:
             token_usage_ratio=min(token_ratio, 1.0),
             elapsed_seconds=elapsed,
             timeout_seconds=budget.timeout_seconds,
-            created_at=guardrail_ticket.created_at,
             is_expired=guardrail_status["expired"],
             is_exhausted=guardrail_status["expired"] or (
                 consumed["cost_usd"] >= budget.max_cost_usd

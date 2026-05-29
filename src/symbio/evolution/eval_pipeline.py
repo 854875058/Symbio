@@ -319,6 +319,7 @@ class BaselineStore(BaseModel):
 # =============================================================================
 
 
+@runtime_checkable
 class EvalExecutor(Protocol):
     """评测执行器协议 — 外部实现需遵循此接口。
 

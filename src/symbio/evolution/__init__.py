@@ -7,6 +7,7 @@
 - PatternAnalyzer: 失败复盘、根因记录与成功路径识别
 - PromptOps: Prompt 版本控制、A/B 测试、灰度发布
 - SelfOptimizer: Prompt 效果追踪、自动优化、进化日志
+- EvalPipeline: 评测管道，支持多维度评估与回归检测
 """
 
 from symbio.evolution.dataset_exporter import (
@@ -62,6 +63,29 @@ from symbio.evolution.self_optimizer import (
     PerformanceSummary,
     SelfOptimizer,
 )
+from symbio.evolution.eval_pipeline import (
+    ActualToolCall,
+    BaselineManager,
+    BaselineMetric,
+    BaselineStore,
+    EvalCaseResult,
+    EvalPipeline,
+    EvalReport,
+    EvalStatus,
+    EvalTaskType,
+    EvalTestCase,
+    EvalTestSuite,
+    ExpectedToolCall,
+    OutputQualityEvaluator,
+    OutputQualityResult,
+    QualityCriterion,
+    QualityScoreDetail,
+    RegressionDetector,
+    SeverityLevel,
+    TestSuiteLoader,
+    ToolCallAccuracyResult,
+    ToolCallEvaluator,
+)
 
 __all__ = [
     # dataset_exporter
@@ -112,4 +136,26 @@ __all__ = [
     "PerformanceRecord",
     "PerformanceSummary",
     "SelfOptimizer",
+    # eval_pipeline
+    "ActualToolCall",
+    "BaselineManager",
+    "BaselineMetric",
+    "BaselineStore",
+    "EvalCaseResult",
+    "EvalPipeline",
+    "EvalReport",
+    "EvalStatus",
+    "EvalTaskType",
+    "EvalTestCase",
+    "EvalTestSuite",
+    "ExpectedToolCall",
+    "OutputQualityEvaluator",
+    "OutputQualityResult",
+    "QualityCriterion",
+    "QualityScoreDetail",
+    "RegressionDetector",
+    "SeverityLevel",
+    "TestSuiteLoader",
+    "ToolCallAccuracyResult",
+    "ToolCallEvaluator",
 ]

@@ -565,15 +565,90 @@ class CacheAligner:
     def _estimate_tokens(self, text: str) -> int:
         """估算文本的 Token 数
 
-        简单估算：英文约 4 字符/token，中文约 2 字符/token
+        CJK 字符约 1.5 字符/token，拉丁字母约 4 字符/token，
+        数字和标点约 3 字符/token。
         """
-        # 统计中文字符数
-        chinese_chars = sum(1 for c in text if '一' <= c <= '鿿')
-        other_chars = len(text) - chinese_chars
+        if not text:
+            return 0
 
-        # 估算
-        tokens = (chinese_chars // 2) + (other_chars // 4)
-        return max(tokens, 1)
+        cjk_chars = sum(
+            1 for c in text
+            if ('一' <= c <= '鿿')          # CJK 统一汉字
+            or ('ぁ' <= c <= 'ヿ')           # 日文假名
+            or ('가' <= c <= '힣')           # 韩文音节
+        )
+        digit_chars = sum(1 for c in text if c.isdigit())
+        space_chars = sum(1 for c in text if c.isspace())
+        other_chars = len(text) - cjk_chars - digit_chars - space_chars
+
+        # 加权估算
+        tokens = (
+            cjk_chars / 1.5
+            + digit_chars / 3.0
+            + space_chars / 10.0
+            + other_chars / 3.5
+        )
+        return max(int(tokens), 1)
+
+    # ------------------------------------------------------------------
+    # 序列化与持久化
+    # ------------------------------------------------------------------
+
+    def export_prefix_groups(self) -> list[dict[str, Any]]:
+        """导出所有前缀分组为可序列化的字典列表
+
+        用于持久化存储或跨进程传递。
+
+        Returns:
+            前缀分组字典列表
+        """
+        return [group.model_dump(mode="json") for group in self._prefix_groups.values()]
+
+    def import_prefix_groups(self, data: list[dict[str, Any]]) -> int:
+        """从字典列表导入前缀分组
+
+        Args:
+            data: 前缀分组字典列表（由 export_prefix_groups 生成）
+
+        Returns:
+            成功导入的分组数
+        """
+        imported = 0
+        for item in data:
+            try:
+                group = PrefixGroup(**item)
+                existing = self._prefix_groups.get(group.prefix_hash)
+                if existing is None:
+                    self._prefix_groups[group.prefix_hash] = group
+                else:
+                    # 合并：累加请求计数，更新时间
+                    existing.request_count += group.request_count
+                    existing.request_ids.extend(group.request_ids)
+                    if group.last_seen > existing.last_seen:
+                        existing.last_seen = group.last_seen
+                imported += 1
+            except Exception as e:
+                logger.warning(f"导入前缀分组失败: {e}")
+        logger.info(f"导入前缀分组: {imported}/{len(data)} 条")
+        return imported
+
+    def get_summary(self) -> dict[str, Any]:
+        """获取对齐器运行摘要
+
+        Returns:
+            包含关键指标的字典
+        """
+        agg = self.get_aggregate_hit_rate()
+        return {
+            "provider": self._config.provider.value,
+            "strategy": self._config.strategy.value,
+            "prefix_group_count": len(self._prefix_groups),
+            "total_requests": agg.total_requests,
+            "hit_rate": round(agg.hit_rate, 4),
+            "total_token_savings": agg.total_token_savings,
+            "cost_savings_usd": round(agg.cost_savings_usd, 6),
+            "confidence": round(agg.confidence, 4),
+        }
 
     # ------------------------------------------------------------------
     # 工厂方法
