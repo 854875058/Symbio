@@ -24,8 +24,8 @@ memory:
   similarity_threshold: 0.7
   window_size: 20
 model:
-  anthropic_api_key: ''
-  anthropic_base_url: https://api.anthropic.com
+  anthropic_api_key: sk-Le0N1WG524PLnkHj3nmXEULHe0zbxGDkEqjVcfqUzu5Nv1hx
+  anthropic_base_url: https://api.penguinsaichat.dpdns.org
   local_model_enabled: false
   local_model_name: qwen2.5:14b
   local_model_url: http://localhost:11434

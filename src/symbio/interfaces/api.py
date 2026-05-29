@@ -72,15 +72,42 @@ async def health():
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
-    """对话接口"""
+    """对话接口 - 调用真实 LLM"""
     try:
-        # TODO: 接入 Orchestrator
-        # 临时返回模拟响应
+        import anthropic
+        from symbio.config.settings import get_settings
+
+        settings = get_settings()
+
+        client = anthropic.AsyncAnthropic(
+            api_key=settings.model.anthropic_api_key,
+            base_url=settings.model.anthropic_base_url,
+        )
+
+        model = request.model or settings.model.model_medium
+
+        response = await client.messages.create(
+            model=model,
+            max_tokens=4096,
+            messages=[{"role": "user", "content": request.message}],
+        )
+
+        content = ""
+        for block in response.content:
+            if hasattr(block, "text"):
+                content += block.text
+
+        token_usage = {
+            "input": response.usage.input_tokens,
+            "output": response.usage.output_tokens,
+            "total": response.usage.input_tokens + response.usage.output_tokens,
+        }
+
         return ChatResponse(
             success=True,
-            content=f"收到消息: {request.message}\n\n[功能开发中，即将接入完整 Agent 系统]",
+            content=content,
             session_id=request.session_id,
-            token_usage={"input": 10, "output": 20},
+            token_usage=token_usage,
         )
     except Exception as e:
         logger.error(f"对话失败: {e}")
