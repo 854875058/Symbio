@@ -617,12 +617,32 @@ class ContextPruner:
         return "decision"
 
     def _extract_summary(self, content: str, max_length: int = 100) -> str:
-        """提取内容摘要"""
-        # 取第一句话或前 max_length 个字符
-        sentences = re.split(r'[。！？\n.!?]', content)
-        summary = sentences[0].strip() if sentences else content
+        """提取内容摘要
+
+        优先取第一个完整句子，若过长则在词边界截断。
+        """
+        # 按中英文句子终止符分割
+        sentences = re.split(r'(?<=[。！？\n.!?])\s*', content.strip())
+        # 取第一个非空句子
+        summary = ""
+        for s in sentences:
+            s = s.strip()
+            if s:
+                summary = s
+                break
+        if not summary:
+            summary = content.strip()
+
         if len(summary) > max_length:
-            summary = summary[:max_length] + "..."
+            # 在词边界截断
+            truncated = summary[:max_length]
+            # 尝试在最后一个空格或标点处断开
+            for sep in [" ", "，", ",", "。", ".", "；", ";", "、"]:
+                last_sep = truncated.rfind(sep)
+                if last_sep > max_length * 0.5:
+                    truncated = truncated[:last_sep]
+                    break
+            summary = truncated + "..."
         return summary
 
     # ------------------------------------------------------------------
@@ -711,6 +731,8 @@ class ContextPruner:
     ) -> ContextMessage:
         """压缩单条消息到目标 Token 数
 
+        在句子或词边界处截断，避免产生残缺文本。
+
         Args:
             message: 原始消息
             target_tokens: 目标 Token 数
@@ -726,15 +748,35 @@ class ContextPruner:
                 importance=message.importance,
             )
 
-        # 简单截断（按字符比例估算）
+        # 按字符比例估算目标长度
         ratio = target_tokens / message.token_count if message.token_count > 0 else 1.0
         target_chars = int(len(message.content) * ratio)
 
         if target_chars >= len(message.content):
             return message
 
-        # 截断并添加省略标记
-        compressed_content = message.content[:target_chars] + "\n... [已压缩]"
+        truncated = message.content[:target_chars]
+
+        # 尝试在句子边界断开（中英文句号、换行等）
+        sentence_breaks = [". ", "。", "\n", "! ", "！", "? ", "？"]
+        best_break = -1
+        for sep in sentence_breaks:
+            pos = truncated.rfind(sep)
+            if pos > target_chars * 0.5:
+                best_break = max(best_break, pos + len(sep))
+                break
+
+        if best_break > 0:
+            truncated = truncated[:best_break]
+        else:
+            # 回退到词边界（空格、标点）
+            for sep in [" ", "，", ",", "；", ";", "、"]:
+                pos = truncated.rfind(sep)
+                if pos > target_chars * 0.6:
+                    truncated = truncated[:pos]
+                    break
+
+        compressed_content = truncated.rstrip() + "\n... [已压缩]"
 
         return ContextMessage(
             message_id=message.message_id,
@@ -789,6 +831,55 @@ class ContextPruner:
             timestamp=message.timestamp,
             metadata={**message.metadata, "tool_compressed": True},
         )
+
+    @staticmethod
+    def estimate_token_count(text: str) -> int:
+        """估算文本的 Token 数量
+
+        中文约 1.5 字符/token，英文约 4 字符/token，
+        代码和标点按 3 字符/token 估算。
+
+        Args:
+            text: 待估算的文本
+
+        Returns:
+            估算的 Token 数
+        """
+        if not text:
+            return 0
+
+        chinese_chars = sum(1 for c in text if '一' <= c <= '鿿')
+        digit_chars = sum(1 for c in text if c.isdigit())
+        space_chars = sum(1 for c in text if c.isspace())
+        other_chars = len(text) - chinese_chars - digit_chars - space_chars
+
+        # 加权估算
+        tokens = (
+            chinese_chars / 1.5
+            + digit_chars / 3.0
+            + space_chars / 10.0
+            + other_chars / 3.5
+        )
+        return max(int(tokens), 1)
+
+    def estimate_messages_tokens(self, messages: list[ContextMessage]) -> int:
+        """估算消息列表的总 Token 数
+
+        对未设置 token_count 的消息自动估算。
+
+        Args:
+            messages: 消息列表
+
+        Returns:
+            总 Token 数
+        """
+        total = 0
+        for msg in messages:
+            if msg.token_count > 0:
+                total += msg.token_count
+            else:
+                total += self.estimate_token_count(msg.content)
+        return total
 
     def classify_importance(self, message: ContextMessage) -> ImportanceLevel:
         """自动分类消息重要性

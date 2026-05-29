@@ -892,17 +892,21 @@ class SemanticCacheEngine:
                 f"淘汰 {excess} 条"
             )
 
-            # 查询所有条目，按 last_hit_at 升序排列（最久未命中的先淘汰）
-            all_rows = await asyncio.to_thread(self._table.to_pandas)
-            if all_rows.empty:
+            # 查询所有条目的 entry_id 和 last_hit_at，避免加载全量数据到 pandas
+            results = await asyncio.to_thread(
+                self._table.query,
+                columns=["entry_id", "last_hit_at"],
+            )
+            rows = await asyncio.to_thread(results.to_list)
+
+            if not rows:
                 return
 
             # last_hit_at 为空的视为最老，优先淘汰
-            all_rows["_sort_key"] = all_rows["last_hit_at"].fillna("")
-            all_rows = all_rows.sort_values("_sort_key", ascending=True)
-            to_evict = all_rows.head(excess)
+            rows.sort(key=lambda r: r.get("last_hit_at") or "")
+            to_evict = rows[:excess]
 
-            for _, evict_row in to_evict.iterrows():
+            for evict_row in to_evict:
                 evict_id = evict_row["entry_id"]
                 await asyncio.to_thread(
                     self._table.delete, f"entry_id = '{evict_id}'"
@@ -911,6 +915,32 @@ class SemanticCacheEngine:
             logger.info(f"LRU 淘汰完成: {excess} 条")
         except Exception as e:
             logger.error(f"容量控制失败: {e}")
+
+    async def get_all_entries(self, limit: int = 100) -> list[CacheEntry]:
+        """获取所有缓存条目（用于调试和监控）
+
+        Args:
+            limit: 最大返回数量
+
+        Returns:
+            CacheEntry 列表
+        """
+        if not self._initialized:
+            await self.initialize()
+
+        try:
+            results = await asyncio.to_thread(
+                self._table.query,
+                where="1=1",
+            )
+            results = await asyncio.to_thread(results.limit, limit)
+            rows = await asyncio.to_thread(results.to_list)
+            entries = [self._row_to_entry(row) for row in rows]
+            logger.debug(f"获取全部缓存条目: {len(entries)} 条")
+            return entries
+        except Exception as e:
+            logger.warning(f"获取全部缓存条目失败: {e}")
+            return []
 
     # ------------------------------------------------------------------
     # 便捷工厂

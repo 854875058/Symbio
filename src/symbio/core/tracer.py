@@ -787,6 +787,13 @@ class Tracer:
             unit="tokens",
         )
 
+        # 任务执行耗时
+        self._histograms["task_duration_ms"] = self._otel_meter.create_histogram(
+            name="symbio.task.duration_ms",
+            description="任务执行耗时（毫秒）",
+            unit="ms",
+        )
+
         # 活跃 Trace 数量（Gauge）
         self._gauge_values["active_traces"] = 0.0
         self._otel_meter.create_observable_gauge(
@@ -1831,6 +1838,7 @@ __all__ = [
     "Tracer",
     # Decorators
     "trace_agent",
+    "trace_task",
     "trace_tool",
     # Singleton
     "get_tracer",
