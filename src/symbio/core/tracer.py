@@ -575,7 +575,7 @@ class Tracer:
 
         # Async batch collector
         self._batch_collector = _AsyncBatchCollector(
-            output_dir=self._config.console_exporter_pretty and Path("./data/tracer") or None,
+            output_dir=Path("./data/tracer") if self._config.enabled else None,
         )
 
         # Aggregated metric records
@@ -1594,6 +1594,98 @@ def trace_agent(
                         "agent_duration_ms",
                         elapsed,
                         attributes={"agent": name, "status": "error"},
+                    )
+                    raise
+
+        return wrapper
+    return decorator
+
+
+def trace_task(
+    tracer: Tracer,
+    task_name: Optional[str] = None,
+    kind: SpanKind = SpanKind.INTERNAL,
+) -> Callable:
+    """任务级自动追踪装饰器。
+
+    被装饰的异步函数会自动创建 Span，记录任务 ID、执行耗时和结果。
+    适合包裹 Orchestrator 的任务执行入口。
+
+    Args:
+        tracer: Tracer 实例
+        task_name: 任务名称（默认从函数名获取）
+        kind: Span 类型
+
+    Usage::
+
+        @trace_task(tracer=my_tracer, task_name="data-analysis")
+        async def run_analysis(task_id: str, query: str) -> Result:
+            ...
+    """
+
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
+            name = task_name or func.__name__
+            span_name = f"task.{name}"
+
+            # 尝试提取 task_id
+            task_id = kwargs.get("task_id", "")
+            if not task_id and args:
+                for arg in args:
+                    if isinstance(arg, str) and len(arg) > 8:
+                        task_id = arg
+                        break
+
+            attributes = {
+                "task.name": name,
+                "task.id": str(task_id),
+                "task.method": func.__name__,
+            }
+
+            async with tracer.span(span_name, kind=kind, attributes=attributes) as span:
+                tracer.increment_counter(
+                    "tasks_completed_total",
+                    attributes={"task": name},
+                )
+
+                start = time.monotonic()
+                try:
+                    result = await func(*args, **kwargs)
+                    elapsed = (time.monotonic() - start) * 1000
+
+                    span.set_attribute("task.success", True)
+                    tracer.record_histogram(
+                        "task_duration_ms",
+                        elapsed,
+                        attributes={"task": name, "status": "success"},
+                    )
+
+                    # 记录 token 消耗（如果结果中包含）
+                    if result and hasattr(result, "token_usage") and result.token_usage:
+                        tu = result.token_usage
+                        await tracer.record_tokens(
+                            component_name=name,
+                            component_type="task",
+                            input_tokens=getattr(tu, "input_tokens", 0),
+                            output_tokens=getattr(tu, "output_tokens", 0),
+                            model=getattr(tu, "model", ""),
+                            cost_usd=getattr(tu, "cost_usd", 0.0),
+                        )
+
+                    return result
+
+                except Exception as exc:
+                    elapsed = (time.monotonic() - start) * 1000
+                    span.set_attribute("task.success", False)
+                    tracer.increment_counter(
+                        "tasks_failed_total",
+                        attributes={"task": name},
+                    )
+                    tracer.record_histogram(
+                        "task_duration_ms",
+                        elapsed,
+                        attributes={"task": name, "status": "error"},
                     )
                     raise
 
