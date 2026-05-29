@@ -446,3 +446,6 @@ class DebateEngine:
             history.append(round_data)
 
         return history
+
+# 别名，保持向后兼容
+MultiAgentDebate = DebateEngine
