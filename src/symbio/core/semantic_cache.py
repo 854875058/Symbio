@@ -892,19 +892,21 @@ class SemanticCacheEngine:
                 f"淘汰 {excess} 条"
             )
 
-            # 查询所有条目的 entry_id 和 last_hit_at，避免加载全量数据到 pandas
-            results = await asyncio.to_thread(
-                self._table.query,
-                columns=["entry_id", "last_hit_at"],
-            )
-            rows = await asyncio.to_thread(results.to_list)
+            # 查询所有条目，按 last_hit_at 排序后取前 excess 条淘汰
+            try:
+                # 尝试使用 select 仅获取需要的列（减少内存占用）
+                query_obj = self._table.query().select(["entry_id", "last_hit_at"])
+                results = await asyncio.to_thread(query_obj.to_list)
+            except Exception:
+                # 回退：加载全量行
+                results = await asyncio.to_thread(self._table.to_list)
 
-            if not rows:
+            if not results:
                 return
 
             # last_hit_at 为空的视为最老，优先淘汰
-            rows.sort(key=lambda r: r.get("last_hit_at") or "")
-            to_evict = rows[:excess]
+            results.sort(key=lambda r: r.get("last_hit_at") or "")
+            to_evict = results[:excess]
 
             for evict_row in to_evict:
                 evict_id = evict_row["entry_id"]
