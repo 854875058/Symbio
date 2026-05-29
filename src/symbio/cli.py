@@ -16,8 +16,9 @@ app = typer.Typer(
 console = Console()
 
 
-@app.callback()
+@app.callback(invoke_without_command=True)
 def main(
+    ctx: typer.Context,
     version: bool = typer.Option(False, "--version", "-v", help="显示版本信息"),
     config: str = typer.Option(None, "--config", "-c", help="配置文件路径"),
 ):
@@ -28,6 +29,10 @@ def main(
 
     # 初始化日志
     init_logger_from_settings()
+
+    # 如果没有子命令，进入交互模式
+    if ctx.invoked_subcommand is None:
+        _start_interactive_mode()
 
 
 @app.command()
@@ -176,6 +181,149 @@ def export(
     console.print(f"[bold blue]📦 导出数据集: {format}[/bold blue]")
     # TODO: 实现数据集导出
     console.print("[bold yellow]⏳ 功能开发中...[/bold yellow]")
+
+
+def _start_interactive_mode():
+    """启动交互模式"""
+    from pathlib import Path
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.history import FileHistory
+
+    # 检查是否已初始化
+    config_path = Path("symbio.yaml")
+    if not config_path.exists():
+        console.print("[bold yellow]⚠️  项目未初始化，正在自动初始化...[/bold yellow]")
+        _auto_init()
+
+    # 显示欢迎信息
+    console.print(Panel(
+        f"[bold green]🧬 欢迎使用 Symbio v{__version__}[/bold green]\n\n"
+        f"多 Agent 协同 AI 助手\n\n"
+        f"[bold cyan]命令:[/bold cyan]\n"
+        f"  输入消息直接对话\n"
+        f"  /help    - 显示帮助\n"
+        f"  /status  - 查看状态\n"
+        f"  /config  - 查看配置\n"
+        f"  /clear   - 清屏\n"
+        f"  /exit    - 退出\n\n"
+        f"[bold yellow]输入消息开始对话...[/bold yellow]",
+        title="🧬 Symbio Interactive",
+    ))
+
+    # 创建 prompt session
+    history_file = Path.home() / ".symbio" / "history"
+    history_file.parent.mkdir(parents=True, exist_ok=True)
+    session = PromptSession(history=FileHistory(str(history_file)))
+
+    # 主循环
+    while True:
+        try:
+            user_input = session.prompt("\n👤 你: ")
+            user_input = user_input.strip()
+
+            if not user_input:
+                continue
+
+            # 处理命令
+            if user_input.startswith("/"):
+                _handle_command(user_input)
+                continue
+
+            # 处理对话
+            _process_message(user_input)
+
+        except KeyboardInterrupt:
+            continue
+        except EOFError:
+            console.print("\n[bold blue]👋 再见！[/bold blue]")
+            break
+
+
+def _auto_init():
+    """自动初始化项目"""
+    from pathlib import Path
+
+    project_path = Path(".")
+    config_path = project_path / "symbio.yaml"
+
+    if not config_path.exists():
+        settings = get_settings()
+        settings.to_yaml(config_path)
+
+    # 创建数据目录
+    (project_path / "data" / "lancedb").mkdir(parents=True, exist_ok=True)
+    (project_path / "data" / "checkpoints").mkdir(parents=True, exist_ok=True)
+    (project_path / "data" / "trajectories").mkdir(parents=True, exist_ok=True)
+    (project_path / "logs").mkdir(parents=True, exist_ok=True)
+
+    console.print("[bold green]✅ 自动初始化完成[/bold green]")
+
+
+def _handle_command(command: str):
+    """处理交互命令"""
+    cmd = command.lower().strip()
+
+    if cmd == "/help":
+        console.print(Panel(
+            "[bold cyan]可用命令:[/bold cyan]\n\n"
+            "  /help    - 显示此帮助\n"
+            "  /status  - 查看系统状态\n"
+            "  /config  - 查看当前配置\n"
+            "  /clear   - 清屏\n"
+            "  /exit    - 退出程序\n\n"
+            "[bold yellow]直接输入消息即可与 Agent 对话[/bold yellow]",
+            title="帮助",
+        ))
+    elif cmd == "/status":
+        console.print("[bold blue]📊 系统状态[/bold blue]")
+        console.print(f"  版本: {__version__}")
+        console.print(f"  配置: symbio.yaml")
+        # TODO: 更多状态信息
+    elif cmd == "/config":
+        settings = get_settings()
+        console.print("[bold blue]⚙️  当前配置[/bold blue]")
+        console.print(f"  模型(低): {settings.model.model_low}")
+        console.print(f"  模型(中): {settings.model.model_medium}")
+        console.print(f"  模型(高): {settings.model.model_high}")
+        console.print(f"  日志级别: {settings.log_level}")
+    elif cmd == "/clear":
+        import os
+        os.system("cls" if os.name == "nt" else "clear")
+    elif cmd == "/exit":
+        console.print("[bold blue]👋 再见！[/bold blue]")
+        raise typer.Exit()
+    else:
+        console.print(f"[bold red]❌ 未知命令: {command}[/bold red]")
+        console.print("输入 /help 查看可用命令")
+
+
+def _process_message(message: str):
+    """处理用户消息"""
+    import asyncio
+    from symbio.core.orchestrator import Orchestrator
+    from symbio.utils.types import Message, MessageSource
+
+    console.print(f"\n[bold green]🤖 Symbio:[/bold green] ", end="")
+
+    # 创建消息
+    msg = Message(
+        source=MessageSource.CLI,
+        user_id="local",
+        content=message,
+        session_id="interactive",
+    )
+
+    # 调用 Orchestrator
+    try:
+        orchestrator = Orchestrator()
+        result = asyncio.run(orchestrator.process(msg))
+
+        if result.success:
+            console.print(result.content)
+        else:
+            console.print(f"[bold red]❌ {result.content}[/bold red]")
+    except Exception as e:
+        console.print(f"[bold red]❌ 错误: {str(e)}[/bold red]")
 
 
 if __name__ == "__main__":

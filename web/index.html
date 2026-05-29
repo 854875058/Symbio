@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Symbio</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Top Navigation Bar -->
+  <header class="navbar">
+    <div class="navbar-left">
+      <div class="logo">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="10" stroke="#3b82f6" stroke-width="2"/>
+          <circle cx="12" cy="12" r="4" fill="#3b82f6"/>
+          <line x1="12" y1="2" x2="12" y2="8" stroke="#3b82f6" stroke-width="2"/>
+          <line x1="12" y1="16" x2="12" y2="22" stroke="#3b82f6" stroke-width="2"/>
+          <line x1="2" y1="12" x2="8" y2="12" stroke="#3b82f6" stroke-width="2"/>
+          <line x1="16" y1="12" x2="22" y2="12" stroke="#3b82f6" stroke-width="2"/>
+        </svg>
+        <span class="logo-text">Symbio</span>
+      </div>
+      <nav class="nav-tabs">
+        <button class="nav-tab active" data-page="chat">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M2 2h12a1 1 0 011 1v8a1 1 0 01-1 1H5l-3 3V3a1 1 0 011-1z"/>
+          </svg>
+          <span>Chat</span>
+        </button>
+        <button class="nav-tab" data-page="tasks">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M2 3h12v2H2V3zm0 4h8v2H2V7zm0 4h10v2H2v-2z"/>
+          </svg>
+          <span>Tasks</span>
+        </button>
+        <button class="nav-tab" data-page="models">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 2a5 5 0 110 10A5 5 0 018 3zm0 2a3 3 0 100 6 3 3 0 000-6z"/>
+          </svg>
+          <span>Models</span>
+        </button>
+        <button class="nav-tab" data-page="memory">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 1C4.134 1 1 4.134 1 8s3.134 7 7 7 7-3.134 7-7-3.134-7-7-7zm0 2a5 5 0 110 10A5 5 0 018 3z"/>
+            <circle cx="8" cy="8" r="2"/>
+          </svg>
+          <span>Memory</span>
+        </button>
+      </nav>
+    </div>
+    <div class="navbar-right">
+      <button class="icon-btn" title="Settings">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor">
+          <path d="M9 11.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5zM15.94 11.06a1.5 1.5 0 00.3 1.65l.05.05a1.82 1.82 0 01-1.28 3.1 1.82 1.82 0 01-1.29-.53l-.05-.05a1.5 1.5 0 00-1.65-.3 1.5 1.5 0 00-.91 1.37v.14a1.82 1.82 0 01-3.64 0v-.07A1.5 1.5 0 006.56 15a1.5 1.5 0 00-1.65.3l-.05.05a1.82 1.82 0 01-2.57-2.57l.05-.05a1.5 1.5 0 00.3-1.65 1.5 1.5 0 00-1.37-.91H2.18a1.82 1.82 0 010-3.64h.07A1.5 1.5 0 003.6 6.56a1.5 1.5 0 00-.3-1.65l-.05-.05A1.82 1.82 0 015.82 2.28l.05.05A1.5 1.5 0 007.52 2.63h.07a1.82 1.82 0 013.64 0v.07a1.5 1.5 0 00.91 1.37 1.5 1.5 0 001.65-.3l.05-.05a1.82 1.82 0 012.57 2.57l-.05.05a1.5 1.5 0 00-.3 1.65v.07a1.82 1.82 0 01-3.64 0V11.06z"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Content Area -->
+  <main class="main-content">
+    <!-- Chat Page -->
+    <section class="page active" id="page-chat">
+      <div class="chat-layout">
+        <!-- Session List Sidebar -->
+        <aside class="chat-sidebar">
+          <div class="sidebar-header">
+            <h3>Sessions</h3>
+            <button class="btn-icon" id="btn-new-session" title="New Session">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2" fill="none"/>
+              </svg>
+            </button>
+          </div>
+          <div class="session-list" id="session-list">
+            <div class="session-item active">
+              <div class="session-title">New Session</div>
+              <div class="session-time">Just now</div>
+            </div>
+          </div>
+        </aside>
+
+        <!-- Chat Main Area -->
+        <div class="chat-main">
+          <div class="chat-header">
+            <h2 id="chat-title">New Session</h2>
+            <div class="chat-actions">
+              <button class="btn-sm" id="btn-clear-chat" title="Clear Chat">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                  <path d="M5 1h4v1H5V1zM3 3h8v1H3V3zM2 4h10v1H2V4zM3 5h8v7H3V5zm2 2h4v1H5V7z"/>
+                </svg>
+                Clear
+              </button>
+            </div>
+          </div>
+
+          <!-- Messages Area -->
+          <div class="messages-area" id="messages-area">
+            <div class="welcome-message">
+              <div class="welcome-icon">
+                <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                  <circle cx="24" cy="24" r="20" stroke="#3b82f6" stroke-width="2" stroke-dasharray="4 4"/>
+                  <circle cx="24" cy="24" r="8" fill="#3b82f6" opacity="0.3"/>
+                  <circle cx="24" cy="24" r="4" fill="#3b82f6"/>
+                </svg>
+              </div>
+              <h3>Welcome to Symbio</h3>
+              <p>Start a conversation with your AI assistant. Ask anything or try one of the suggestions below.</p>
+              <div class="suggestions">
+                <button class="suggestion-btn" data-prompt="Help me write a Python script">Write a Python script</button>
+                <button class="suggestion-btn" data-prompt="Explain quantum computing">Explain quantum computing</button>
+                <button class="suggestion-btn" data-prompt="Review my code for bugs">Review my code</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Input Area -->
+          <div class="input-area">
+            <div class="input-wrapper">
+              <textarea id="message-input" placeholder="Type your message... (Ctrl+Enter to send)" rows="1"></textarea>
+              <button class="send-btn" id="btn-send" title="Send Message">
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor">
+                  <path d="M2 9l7-7v4h7v6h-7v4L2 9z"/>
+                </svg>
+              </button>
+            </div>
+            <div class="input-hint">
+              <span>Ctrl+Enter to send</span>
+              <span>Shift+Enter for new line</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Context Panel -->
+        <aside class="context-panel" id="context-panel">
+          <div class="panel-header">
+            <h3>Context</h3>
+            <button class="btn-icon" id="btn-close-panel" title="Close Panel">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                <path d="M4 4l6 6M10 4l-6 6" stroke="currentColor" stroke-width="2" fill="none"/>
+              </svg>
+            </button>
+          </div>
+          <div class="panel-content">
+            <div class="panel-section">
+              <h4>Memory Results</h4>
+              <div id="memory-results" class="memory-results">
+                <div class="empty-state">No memories retrieved yet</div>
+              </div>
+            </div>
+            <div class="panel-section">
+              <h4>Tool Calls</h4>
+              <div id="tool-calls" class="tool-calls">
+                <div class="empty-state">No tool calls in this session</div>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- Tasks Page -->
+    <section class="page" id="page-tasks">
+      <div class="page-header">
+        <h2>Task Monitor</h2>
+        <div class="page-actions">
+          <select id="task-filter" class="select-input">
+            <option value="all">All Tasks</option>
+            <option value="running">Running</option>
+            <option value="completed">Completed</option>
+            <option value="failed">Failed</option>
+          </select>
+          <button class="btn-primary" id="btn-refresh-tasks">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+              <path d="M7 1v2M7 11v2M1 7h2M11 7h2M3.05 3.05l1.41 1.41M9.54 9.54l1.41 1.41M3.05 10.95l1.41-1.41M9.54 4.46l1.41-1.41"/>
+            </svg>
+            Refresh
+          </button>
+        </div>
+      </div>
+      <div class="tasks-grid" id="tasks-grid">
+        <div class="empty-state">
+          <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+            <rect x="8" y="12" width="32" height="24" rx="2" stroke="#525252" stroke-width="2"/>
+            <path d="M16 20h16M16 26h10" stroke="#525252" stroke-width="2"/>
+          </svg>
+          <p>No tasks found. Tasks will appear here when you start conversations.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Models Page -->
+    <section class="page" id="page-models">
+      <div class="page-header">
+        <h2>Model Configuration</h2>
+        <div class="page-actions">
+          <button class="btn-primary" id="btn-add-model">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+              <path d="M7 2v10M2 7h10" stroke="currentColor" stroke-width="2" fill="none"/>
+            </svg>
+            Add Model
+          </button>
+        </div>
+      </div>
+      <div class="models-layout">
+        <div class="models-list" id="models-list">
+          <div class="empty-state">
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+              <circle cx="24" cy="24" r="16" stroke="#525252" stroke-width="2"/>
+              <circle cx="24" cy="24" r="6" fill="#525252"/>
+            </svg>
+            <p>No models configured yet. Add your first model to get started.</p>
+          </div>
+        </div>
+        <div class="model-detail" id="model-detail">
+          <div class="empty-state">
+            <p>Select a model to view details</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Memory Page -->
+    <section class="page" id="page-memory">
+      <div class="page-header">
+        <h2>Memory Management</h2>
+        <div class="page-actions">
+          <div class="search-input-wrapper">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="2" fill="none"/>
+              <path d="M11 11l4 4" stroke="currentColor" stroke-width="2"/>
+            </svg>
+            <input type="text" id="memory-search" placeholder="Search memories..." class="search-input">
+          </div>
+          <select id="memory-type-filter" class="select-input">
+            <option value="all">All Types</option>
+            <option value="short_term">Short Term</option>
+            <option value="long_term">Long Term</option>
+            <option value="episodic">Episodic</option>
+          </select>
+          <button class="btn-primary" id="btn-search-memory">
+            Search
+          </button>
+        </div>
+      </div>
+      <div class="memory-layout">
+        <div class="memory-list" id="memory-list">
+          <div class="empty-state">
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+              <circle cx="24" cy="24" r="16" stroke="#525252" stroke-width="2" stroke-dasharray="4 4"/>
+              <circle cx="24" cy="24" r="4" fill="#525252"/>
+            </svg>
+            <p>No memories found. Search or create memories to get started.</p>
+          </div>
+        </div>
+        <div class="memory-detail" id="memory-detail">
+          <div class="empty-state">
+            <p>Select a memory to view details</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Bottom Status Bar -->
+  <footer class="status-bar">
+    <div class="status-left">
+      <div class="status-item" id="connection-status">
+        <span class="status-dot disconnected"></span>
+        <span>Disconnected</span>
+      </div>
+    </div>
+    <div class="status-center">
+      <div class="status-item" id="current-model">
+        <span>Model: --</span>
+      </div>
+      <div class="status-item" id="token-usage">
+        <span>Tokens: 0</span>
+      </div>
+    </div>
+    <div class="status-right">
+      <div class="status-item" id="system-status">
+        <span>Ready</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- Add Model Modal -->
+  <div class="modal-overlay" id="modal-add-model">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Add New Model</h3>
+        <button class="btn-icon" id="btn-close-modal">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+            <path d="M4 4l6 6M10 4l-6 6" stroke="currentColor" stroke-width="2" fill="none"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Provider</label>
+          <select id="model-provider" class="form-input">
+            <option value="anthropic">Anthropic</option>
+            <option value="openai">OpenAI</option>
+            <option value="ollama">Ollama</option>
+            <option value="custom">Custom</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Model Name</label>
+          <input type="text" id="model-name" class="form-input" placeholder="e.g., claude-sonnet-4">
+        </div>
+        <div class="form-group">
+          <label>API Key</label>
+          <input type="password" id="model-api-key" class="form-input" placeholder="sk-...">
+        </div>
+        <div class="form-group">
+          <label>Base URL (optional)</label>
+          <input type="text" id="model-base-url" class="form-input" placeholder="https://api.example.com">
+        </div>
+        <div class="form-group">
+          <label>Max Tokens</label>
+          <input type="number" id="model-max-tokens" class="form-input" value="4096">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="btn-cancel-modal">Cancel</button>
+        <button class="btn-primary" id="btn-save-model">Save Model</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

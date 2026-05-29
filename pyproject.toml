@@ -55,9 +55,17 @@ cluster = [
     "ray>=2.55.0",
     "kubernetes>=30.0.0",
 ]
+otel = [
+    "opentelemetry-api>=1.20.0",
+    "opentelemetry-sdk>=1.20.0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.20.0",
+]
 
 [project.scripts]
 symbio = "symbio.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/symbio"]
 
 [tool.ruff]
 line-length = 100

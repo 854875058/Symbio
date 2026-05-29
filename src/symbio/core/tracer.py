@@ -21,27 +21,102 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-# OpenTelemetry imports
-from opentelemetry import metrics, trace
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import (
-    BatchSpanProcessor,
-    ConsoleSpanExporter,
-    SpanExporter,
-    SpanExportResult,
-)
-from opentelemetry.sdk.metrics import MeterProvider
-from opentelemetry.sdk.metrics.export import (
-    ConsoleMetricExporter,
-    MetricExporter,
-    PeriodicExportingMetricReader,
-)
-from opentelemetry.sdk.resources import Resource, SERVICE_NAME, SERVICE_VERSION
-from opentelemetry.trace import StatusCode, Status, SpanKind
-from opentelemetry.context import Context
-from opentelemetry.propagate import extract, inject
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+# OpenTelemetry imports (optional dependency)
+_OTEL_AVAILABLE = False
+try:
+    from opentelemetry import metrics, trace
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import (
+        BatchSpanProcessor,
+        ConsoleSpanExporter,
+        SpanExporter,
+        SpanExportResult,
+    )
+    from opentelemetry.sdk.metrics import MeterProvider
+    from opentelemetry.sdk.metrics.export import (
+        ConsoleMetricExporter,
+        MetricExporter,
+        PeriodicExportingMetricReader,
+    )
+    from opentelemetry.sdk.resources import Resource, SERVICE_NAME, SERVICE_VERSION
+    from opentelemetry.trace import StatusCode, Status, SpanKind
+    from opentelemetry.context import Context
+    from opentelemetry.propagate import extract, inject
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+    from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+    _OTEL_AVAILABLE = True
+except ImportError:
+    # Provide fallback stubs when opentelemetry is not installed
+    class _StubEnum:
+        """Fallback for OTel enums."""
+        INTERNAL = "INTERNAL"
+        CLIENT = "CLIENT"
+        SERVER = "SERVER"
+        PRODUCER = "PRODUCER"
+        CONSUMER = "CONSUMER"
+        UNSET = "UNSET"
+        OK = "OK"
+        ERROR = "ERROR"
+
+    class SpanKind(_StubEnum):
+        """Stub SpanKind when opentelemetry is not available."""
+        pass
+
+    class StatusCode(_StubEnum):
+        """Stub StatusCode when opentelemetry is not available."""
+        pass
+
+    class Status:
+        """Stub Status when opentelemetry is not available."""
+        def __init__(self, status_code=None, description=""):
+            self.status_code = status_code
+            self.description = description
+
+    # Stub classes for type annotations
+    TracerProvider = None
+    MeterProvider = None
+    SpanExporter = None
+    SpanExportResult = None
+    BatchSpanProcessor = None
+    ConsoleSpanExporter = None
+    ConsoleMetricExporter = None
+    MetricExporter = None
+    PeriodicExportingMetricReader = None
+    Resource = None
+    SERVICE_NAME = "service.name"
+    SERVICE_VERSION = "service.version"
+    Context = None
+    OTLPSpanExporter = None
+    OTLPMetricExporter = None
+
+    class _StubMetrics:
+        """Stub for opentelemetry.metrics module."""
+        Counter = None
+        Histogram = None
+        ObservableGauge = None
+        Meter = None
+        def set_meter_provider(self, *a, **kw): pass
+        def get_meter(self, *a, **kw): return None
+
+        class Observation:
+            """Stub for metrics.Observation."""
+            def __init__(self, value=0.0):
+                self.value = value
+
+    class _StubTrace:
+        """Stub for opentelemetry.trace module."""
+        Tracer = None
+        def set_tracer_provider(self, *a, **kw): pass
+        def get_tracer(self, *a, **kw): return None
+
+    metrics = _StubMetrics()
+    trace = _StubTrace()
+
+    def inject(carrier):
+        pass
+
+    def extract(carrier):
+        return None
 
 from symbio.utils.logger import get_logger
 
@@ -343,7 +418,7 @@ class _AsyncBatchCollector:
 # Custom Span Exporter that captures SpanData for internal use
 # ---------------------------------------------------------------------------
 
-class _SpanDataCaptureExporter(SpanExporter):
+class _SpanDataCaptureExporter(SpanExporter if SpanExporter is not None else object):
     """捕获 SpanData 的自定义导出器，用于内部 Span 数据收集。"""
 
     def __init__(self) -> None:
@@ -355,7 +430,7 @@ class _SpanDataCaptureExporter(SpanExporter):
         async with self._lock:
             self._captured.append(span_data)
 
-    def export(self, spans: Sequence[Any]) -> SpanExportResult:
+    def export(self, spans: Sequence[Any]) -> Any:
         """由 OTel SDK 调用的同步导出方法。"""
         for sdk_span in spans:
             try:
@@ -369,7 +444,7 @@ class _SpanDataCaptureExporter(SpanExporter):
                     self._captured.append(span_data)
             except Exception as e:
                 logger.warning(f"捕获 Span 数据失败: {e}")
-        return SpanExportResult.SUCCESS
+        return SpanExportResult.SUCCESS if SpanExportResult is not None else 0
 
     def shutdown(self) -> None:
         pass
@@ -517,6 +592,14 @@ class Tracer:
         """启动追踪系统。"""
         if self._started:
             logger.warning("Tracer 已经启动")
+            return
+
+        if not _OTEL_AVAILABLE:
+            logger.warning(
+                "opentelemetry 未安装，追踪系统将以降级模式运行。"
+                "请安装: pip install opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp-proto-grpc"
+            )
+            self._started = True
             return
 
         if not self._config.enabled:
