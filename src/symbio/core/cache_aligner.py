@@ -427,15 +427,16 @@ class CacheAligner:
 
         for group in self._prefix_groups.values():
             total_requests += group.request_count
+            # 每个前缀组中，第一个请求 miss，后续请求 hit
             if group.request_count > 1:
-                total_hits += group.request_count - 1
+                group_hits = group.request_count - 1
+                total_hits += group_hits
+                # 每次 hit 节省的 token = 该前缀的 token 数
+                total_token_savings += group.prefix_tokens * group_hits
             total_prefix_tokens += group.prefix_tokens * group.request_count
 
-        total_token_savings = total_prefix_tokens - (
-            len(self._prefix_groups) * (total_prefix_tokens // max(total_requests, 1))
-        )
-
         hit_rate = total_hits / total_requests if total_requests > 0 else 0.0
+        avg_prefix_tokens = total_prefix_tokens // max(total_requests, 1)
         cost_savings = total_token_savings * self._config.cost_per_input_token
 
         return HitRateEstimate(
@@ -443,9 +444,9 @@ class CacheAligner:
             total_requests=total_requests,
             estimated_hits=total_hits,
             hit_rate=hit_rate,
-            avg_prefix_tokens=total_prefix_tokens // max(total_requests, 1),
-            total_token_savings=max(total_token_savings, 0),
-            cost_savings_usd=max(cost_savings, 0.0),
+            avg_prefix_tokens=avg_prefix_tokens,
+            total_token_savings=total_token_savings,
+            cost_savings_usd=cost_savings,
             confidence=min(total_requests / 100.0, 1.0),
         )
 
