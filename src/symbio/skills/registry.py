@@ -75,6 +75,7 @@ class SkillQuery(BaseModel):
     capabilities: list[str] = Field(default_factory=list)
     status: Optional[SkillStatus] = None
     author: Optional[str] = None
+    source: Optional[str] = None  # 来源标识
 
 
 # ---------------------------------------------------------------------------
@@ -284,6 +285,152 @@ class SkillRegistry:
     def list_all(self) -> list[SkillRegistration]:
         """列出所有已注册 Skill"""
         return list(self._skills.values())
+
+    def search_skills(
+        self,
+        query: str,
+        *,
+        search_fields: list[str] | None = None,
+        limit: int = 50,
+    ) -> list[SkillRegistration]:
+        """搜索 Skill
+
+        支持按名称、描述、标签等字段进行模糊搜索。
+
+        Args:
+            query: 搜索关键词
+            search_fields: 搜索字段列表（默认: name, description, tags）
+            limit: 最大返回数量
+
+        Returns:
+            匹配的 Skill 列表，按相关性排序
+        """
+        if not query:
+            return self.list_all()[:limit]
+
+        search_fields = search_fields or ["name", "description", "tags"]
+        query_lower = query.lower()
+        results: list[tuple[float, SkillRegistration]] = []
+
+        with self._lock:
+            for skill in self._skills.values():
+                score = 0.0
+
+                # 名称匹配（权重最高）
+                if "name" in search_fields:
+                    if query_lower in skill.name.lower():
+                        score += 3.0
+                    if query_lower == skill.name.lower():
+                        score += 5.0
+
+                # 显示名称匹配
+                if "display_name" in search_fields:
+                    if query_lower in skill.display_name.lower():
+                        score += 2.0
+
+                # 描述匹配
+                if "description" in search_fields:
+                    if query_lower in skill.description.lower():
+                        score += 1.0
+
+                # 标签匹配
+                if "tags" in search_fields:
+                    for tag in skill.tags:
+                        if query_lower in tag.lower():
+                            score += 2.0
+                        if query_lower == tag.lower():
+                            score += 3.0
+
+                # 能力匹配
+                if "capabilities" in search_fields:
+                    for cap in skill.capabilities:
+                        if query_lower in cap.lower():
+                            score += 1.5
+
+                # 作者匹配
+                if "author" in search_fields:
+                    if query_lower in skill.author.lower():
+                        score += 0.5
+
+                if score > 0:
+                    results.append((score, skill))
+
+        # 按分数排序
+        results.sort(key=lambda x: x[0], reverse=True)
+        return [skill for _, skill in results[:limit]]
+
+    def list_by_source(self, source: str) -> list[SkillRegistration]:
+        """按来源列出 Skill
+
+        Args:
+            source: 来源标识（如 "file", "package", "marketplace"）
+
+        Returns:
+            指定来源的 Skill 列表
+        """
+        results: list[SkillRegistration] = []
+
+        with self._lock:
+            for skill in self._skills.values():
+                skill_source = skill.metadata.get("source", "")
+                if skill_source == source:
+                    results.append(skill)
+
+        return results
+
+    def query(self, skill_query: SkillQuery) -> list[SkillRegistration]:
+        """使用 SkillQuery 进行高级查询
+
+        Args:
+            skill_query: 查询条件
+
+        Returns:
+            匹配的 Skill 列表
+        """
+        with self._lock:
+            candidates = list(self._skills.values())
+
+        results: list[SkillRegistration] = []
+        for skill in candidates:
+            # 名称过滤
+            if skill_query.name:
+                if skill_query.name.lower() not in skill.name.lower():
+                    continue
+
+            # 类型过滤
+            if skill_query.skill_type:
+                if skill.skill_type != skill_query.skill_type:
+                    continue
+
+            # 标签过滤（OR 匹配）
+            if skill_query.tags:
+                if not set(skill_query.tags).intersection(skill.tags):
+                    continue
+
+            # 能力过滤（OR 匹配）
+            if skill_query.capabilities:
+                if not set(skill_query.capabilities).intersection(skill.capabilities):
+                    continue
+
+            # 状态过滤
+            if skill_query.status:
+                if skill.status != skill_query.status:
+                    continue
+
+            # 作者过滤
+            if skill_query.author:
+                if skill_query.author.lower() not in skill.author.lower():
+                    continue
+
+            # 来源过滤
+            if skill_query.source:
+                skill_source = skill.metadata.get("source", "")
+                if skill_source != skill_query.source:
+                    continue
+
+            results.append(skill)
+
+        return results
 
     def count(self) -> int:
         """获取注册数量"""
