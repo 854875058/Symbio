@@ -954,7 +954,8 @@ textarea::placeholder { color:var(--text-tertiary); }
   letter-spacing: 0.05em;
 }
 .form-group input,
-.form-group select {
+.form-group select,
+.form-group textarea {
   width: 100%;
   padding: 8px 12px;
   background: var(--bg-tertiary);
@@ -966,8 +967,13 @@ textarea::placeholder { color:var(--text-tertiary); }
   outline: none;
   transition: border-color 200ms, box-shadow 200ms;
 }
+.form-group textarea {
+  min-height: 80px;
+  resize: vertical;
+}
 .form-group input:focus,
-.form-group select:focus {
+.form-group select:focus,
+.form-group textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-dim);
 }
