@@ -1055,6 +1055,18 @@ textarea::placeholder { color:var(--text-tertiary); }
 }
 
 /* ============ Skills Page ============ */
+.skills-action-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 24px;
+  background: rgba(10,10,15,0.6); backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  gap: 16px;
+}
+.skills-action-left h2 { font-size: 1.1rem; font-weight: 600; white-space: nowrap; }
+.skills-action-center { flex: 1; display: flex; justify-content: center; }
+.skills-action-center .search-box { width: 100%; max-width: 400px; }
+.skills-action-right { display: flex; gap: 8px; align-items: center; }
+
 .skills-grid {
   flex:1; overflow-y:auto; padding:24px;
   display:grid; grid-template-columns:repeat(auto-fill, minmax(320px,1fr));
@@ -1198,6 +1210,83 @@ textarea::placeholder { color:var(--text-tertiary); }
   font-family: var(--font-mono);
   color: var(--green);
   text-align: right;
+}
+
+.skill-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  opacity: 0;
+  transition: opacity 150ms;
+}
+.skill-card:hover .skill-card-actions { opacity: 1; }
+
+.skill-action-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all 150ms;
+}
+.skill-action-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+}
+.skill-action-danger:hover {
+  background: var(--red-dim);
+  color: var(--red);
+  border-color: var(--red);
+}
+
+/* Detail Grid (inside modals) */
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.detail-item {
+  background: var(--bg-tertiary);
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+}
+.detail-item label {
+  display: block;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+.detail-item span {
+  font-size: 0.85rem;
+  color: var(--text-primary);
+}
+.detail-section {
+  margin-bottom: 16px;
+}
+.detail-section label {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
+.detail-section p {
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  line-height: 1.6;
 }
 
 /* ============ Responsive ============ */

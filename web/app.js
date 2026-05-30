@@ -1003,6 +1003,17 @@ function renderSkills(query) {
         <span class="badge ${sk.enabled ? 'badge-green' : 'badge-gray'}">${sk.enabled ? '启用' : '禁用'}</span>
       </div>
       ${sk.relevance !== undefined ? `<div class="skill-relevance">匹配度 ${(sk.relevance * 100).toFixed(0)}%</div>` : ''}
+      <div class="skill-card-actions">
+        <button class="skill-action-btn" onclick="showSkillDetail('${sk.id}')" title="查看详情">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+        <button class="skill-action-btn" onclick="editSkill('${sk.id}')" title="编辑">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </button>
+        <button class="skill-action-btn skill-action-danger" onclick="deleteSkill('${sk.id}')" title="删除">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+        </button>
+      </div>
     </div>
   `).join('');
 }
@@ -1017,8 +1028,84 @@ dom.skillsSearch?.addEventListener('input', () => {
   }, 300);
 });
 
-// Import Skill
-dom.btnImportSkill?.addEventListener('click', showImportSkillModal);
+// Skills action buttons
+document.getElementById('btn-auto-detect')?.addEventListener('click', autoDetectSkills);
+document.getElementById('btn-import-dir')?.addEventListener('click', showImportDirModal);
+document.getElementById('btn-create-skill')?.addEventListener('click', showCreateSkillModal);
+
+async function autoDetectSkills() {
+  toast('info', '正在扫描...', '检测已安装的 Claude Code、Codex 等 Skills');
+  try {
+    const res = await fetch(`${API}/skills/auto-detect`, { method: 'POST' });
+    const data = await res.json();
+    if (data.found > 0) {
+      toast('success', '发现 Skills', `找到 ${data.found} 个新 Skill，已导入`);
+      loadSkills();
+    } else {
+      toast('info', '未发现新 Skills', '未检测到新的已安装 Skills');
+    }
+  } catch (e) {
+    toast('error', '检测失败', e.message);
+  }
+}
+
+function showImportDirModal() {
+  document.querySelector('.modal-overlay')?.remove();
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">
+        <h3>从目录导入 Skills</h3>
+        <button class="icon-btn modal-close-btn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>目录路径</label>
+          <input type="text" id="modal-dir-path" placeholder="例: /home/user/.claude/skills 或 C:\Users\skills">
+        </div>
+        <p style="font-size:0.75rem;color:var(--text-tertiary);margin-top:8px;">
+          支持导入 Claude Code、Codex 等工具的 Skills 目录
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-outline modal-cancel-btn">取消</button>
+        <button class="btn-primary modal-save-btn">导入</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.querySelector('.modal-close-btn').addEventListener('click', () => overlay.remove());
+  overlay.querySelector('.modal-cancel-btn').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  overlay.querySelector('.modal-save-btn').addEventListener('click', async () => {
+    const dirPath = overlay.querySelector('#modal-dir-path').value.trim();
+    if (!dirPath) { toast('error', '验证失败', '请输入目录路径'); return; }
+    try {
+      const res = await fetch(`${API}/skills/import-dir`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: dirPath }),
+      });
+      const data = await res.json();
+      overlay.remove();
+      if (data.imported > 0) {
+        toast('success', '导入成功', `从 ${dirPath} 导入了 ${data.imported} 个 Skills`);
+        loadSkills();
+      } else {
+        toast('info', '未发现 Skills', '该目录下未找到有效的 Skill 定义文件');
+      }
+    } catch (e) {
+      toast('error', '导入失败', e.message);
+    }
+  });
+}
+
+function showCreateSkillModal() {
+  showImportSkillModal();
+}
 
 function showImportSkillModal() {
   document.querySelector('.modal-overlay')?.remove();
@@ -1111,6 +1198,133 @@ function showImportSkillModal() {
       toast('error', '导入失败', e.message);
     }
   });
+}
+
+// Skill Detail
+function showSkillDetail(id) {
+  const sk = state.skills.find(s => s.id === id);
+  if (!sk) return;
+  document.querySelector('.modal-overlay')?.remove();
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h3>${esc(sk.name)}</h3>
+        <button class="icon-btn modal-close-btn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="detail-grid">
+          <div class="detail-item"><label>版本</label><span>v${esc(sk.version)}</span></div>
+          <div class="detail-item"><label>来源</label><span class="skill-source-badge skill-source-${sk.source}">${esc(sk.source)}</span></div>
+          <div class="detail-item"><label>状态</label><span class="badge ${sk.enabled ? 'badge-green' : 'badge-gray'}">${sk.enabled ? '启用' : '禁用'}</span></div>
+          <div class="detail-item"><label>创建时间</label><span>${esc(sk.created_at || '未知')}</span></div>
+        </div>
+        <div class="detail-section">
+          <label>描述</label>
+          <p>${esc(sk.description || '暂无描述')}</p>
+        </div>
+        ${(sk.trigger_keywords && sk.trigger_keywords.length) ? `
+        <div class="detail-section">
+          <label>触发关键词</label>
+          <div class="skill-keywords">${sk.trigger_keywords.map(k => `<span class="skill-keyword">${esc(k)}</span>`).join('')}</div>
+        </div>` : ''}
+      </div>
+      <div class="modal-footer">
+        <button class="btn-outline modal-cancel-btn">关闭</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.querySelector('.modal-close-btn').addEventListener('click', () => overlay.remove());
+  overlay.querySelector('.modal-cancel-btn').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+}
+
+// Edit Skill
+function editSkill(id) {
+  const sk = state.skills.find(s => s.id === id);
+  if (!sk) return;
+  document.querySelector('.modal-overlay')?.remove();
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">
+        <h3>编辑 Skill</h3>
+        <button class="icon-btn modal-close-btn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Skill 名称</label>
+          <input type="text" id="edit-skill-name" value="${esc(sk.name)}">
+        </div>
+        <div class="form-group">
+          <label>描述</label>
+          <textarea id="edit-skill-desc">${esc(sk.description || '')}</textarea>
+        </div>
+        <div class="form-group">
+          <label>版本</label>
+          <input type="text" id="edit-skill-version" value="${esc(sk.version)}">
+        </div>
+        <div class="form-group">
+          <label>触发关键词（逗号分隔）</label>
+          <input type="text" id="edit-skill-keywords" value="${(sk.trigger_keywords || []).join(', ')}">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-outline modal-cancel-btn">取消</button>
+        <button class="btn-primary modal-save-btn">保存</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.querySelector('.modal-close-btn').addEventListener('click', () => overlay.remove());
+  overlay.querySelector('.modal-cancel-btn').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  overlay.querySelector('.modal-save-btn').addEventListener('click', async () => {
+    const name = overlay.querySelector('#edit-skill-name').value.trim();
+    const description = overlay.querySelector('#edit-skill-desc').value.trim();
+    const version = overlay.querySelector('#edit-skill-version').value.trim();
+    const keywordsRaw = overlay.querySelector('#edit-skill-keywords').value.trim();
+    const keywords = keywordsRaw ? keywordsRaw.split(/[,，]/).map(k => k.trim()).filter(Boolean) : [];
+    if (!name) { toast('error', '验证失败', '名称不能为空'); return; }
+    try {
+      const res = await fetch(`${API}/skills/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, description, version, trigger_keywords: keywords }),
+      });
+      if (res.ok) {
+        overlay.remove();
+        toast('success', '已更新', `Skill ${name} 已更新`);
+        loadSkills();
+      } else {
+        const data = await res.json();
+        toast('error', '更新失败', data.detail || '未知错误');
+      }
+    } catch (e) { toast('error', '更新失败', e.message); }
+  });
+}
+
+// Delete Skill
+async function deleteSkill(id) {
+  const sk = state.skills.find(s => s.id === id);
+  if (!sk) return;
+  if (!confirm(`确定要删除 Skill "${sk.name}" 吗？`)) return;
+  try {
+    const res = await fetch(`${API}/skills/${id}`, { method: 'DELETE' });
+    if (res.ok) {
+      toast('success', '已删除', `Skill ${sk.name} 已删除`);
+      loadSkills();
+    } else {
+      toast('error', '删除失败', '无法删除该 Skill');
+    }
+  } catch (e) { toast('error', '删除失败', e.message); }
 }
 
 // ============ Toast ============

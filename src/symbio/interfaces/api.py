@@ -10,6 +10,7 @@ import asyncio
 import json
 import uuid
 import time
+import yaml
 from pathlib import Path
 
 from symbio.utils.logger import get_logger
@@ -679,6 +680,169 @@ async def import_skill(skill: SkillImport):
     }
     skills_store.append(new_skill)
     return {"skill": new_skill}
+
+
+class SkillUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    version: Optional[str] = None
+    enabled: Optional[bool] = None
+    trigger_keywords: Optional[list[str]] = None
+
+
+@app.put("/api/skills/{skill_id}")
+async def update_skill(skill_id: str, update: SkillUpdate):
+    """更新 Skill"""
+    for sk in skills_store:
+        if sk["id"] == skill_id:
+            if update.name is not None:
+                sk["name"] = update.name
+            if update.description is not None:
+                sk["description"] = update.description
+            if update.version is not None:
+                sk["version"] = update.version
+            if update.enabled is not None:
+                sk["enabled"] = update.enabled
+            if update.trigger_keywords is not None:
+                sk["trigger_keywords"] = update.trigger_keywords
+            return {"skill": sk}
+    raise HTTPException(status_code=404, detail="Skill 不存在")
+
+
+@app.delete("/api/skills/{skill_id}")
+async def delete_skill(skill_id: str):
+    """删除 Skill"""
+    for i, sk in enumerate(skills_store):
+        if sk["id"] == skill_id:
+            skills_store.pop(i)
+            return {"success": True}
+    raise HTTPException(status_code=404, detail="Skill 不存在")
+
+
+@app.post("/api/skills/auto-detect")
+async def auto_detect_skills():
+    """自动检测已安装的 Skills（Claude Code、Codex 等）"""
+    import os
+    import glob as glob_mod
+
+    found = 0
+    detected = []
+
+    # 检测 Claude Code skills
+    cc_skill_dirs = [
+        os.path.expanduser("~/.claude/skills"),
+        os.path.expanduser("~/.claude/commands"),
+    ]
+    for dir_path in cc_skill_dirs:
+        if os.path.isdir(dir_path):
+            for item in os.listdir(dir_path):
+                item_path = os.path.join(dir_path, item)
+                if os.path.isdir(item_path) or item.endswith(('.md', '.yaml', '.json')):
+                    name = item.replace('.md', '').replace('.yaml', '').replace('.json', '')
+                    if not any(s["name"] == name for s in skills_store):
+                        skills_store.append({
+                            "id": f"sk-{uuid.uuid4().hex[:8]}",
+                            "name": name,
+                            "description": f"Auto-detected from Claude Code: {dir_path}",
+                            "version": "1.0.0",
+                            "source": "claude-code",
+                            "enabled": True,
+                            "trigger_keywords": [],
+                            "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                        })
+                        found += 1
+                        detected.append(name)
+
+    # 检测 Codex / OpenAI tools
+    codex_config = os.path.expanduser("~/.codex/config.json")
+    if os.path.exists(codex_config):
+        try:
+            with open(codex_config) as f:
+                config = json.load(f)
+            for tool in config.get("tools", []):
+                name = tool.get("name", "")
+                if name and not any(s["name"] == name for s in skills_store):
+                    skills_store.append({
+                        "id": f"sk-{uuid.uuid4().hex[:8]}",
+                        "name": name,
+                        "description": tool.get("description", f"Auto-detected from Codex"),
+                        "version": "1.0.0",
+                        "source": "codex",
+                        "enabled": True,
+                        "trigger_keywords": [],
+                        "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    })
+                    found += 1
+                    detected.append(name)
+        except Exception:
+            pass
+
+    return {"found": found, "detected": detected}
+
+
+class DirImportRequest(BaseModel):
+    path: str
+
+
+@app.post("/api/skills/import-dir")
+async def import_skills_from_dir(req: DirImportRequest):
+    """从目录批量导入 Skills"""
+    import os
+
+    dir_path = req.path
+    if not os.path.isdir(dir_path):
+        raise HTTPException(status_code=400, detail=f"目录不存在: {dir_path}")
+
+    imported = 0
+    for item in os.listdir(dir_path):
+        item_path = os.path.join(dir_path, item)
+        if os.path.isdir(item_path):
+            # 检查目录下是否有 skill 定义文件
+            manifest = None
+            for f in ["skill.yaml", "skill.json", "manifest.json", "manifest.yaml"]:
+                fp = os.path.join(item_path, f)
+                if os.path.exists(fp):
+                    manifest = fp
+                    break
+            if manifest:
+                try:
+                    with open(manifest) as f:
+                        if manifest.endswith('.json'):
+                            data = json.load(f)
+                        else:
+                            data = yaml.safe_load(f)
+                    name = data.get("name", item)
+                    if not any(s["name"] == name for s in skills_store):
+                        skills_store.append({
+                            "id": f"sk-{uuid.uuid4().hex[:8]}",
+                            "name": name,
+                            "description": data.get("description", f"Imported from {dir_path}"),
+                            "version": data.get("version", "1.0.0"),
+                            "source": "imported",
+                            "enabled": True,
+                            "trigger_keywords": data.get("trigger_keywords", []),
+                            "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                        })
+                        imported += 1
+                except Exception:
+                    pass
+        elif item.endswith(('.md', '.yaml', '.json')):
+            # 单文件 Skill
+            name = item.replace('.md', '').replace('.yaml', '').replace('.json', '')
+            if not any(s["name"] == name for s in skills_store):
+                skills_store.append({
+                    "id": f"sk-{uuid.uuid4().hex[:8]}",
+                    "name": name,
+                    "description": f"Imported from {dir_path}/{item}",
+                    "version": "1.0.0",
+                    "source": "imported",
+                    "enabled": True,
+                    "trigger_keywords": [],
+                    "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                })
+                imported += 1
+
+    return {"imported": imported}
 
 
 # ============ WebSocket ============
