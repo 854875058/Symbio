@@ -1065,16 +1065,15 @@ textarea::placeholder { color:var(--text-tertiary); }
 
 /* ============ Skills Page ============ */
 .skills-action-bar {
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; flex-direction: column;
   padding: 16px 24px;
   background: rgba(10,10,15,0.6); backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
-  gap: 16px;
 }
-.skills-action-left h2 { font-size: 1.1rem; font-weight: 600; white-space: nowrap; }
-.skills-action-center { flex: 1; display: flex; justify-content: center; }
-.skills-action-center .search-box { width: 100%; max-width: 400px; }
-.skills-action-right { display: flex; gap: 8px; align-items: center; }
+.skills-action-bar h2 { font-size: 1.1rem; font-weight: 600; margin-bottom: 12px; }
+.skills-action-bar .skills-action-right {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+}
 
 .skills-grid {
   flex:1; overflow-y:auto; padding:24px;
