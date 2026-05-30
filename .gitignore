@@ -59,3 +59,7 @@ htmlcov/
 # Distribution
 *.tar.gz
 *.whl
+symbio.yaml
+*.yaml
+*.env
+.env*
