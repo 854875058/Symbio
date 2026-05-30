@@ -444,10 +444,23 @@ textarea::placeholder { color:var(--text-tertiary); }
 /* ============ Tasks Page ============ */
 .page-header {
   display:flex; align-items:center; justify-content:space-between;
-  padding:16px 24px; border-bottom:1px solid var(--border);
+  padding:12px 24px; border-bottom:1px solid var(--border);
   background:rgba(10,10,15,0.6); backdrop-filter:blur(12px);
+  gap: 16px;
 }
-.page-header h2 { font-size:1.1rem; font-weight:600; }
+.page-header-left {
+  display:flex; align-items:center; gap:12px;
+}
+.page-header-left h2 { font-size:1.1rem; font-weight:600; white-space:nowrap; }
+.page-header-right {
+  display:flex; align-items:center; gap:8px;
+}
+.select-input {
+  padding:6px 12px; background:var(--bg-tertiary); border:1px solid var(--border);
+  color:var(--text-primary); font-family:var(--font-body); font-size:0.8rem;
+  border-radius:var(--radius-md); cursor:pointer; outline:none;
+}
+.select-input:focus { border-color:var(--accent); }
 .btn-outline {
   padding:6px 14px; border:1px solid var(--border); background:transparent;
   color:var(--text-secondary); font-family:var(--font-body);
