@@ -34,6 +34,84 @@ app.add_middleware(
 
 # ============ 内存数据存储 ============
 
+# 会话列表
+sessions_store: list[dict] = [
+    {
+        "id": "default",
+        "title": "新对话",
+        "created_at": "2026-05-28T10:00:00",
+        "updated_at": "2026-05-28T10:00:00",
+        "message_count": 0,
+    },
+]
+
+# 消息列表
+messages_store: list[dict] = []
+
+# Skills 列表
+skills_store: list[dict] = [
+    {
+        "id": "sk-001",
+        "name": "code-review",
+        "description": "Review code for correctness, security, and performance issues with detailed findings",
+        "version": "1.2.0",
+        "source": "builtin",
+        "enabled": True,
+        "trigger_keywords": ["代码审查", "code review", "review"],
+        "created_at": "2026-05-20T10:00:00",
+    },
+    {
+        "id": "sk-002",
+        "name": "doc-writer",
+        "description": "Generate technical documentation from code, APIs, or specifications",
+        "version": "1.0.3",
+        "source": "builtin",
+        "enabled": True,
+        "trigger_keywords": ["文档", "documentation", "docs"],
+        "created_at": "2026-05-20T10:00:00",
+    },
+    {
+        "id": "sk-003",
+        "name": "data-analyst",
+        "description": "Analyze datasets, generate statistics, and produce visualizations",
+        "version": "0.9.1",
+        "source": "custom",
+        "enabled": True,
+        "trigger_keywords": ["数据分析", "data analysis", "统计"],
+        "created_at": "2026-05-21T14:00:00",
+    },
+    {
+        "id": "sk-004",
+        "name": "test-generator",
+        "description": "Automatically generate unit tests and integration tests for given code",
+        "version": "1.1.0",
+        "source": "builtin",
+        "enabled": True,
+        "trigger_keywords": ["测试", "test", "单元测试"],
+        "created_at": "2026-05-22T09:00:00",
+    },
+    {
+        "id": "sk-005",
+        "name": "security-scanner",
+        "description": "Scan code and dependencies for known security vulnerabilities and CVEs",
+        "version": "2.0.1",
+        "source": "external",
+        "enabled": False,
+        "trigger_keywords": ["安全", "security", "CVE", "漏洞"],
+        "created_at": "2026-05-23T16:00:00",
+    },
+    {
+        "id": "sk-006",
+        "name": "translator",
+        "description": "Translate text between multiple languages with context-aware accuracy",
+        "version": "1.3.2",
+        "source": "builtin",
+        "enabled": True,
+        "trigger_keywords": ["翻译", "translate", "i18n"],
+        "created_at": "2026-05-24T11:00:00",
+    },
+]
+
 # 模型列表
 models_store: list[dict] = [
     {
@@ -246,7 +324,41 @@ async def health():
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
-    """对话接口 - 调用真实 LLM"""
+    """对话接口 - 调用真实 LLM，同时持久化消息"""
+    session_id = request.session_id or "default"
+    now_str = time.strftime("%Y-%m-%dT%H:%M:%S")
+
+    # 确保会话存在
+    session_exists = any(s["id"] == session_id for s in sessions_store)
+    if not session_exists:
+        sessions_store.append({
+            "id": session_id,
+            "title": request.message[:30] if request.message else "新对话",
+            "created_at": now_str,
+            "updated_at": now_str,
+            "message_count": 0,
+        })
+
+    # 保存用户消息
+    user_msg = {
+        "id": f"msg-{uuid.uuid4().hex[:12]}",
+        "session_id": session_id,
+        "role": "user",
+        "content": request.message,
+        "timestamp": now_str,
+        "tokens": 0,
+    }
+    messages_store.append(user_msg)
+
+    # 更新会话信息
+    for s in sessions_store:
+        if s["id"] == session_id:
+            s["updated_at"] = now_str
+            s["message_count"] = len([m for m in messages_store if m["session_id"] == session_id])
+            if s["title"] == "新对话":
+                s["title"] = request.message[:30]
+            break
+
     try:
         import anthropic
         from symbio.config.settings import Settings
@@ -265,7 +377,7 @@ async def chat(request: ChatRequest):
             return ChatResponse(
                 success=False,
                 content="错误: 未配置 API Key，请编辑 symbio.yaml 中的 anthropic_api_key",
-                session_id=request.session_id,
+                session_id=session_id,
             )
 
         client = anthropic.AsyncAnthropic(
@@ -292,18 +404,39 @@ async def chat(request: ChatRequest):
             "total": response.usage.input_tokens + response.usage.output_tokens,
         }
 
+        # 保存 AI 回复
+        ai_msg = {
+            "id": f"msg-{uuid.uuid4().hex[:12]}",
+            "session_id": session_id,
+            "role": "assistant",
+            "content": content,
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "tokens": token_usage["total"],
+        }
+        messages_store.append(ai_msg)
+
         return ChatResponse(
             success=True,
             content=content,
-            session_id=request.session_id,
+            session_id=session_id,
             token_usage=token_usage,
         )
     except Exception as e:
         logger.error(f"对话失败: {e}")
+        # 保存错误回复
+        error_msg = {
+            "id": f"msg-{uuid.uuid4().hex[:12]}",
+            "session_id": session_id,
+            "role": "assistant",
+            "content": f"错误: {str(e)}",
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "tokens": 0,
+        }
+        messages_store.append(error_msg)
         return ChatResponse(
             success=False,
             content=f"错误: {str(e)}",
-            session_id=request.session_id,
+            session_id=session_id,
         )
 
 
@@ -454,6 +587,100 @@ async def search_memories(q: str = Query("", description="搜索关键词")):
     return {"memories": results, "query": q}
 
 
+# ============ 会话 API ============
+
+@app.get("/api/sessions")
+async def list_sessions():
+    """返回会话列表，按更新时间倒序"""
+    sorted_sessions = sorted(sessions_store, key=lambda x: x.get("updated_at", ""), reverse=True)
+    return {
+        "sessions": sorted_sessions,
+        "total": len(sorted_sessions),
+    }
+
+
+@app.get("/api/sessions/{session_id}/messages")
+async def get_session_messages(session_id: str):
+    """返回指定会话的消息历史"""
+    session_exists = any(s["id"] == session_id for s in sessions_store)
+    if not session_exists:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    msgs = [m for m in messages_store if m["session_id"] == session_id]
+    msgs.sort(key=lambda x: x.get("timestamp", ""))
+    return {
+        "messages": msgs,
+        "total": len(msgs),
+        "session_id": session_id,
+    }
+
+
+# ============ Skills API ============
+
+@app.get("/api/skills")
+async def list_skills():
+    """返回 Skills 列表"""
+    return {
+        "skills": skills_store,
+        "total": len(skills_store),
+    }
+
+
+@app.get("/api/skills/search")
+async def search_skills(q: str = Query("", description="搜索关键词")):
+    """搜索 Skills（名称、描述、关键词匹配）"""
+    if not q:
+        return {"skills": skills_store, "query": q}
+
+    q_lower = q.lower()
+    results = []
+    for sk in skills_store:
+        score = 0.0
+        if q_lower in sk["name"].lower():
+            score += 0.5
+        if q_lower in sk.get("description", "").lower():
+            score += 0.3
+        for kw in sk.get("trigger_keywords", []):
+            if q_lower in kw.lower():
+                score += 0.2
+        if score > 0:
+            entry = {**sk, "relevance": round(score, 3)}
+            results.append(entry)
+
+    results.sort(key=lambda x: x["relevance"], reverse=True)
+    return {"skills": results, "query": q}
+
+
+class SkillImport(BaseModel):
+    name: str
+    description: str = ""
+    version: str = "1.0.0"
+    source: str = "imported"
+    enabled: bool = True
+    trigger_keywords: list[str] = []
+
+
+@app.post("/api/skills/import")
+async def import_skill(skill: SkillImport):
+    """导入一个新的 Skill"""
+    # 检查是否已存在同名 skill
+    for sk in skills_store:
+        if sk["name"] == skill.name:
+            raise HTTPException(status_code=400, detail=f"Skill '{skill.name}' 已存在")
+
+    new_skill = {
+        "id": f"sk-{uuid.uuid4().hex[:8]}",
+        "name": skill.name,
+        "description": skill.description,
+        "version": skill.version,
+        "source": skill.source,
+        "enabled": skill.enabled,
+        "trigger_keywords": skill.trigger_keywords,
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    skills_store.append(new_skill)
+    return {"skill": new_skill}
+
+
 # ============ WebSocket ============
 
 @app.websocket("/ws/chat")
@@ -469,6 +696,38 @@ async def websocket_chat(websocket: WebSocket):
             content = message.get("content", "")
             session_id = message.get("session_id", "default")
             model_override = message.get("model", None)
+            now_str = time.strftime("%Y-%m-%dT%H:%M:%S")
+
+            # 确保会话存在
+            session_exists = any(s["id"] == session_id for s in sessions_store)
+            if not session_exists:
+                sessions_store.append({
+                    "id": session_id,
+                    "title": content[:30] if content else "新对话",
+                    "created_at": now_str,
+                    "updated_at": now_str,
+                    "message_count": 0,
+                })
+
+            # 保存用户消息
+            user_msg = {
+                "id": f"msg-{uuid.uuid4().hex[:12]}",
+                "session_id": session_id,
+                "role": "user",
+                "content": content,
+                "timestamp": now_str,
+                "tokens": 0,
+            }
+            messages_store.append(user_msg)
+
+            # 更新会话
+            for s in sessions_store:
+                if s["id"] == session_id:
+                    s["updated_at"] = now_str
+                    s["message_count"] = len([m for m in messages_store if m["session_id"] == session_id])
+                    if s["title"] == "新对话":
+                        s["title"] = content[:30]
+                    break
 
             full_response = ""
             token_input = 0
@@ -534,6 +793,17 @@ async def websocket_chat(websocket: WebSocket):
                     "content": f"LLM 调用失败: {str(e)}",
                 }))
                 continue
+
+            # 保存 AI 回复
+            ai_msg = {
+                "id": f"msg-{uuid.uuid4().hex[:12]}",
+                "session_id": session_id,
+                "role": "assistant",
+                "content": full_response,
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "tokens": token_input + token_output,
+            }
+            messages_store.append(ai_msg)
 
             # 发送完成信号
             await websocket.send_text(json.dumps({

@@ -54,6 +54,10 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
           <span>记忆</span>
         </button>
+        <button class="nav-tab" data-page="skills">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
+          <span>Skills</span>
+        </button>
       </div>
       <div class="navbar-actions">
         <button class="icon-btn" title="Ctrl+K">
@@ -192,6 +196,27 @@
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
             <p>记忆库为空</p>
             <span class="empty-hint">对话中的重要信息会自动存储</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Skills Page -->
+      <div class="page" id="page-skills">
+        <div class="page-header">
+          <h2>Skills 管理</h2>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <div class="search-box">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" placeholder="搜索 Skills..." id="skills-search">
+            </div>
+            <button class="btn-primary" id="btn-import-skill">+ 导入 Skill</button>
+          </div>
+        </div>
+        <div class="skills-grid" id="skills-grid">
+          <div class="empty-state-lg">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
+            <p>暂无 Skills</p>
+            <span class="empty-hint">点击上方按钮导入或创建 Skill</span>
           </div>
         </div>
       </div>

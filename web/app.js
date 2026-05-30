@@ -15,6 +15,7 @@ const state = {
   tasks: [],
   taskFilter: 'all',
   memories: [],
+  skills: [],
   tokens: { input: 0, output: 0, total: 0 },
   cost: 0,
   connected: false,
@@ -47,6 +48,9 @@ const dom = {
   tasksGrid: $('#tasks-grid'),
   memoryGrid: $('#memory-grid'),
   memorySearch: $('#memory-search'),
+  skillsGrid: $('#skills-grid'),
+  skillsSearch: $('#skills-search'),
+  btnImportSkill: $('#btn-import-skill'),
 };
 
 // ============ Navigation ============
@@ -59,6 +63,7 @@ function switchPage(name) {
   if (name === 'models') loadModels();
   if (name === 'tasks') loadTasks();
   if (name === 'memory') loadMemories();
+  if (name === 'skills') loadSkills();
 }
 
 dom.navTabs.forEach(tab => {
@@ -81,6 +86,7 @@ function renderSessions() {
     el.addEventListener('click', () => {
       state.currentSession = el.dataset.id;
       renderSessions();
+      loadSessionMessages(el.dataset.id);
     });
   });
 }
@@ -950,6 +956,163 @@ dom.memorySearch?.addEventListener('input', () => {
   }, 300);
 });
 
+// ============ Skills Page ============
+async function loadSkills(query) {
+  try {
+    const url = query ? `${API}/skills/search?q=${encodeURIComponent(query)}` : `${API}/skills`;
+    const res = await fetch(url);
+    const data = await res.json();
+    state.skills = data.skills || [];
+    renderSkills(query);
+  } catch (e) {
+    toast('error', '加载 Skills 失败', e.message);
+  }
+}
+
+function renderSkills(query) {
+  if (state.skills.length === 0) {
+    dom.skillsGrid.innerHTML = `
+      <div class="empty-state-lg">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
+        <p>${query ? '未找到匹配的 Skills' : '暂无 Skills'}</p>
+        <span class="empty-hint">${query ? '尝试不同的搜索词' : '点击上方按钮导入或创建 Skill'}</span>
+      </div>
+    `;
+    return;
+  }
+
+  dom.skillsGrid.innerHTML = state.skills.map(sk => `
+    <div class="skill-card" data-id="${sk.id}">
+      <div class="skill-card-header">
+        <div class="skill-card-info">
+          <div class="skill-card-name">
+            <span class="skill-icon-wrap">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
+            </span>
+            ${esc(sk.name)}
+          </div>
+          <div class="skill-card-version">v${esc(sk.version)}</div>
+        </div>
+        <span class="skill-source-badge skill-source-${sk.source}">${esc(sk.source)}</span>
+      </div>
+      <div class="skill-card-desc">${esc(sk.description || '暂无描述')}</div>
+      <div class="skill-card-meta">
+        <div class="skill-keywords">
+          ${(sk.trigger_keywords || []).slice(0, 3).map(k => `<span class="skill-keyword">${esc(k)}</span>`).join('')}
+        </div>
+        <span class="badge ${sk.enabled ? 'badge-green' : 'badge-gray'}">${sk.enabled ? '启用' : '禁用'}</span>
+      </div>
+      ${sk.relevance !== undefined ? `<div class="skill-relevance">匹配度 ${(sk.relevance * 100).toFixed(0)}%</div>` : ''}
+    </div>
+  `).join('');
+}
+
+// Skills search
+let skillsSearchTimer = null;
+dom.skillsSearch?.addEventListener('input', () => {
+  clearTimeout(skillsSearchTimer);
+  skillsSearchTimer = setTimeout(() => {
+    const q = dom.skillsSearch.value.trim();
+    loadSkills(q || undefined);
+  }, 300);
+});
+
+// Import Skill
+dom.btnImportSkill?.addEventListener('click', showImportSkillModal);
+
+function showImportSkillModal() {
+  document.querySelector('.modal-overlay')?.remove();
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">
+        <h3>导入 Skill</h3>
+        <button class="icon-btn modal-close-btn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Skill 名称</label>
+          <input type="text" id="modal-skill-name" placeholder="例: my-custom-skill">
+        </div>
+        <div class="form-group">
+          <label>描述</label>
+          <input type="text" id="modal-skill-desc" placeholder="简要描述 Skill 功能">
+        </div>
+        <div class="form-group">
+          <label>版本</label>
+          <input type="text" id="modal-skill-version" placeholder="1.0.0" value="1.0.0">
+        </div>
+        <div class="form-group">
+          <label>来源</label>
+          <select id="modal-skill-source">
+            <option value="custom">自定义</option>
+            <option value="external">外部</option>
+            <option value="builtin">内置</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>触发关键词（逗号分隔）</label>
+          <input type="text" id="modal-skill-keywords" placeholder="关键词1, 关键词2">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-outline modal-cancel-btn">取消</button>
+        <button class="btn-primary modal-save-btn">导入</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  overlay.querySelector('.modal-close-btn').addEventListener('click', () => overlay.remove());
+  overlay.querySelector('.modal-cancel-btn').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+  overlay.querySelector('.modal-save-btn').addEventListener('click', async () => {
+    const name = overlay.querySelector('#modal-skill-name').value.trim();
+    const description = overlay.querySelector('#modal-skill-desc').value.trim();
+    const version = overlay.querySelector('#modal-skill-version').value.trim() || '1.0.0';
+    const source = overlay.querySelector('#modal-skill-source').value;
+    const keywordsRaw = overlay.querySelector('#modal-skill-keywords').value.trim();
+    const keywords = keywordsRaw ? keywordsRaw.split(/[,，]/).map(k => k.trim()).filter(Boolean) : [];
+
+    if (!name) {
+      toast('error', '验证失败', 'Skill 名称不能为空');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API}/skills/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          description,
+          version,
+          source,
+          enabled: true,
+          trigger_keywords: keywords,
+        }),
+      });
+
+      if (res.ok) {
+        overlay.remove();
+        toast('success', '已导入', `Skill ${name} 已导入`);
+        loadSkills();
+      } else {
+        const data = await res.json();
+        toast('error', '导入失败', data.detail || '未知错误');
+      }
+    } catch (e) {
+      toast('error', '导入失败', e.message);
+    }
+  });
+}
+
 // ============ Toast ============
 function toast(type, title, msg) {
   const el = document.createElement('div');
@@ -977,9 +1140,57 @@ function esc(text) {
   return d.innerHTML;
 }
 
+// ============ Sessions Sync ============
+async function loadSessions() {
+  try {
+    const res = await fetch(`${API}/sessions`);
+    const data = await res.json();
+    if (data.sessions && data.sessions.length > 0) {
+      state.sessions = data.sessions.map(s => ({
+        id: s.id,
+        title: s.title || '新对话',
+        time: formatTime(s.updated_at || s.created_at) || '刚刚',
+      }));
+      // Keep currentSession if it still exists, otherwise pick the first one
+      if (!state.sessions.find(s => s.id === state.currentSession)) {
+        state.currentSession = state.sessions[0].id;
+      }
+    }
+    renderSessions();
+  } catch (e) {
+    console.warn('加载会话列表失败，使用本地状态:', e.message);
+    renderSessions();
+  }
+}
+
+async function loadSessionMessages(sessionId) {
+  try {
+    const res = await fetch(`${API}/sessions/${sessionId}/messages`);
+    const data = await res.json();
+    if (data.messages) {
+      state.messages = data.messages.map(m => ({
+        role: m.role,
+        content: m.content,
+        timestamp: new Date(m.timestamp).getTime(),
+        tokens: m.tokens || 0,
+      }));
+      // Update token stats from loaded messages
+      let totalTokens = 0;
+      state.messages.forEach(m => { totalTokens += (m.tokens || 0); });
+      state.tokens.total = totalTokens;
+      updateStatus();
+    }
+    renderMessages();
+  } catch (e) {
+    console.warn('加载消息历史失败:', e.message);
+    state.messages = [];
+    renderMessages();
+  }
+}
+
 // ============ Init ============
 async function init() {
-  renderSessions();
+  await loadSessions();
   await checkHealth();
   connectWebSocket();
   setInterval(checkHealth, 30000);
