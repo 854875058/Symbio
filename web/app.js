@@ -56,16 +56,16 @@ const dom = {
 };
 
 // ============ Navigation ============
-function switchPage(name) {
+async function switchPage(name) {
   state.page = name;
   dom.navTabs.forEach(t => t.classList.toggle('active', t.dataset.page === name));
   dom.pages.forEach(p => p.classList.toggle('active', p.id === `page-${name}`));
 
-  // Load data when switching to a page
-  if (name === 'models') { loadModels(); loadConfig(); }
-  if (name === 'tasks') loadTasks();
-  if (name === 'memory') loadMemories();
-  if (name === 'skills') loadSkills();
+  // Load data when switching to a page (sequential to avoid race conditions)
+  if (name === 'models') { await loadModels(); await loadConfig(); }
+  if (name === 'tasks') await loadTasks();
+  if (name === 'memory') await loadMemories();
+  if (name === 'skills') await loadSkills();
 }
 
 dom.navTabs.forEach(tab => {
@@ -444,6 +444,7 @@ async function checkHealth() {
 
 // ============ Models Page ============
 async function loadModels() {
+  showLoading(dom.modelsGrid, '加载模型...');
   try {
     const res = await fetch(`${API}/models`);
     const data = await res.json();
@@ -451,6 +452,7 @@ async function loadModels() {
     renderModels();
   } catch (e) {
     toast('error', '加载模型失败', e.message);
+    dom.modelsGrid.innerHTML = `<div class="empty-state-lg"><p>加载失败，请重试</p></div>`;
   }
 }
 
@@ -664,6 +666,7 @@ function showAddModelModal() {
 
 // ============ Tasks Page ============
 async function loadTasks() {
+  showLoading(dom.tasksGrid, '加载任务...');
   try {
     const statusParam = state.taskFilter !== 'all' ? `?status=${state.taskFilter}` : '';
     const res = await fetch(`${API}/tasks${statusParam}`);
@@ -672,6 +675,7 @@ async function loadTasks() {
     renderTasks();
   } catch (e) {
     toast('error', '加载任务失败', e.message);
+    dom.tasksGrid.innerHTML = `<div class="empty-state-lg"><p>加载失败，请重试</p></div>`;
   }
 }
 
@@ -875,6 +879,7 @@ $('#btn-test-all-models')?.addEventListener('click', async () => {
 
 // ============ Memory Page ============
 async function loadMemories(query) {
+  showLoading(dom.memoryGrid, query ? '搜索记忆...' : '加载记忆...');
   try {
     const url = query ? `${API}/memory/search?q=${encodeURIComponent(query)}` : `${API}/memory`;
     const res = await fetch(url);
@@ -883,6 +888,7 @@ async function loadMemories(query) {
     renderMemories(query);
   } catch (e) {
     toast('error', '加载记忆失败', e.message);
+    dom.memoryGrid.innerHTML = `<div class="empty-state-lg"><p>加载失败，请重试</p></div>`;
   }
 }
 
@@ -994,6 +1000,7 @@ dom.memorySearch?.addEventListener('input', () => {
 
 // ============ Skills Page ============
 async function loadSkills(query) {
+  showLoading(dom.skillsGrid, query ? '搜索 Skills...' : '加载 Skills...');
   try {
     const url = query ? `${API}/skills/search?q=${encodeURIComponent(query)}` : `${API}/skills`;
     const res = await fetch(url);
@@ -1002,6 +1009,7 @@ async function loadSkills(query) {
     renderSkills(query);
   } catch (e) {
     toast('error', '加载 Skills 失败', e.message);
+    dom.skillsGrid.innerHTML = `<div class="empty-state-lg"><p>加载失败，请重试</p></div>`;
   }
 }
 
@@ -1388,6 +1396,15 @@ function esc(text) {
   const d = document.createElement('div');
   d.textContent = text;
   return d.innerHTML;
+}
+
+function showLoading(container, message = '加载中...') {
+  container.innerHTML = `
+    <div class="loading-state">
+      <div class="loading-spinner"></div>
+      <p>${message}</p>
+    </div>
+  `;
 }
 
 // ============ LLM Config ============
