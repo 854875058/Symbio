@@ -37,6 +37,7 @@ from .dag_engine import (
     TopologyChange,
 )
 from .event_bus import EventBus, Event
+from .memory_bridge import MemoryBridge, get_memory_bridge
 from .injection_guard import (
     AttackType,
     AuditRecord,
@@ -152,4 +153,7 @@ __all__ = [
     "shutdown_tracer",
     "trace_agent",
     "trace_tool",
+    # Memory Bridge
+    "MemoryBridge",
+    "get_memory_bridge",
 ]

@@ -21,6 +21,7 @@ from symbio.core.decomposer import TaskDecomposer
 from symbio.core.evaluator import ComplexityEvaluator
 from symbio.core.event_bus import Event, EventBus, EventType
 from symbio.core.guardrail import Guardrail
+from symbio.core.memory_bridge import MemoryBridge
 from symbio.core.rate_limiter import RateLimiter
 from symbio.core.router import ModelRouter
 from symbio.core.tracer import get_tracer
@@ -66,6 +67,12 @@ class Orchestrator:
         self.decomposer = TaskDecomposer()
         self.subagent_manager = SubAgentManager(self.registry, self.event_bus, self.rate_limiter)
         self.debate_engine = DebateEngine(use_llm=True)
+        self.memory_bridge = MemoryBridge()
+
+    async def initialize_memory(self) -> None:
+        """初始化记忆系统（在首次处理消息时调用）"""
+        if not self.memory_bridge._initialized:
+            await self.memory_bridge.initialize()
 
     async def process(self, message: Message) -> Result:
         """处理用户消息
@@ -128,6 +135,19 @@ class Orchestrator:
             root_span.set_attribute("task_id", task.task_id)
             root_span.set_attribute("model_id", model_id)
 
+        # 4.5. 记忆上下文增强（初始化记忆系统并注入相关记忆）
+        try:
+            await self.initialize_memory()
+            memory_context = await self.memory_bridge.enhance_context(
+                query=message.content,
+                session_id=message.session_id,
+            )
+            if memory_context:
+                task.metadata["memory_context"] = memory_context
+                logger.debug(f"记忆上下文已注入: {len(memory_context)} 字符")
+        except Exception as exc:
+            logger.debug(f"记忆上下文注入失败（不影响主流程）: {exc}")
+
         # 5. 签发资源支票
         ticket = self.guardrail.issue_ticket(task.task_id)
 
@@ -175,6 +195,16 @@ class Orchestrator:
         else:
             # --- 路径 C: 单 Agent 执行（原有逻辑） ---
             result = await self._execute_task(task, root_span)
+
+        # 8.5. 存储执行结果到记忆系统
+        try:
+            await self.memory_bridge.store_execution_result(
+                task_id=task.task_id,
+                result_content=result.content,
+                metadata={"success": result.success, "model": task.model},
+            )
+        except Exception as exc:
+            logger.debug(f"执行结果存储到记忆失败（不影响主流程）: {exc}")
 
         # Record result on root span
         if root_span is not None:
@@ -624,3 +654,25 @@ class Orchestrator:
                 "active_tickets": len(self.guardrail._tickets),
             },
         }
+
+    async def store_conversation(self, session_id: str, role: str, content: str) -> None:
+        """存储对话到记忆系统
+
+        Args:
+            session_id: 会话 ID
+            role: 角色 (user / assistant / system)
+            content: 对话内容
+        """
+        try:
+            await self.initialize_memory()
+            await self.memory_bridge.store_conversation(session_id, role, content)
+        except Exception as exc:
+            logger.debug(f"对话存储到记忆失败（不影响主流程）: {exc}")
+
+    def get_memory_stats(self) -> dict:
+        """获取记忆系统统计"""
+        try:
+            return self.memory_bridge.get_stats()
+        except Exception as exc:
+            logger.warning(f"获取记忆统计失败: {exc}")
+            return {"error": str(exc)}
