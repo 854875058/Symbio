@@ -42,6 +42,11 @@ env/
 .lancedb/
 data/lancedb/
 
+# SQLite
+data/symbio.db
+data/symbio.db-shm
+data/symbio.db-wal
+
 # Logs
 *.log
 logs/

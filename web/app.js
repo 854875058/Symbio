@@ -837,7 +837,41 @@ async function showTaskDetail(taskId) {
 }
 
 // Refresh button
-$('#page-tasks .btn-outline')?.addEventListener('click', loadTasks);
+$('#btn-refresh-tasks')?.addEventListener('click', loadTasks);
+
+// Task filter select (from page header)
+$('#task-filter')?.addEventListener('change', (e) => {
+  state.taskFilter = e.target.value;
+  loadTasks();
+});
+
+// Test all models button
+$('#btn-test-all-models')?.addEventListener('click', async () => {
+  if (state.models.length === 0) {
+    toast('info', '无模型', '尚未添加任何模型');
+    return;
+  }
+  toast('info', '测试中...', `正在测试 ${state.models.length} 个模型`);
+  let successCount = 0;
+  for (const m of state.models) {
+    try {
+      const res = await fetch(`${API}/models/${m.id}/test`, { method: 'POST' });
+      const data = await res.json();
+      const resultEl = document.getElementById(`test-result-${m.id}`);
+      if (resultEl) {
+        resultEl.innerHTML = `<div class="test-result ${data.success ? 'test-ok' : 'test-fail'}">${esc(data.message)}</div>`;
+      }
+      if (data.success) successCount++;
+    } catch (e) {
+      const resultEl = document.getElementById(`test-result-${m.id}`);
+      if (resultEl) {
+        resultEl.innerHTML = `<div class="test-result test-fail">请求失败: ${esc(e.message)}</div>`;
+      }
+    }
+  }
+  toast(successCount === state.models.length ? 'success' : 'error',
+    '测试完成', `${successCount}/${state.models.length} 个模型连接正常`);
+});
 
 // ============ Memory Page ============
 async function loadMemories(query) {
