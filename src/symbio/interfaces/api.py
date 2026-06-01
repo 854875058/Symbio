@@ -128,6 +128,28 @@ async def _load_llm_settings():
     return Settings()
 
 
+# ============ 对话常量 ============
+
+MAX_CONTEXT_MESSAGES = 20  # 对话历史最大条数，防止 token 溢出
+
+SYMBIO_SYSTEM_PROMPT = (
+    "你是 Symbio AI 助手，一个强大的多智能体协同框架。"
+    "你善于分析问题、编写代码、调用工具来完成复杂任务。请用中文回复。"
+)
+
+
+async def _build_history_messages(db, session_id: str, max_messages: int = MAX_CONTEXT_MESSAGES):
+    """从数据库获取会话历史，构建 Anthropic API 格式的消息列表"""
+    history = await db.list_messages_by_session(session_id)
+    # 只保留最近 N 条
+    if len(history) > max_messages:
+        history = history[-max_messages:]
+    messages = []
+    for msg in history:
+        messages.append({"role": msg["role"], "content": msg["content"]})
+    return messages
+
+
 # ============ API 路由 ============
 
 @app.get("/")
@@ -182,10 +204,15 @@ async def chat(request: ChatRequest):
         client = anthropic.AsyncAnthropic(api_key=api_key, base_url=base_url)
         model = request.model or settings.model.model_medium
 
+        # 构建含历史对话的消息列表
+        messages = await _build_history_messages(db, session_id)
+        logger.info(f"HTTP 对话 - 会话: {session_id}, 历史消息数: {len(messages)}")
+
         response = await client.messages.create(
             model=model,
             max_tokens=4096,
-            messages=[{"role": "user", "content": request.message}],
+            system=SYMBIO_SYSTEM_PROMPT,
+            messages=messages,
         )
 
         content = ""
@@ -643,11 +670,16 @@ async def websocket_chat(websocket: WebSocket):
                 client = anthropic.AsyncAnthropic(api_key=api_key, base_url=base_url)
                 model = model_override or settings.model.model_medium
 
+                # 构建含历史对话的消息列表
+                messages = await _build_history_messages(db, session_id)
+                logger.info(f"WebSocket 对话 - 会话: {session_id}, 历史消息数: {len(messages)}")
+
                 # 流式调用
                 async with client.messages.stream(
                     model=model,
                     max_tokens=4096,
-                    messages=[{"role": "user", "content": content}],
+                    system=SYMBIO_SYSTEM_PROMPT,
+                    messages=messages,
                 ) as stream:
                     async for text in stream.text_stream:
                         full_response += text
