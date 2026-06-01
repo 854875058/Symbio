@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Optional
+from contextlib import asynccontextmanager
+from typing import Any, AsyncIterator, Optional
 
 import httpx
 
@@ -19,6 +20,7 @@ from symbio.core.event_bus import Event, EventBus, EventType
 from symbio.core.guardrail import Guardrail
 from symbio.core.rate_limiter import RateLimiter
 from symbio.core.router import ModelRouter
+from symbio.core.tracer import get_tracer
 from symbio.utils.logger import get_logger
 from symbio.utils.types import (
     Intent,
@@ -30,6 +32,12 @@ from symbio.utils.types import (
 )
 
 logger = get_logger("orchestrator")
+
+
+@asynccontextmanager
+async def _nullcontext() -> AsyncIterator[None]:
+    """Async no-op context manager used when tracer is unavailable."""
+    yield None
 
 
 class Orchestrator:
@@ -61,26 +69,57 @@ class Orchestrator:
         Returns:
             执行结果
         """
+        tracer = get_tracer()
+
+        # If tracer is unavailable, run without tracing
+        if tracer is None:
+            return await self._process_inner(message)
+
+        async with tracer.span("orchestrator.process") as root_span:
+            return await self._process_inner(message, root_span)
+
+    async def _process_inner(self, message: Message, root_span=None) -> Result:
+        """内部处理逻辑，可选地被 Span 包裹。"""
         logger.info(f"收到消息: {message.content[:50]}...")
+        tracer = get_tracer()
 
         # 1. 解析意图
-        intent = await self._parse_intent(message)
-        logger.debug(f"解析意图: action={intent.action}, complexity={intent.estimated_complexity}")
+        async with tracer.span("orchestrator.intent_parsing") if tracer else _nullcontext():
+            intent = await self._parse_intent(message)
+            logger.debug(f"解析意图: action={intent.action}, complexity={intent.estimated_complexity}")
 
         # 2. 评估复杂度
-        complexity = await self.evaluator.evaluate(intent)
-        intent.estimated_complexity = complexity
-        logger.debug(f"评估复杂度: {complexity.value}")
+        async with tracer.span("orchestrator.complexity_evaluation") if tracer else _nullcontext():
+            complexity = await self.evaluator.evaluate(intent)
+            intent.estimated_complexity = complexity
+            logger.debug(f"评估复杂度: {complexity.value}")
 
         # 3. 选择模型
-        model_id = self.router.select(complexity)
-        logger.debug(f"选择模型: {model_id}")
+        async with tracer.span(
+            "orchestrator.model_selection",
+            attributes={"complexity": complexity.value},
+        ) if tracer else _nullcontext() as model_span:
+            model_id = self.router.select(complexity)
+            logger.debug(f"选择模型: {model_id}")
+            if model_span is not None:
+                model_span.set_attribute("model_id", model_id)
 
         # 4. 创建任务
-        task = Task(
-            intent=intent,
-            model=model_id,
-        )
+        async with tracer.span(
+            "orchestrator.task_creation",
+            attributes={"model_id": model_id},
+        ) if tracer else _nullcontext() as task_span:
+            task = Task(
+                intent=intent,
+                model=model_id,
+            )
+            if task_span is not None:
+                task_span.set_attribute("task_id", task.task_id)
+
+        # Set task_id on root span now that we have it
+        if root_span is not None:
+            root_span.set_attribute("task_id", task.task_id)
+            root_span.set_attribute("model_id", model_id)
 
         # 5. 签发资源支票
         ticket = self.guardrail.issue_ticket(task.task_id)
@@ -93,7 +132,23 @@ class Orchestrator:
         ))
 
         # 7. 查找并执行 Agent
-        result = await self._execute_task(task)
+        result = await self._execute_task(task, root_span)
+
+        # Record result on root span
+        if root_span is not None:
+            root_span.set_attribute("success", result.success)
+            root_span.add_event("task_completed", attributes={
+                "task_id": task.task_id,
+                "success": result.success,
+            })
+            # Record token usage as span event
+            if result.token_usage.total_tokens > 0:
+                root_span.add_event("token_usage", attributes={
+                    "input_tokens": result.token_usage.input_tokens,
+                    "output_tokens": result.token_usage.output_tokens,
+                    "total_tokens": result.token_usage.total_tokens,
+                    "model": result.token_usage.model,
+                })
 
         # 8. 释放资源支票
         self.guardrail.release_ticket(task.task_id)
@@ -239,11 +294,12 @@ class Orchestrator:
             logger.warning(f"OpenAI 意图解析失败: {exc}")
             return None
 
-    async def _execute_task(self, task: Task) -> Result:
+    async def _execute_task(self, task: Task, root_span=None) -> Result:
         """执行任务
 
         Args:
             task: 任务对象
+            root_span: 父 Span，用于设置 agent 属性
 
         Returns:
             执行结果
@@ -262,6 +318,10 @@ class Orchestrator:
                 content="没有可用的 Agent",
             )
 
+        # Record agent info on root span
+        if root_span is not None:
+            root_span.set_attribute("agent_name", agent.name)
+
         # 触发任务开始事件
         await self.event_bus.emit(Event(
             type=EventType.TASK_STARTED,
@@ -273,8 +333,26 @@ class Orchestrator:
             # 速率限制
             await self.rate_limiter.acquire(task.model)
 
-            # 执行任务
-            result = await agent.execute(task)
+            # 执行任务 -- wrapped in a child span
+            tracer = get_tracer()
+            async with tracer.span(
+                "orchestrator.agent_dispatch",
+                attributes={
+                    "agent_name": agent.name,
+                    "model_id": task.model,
+                    "task_id": task.task_id,
+                },
+            ) if tracer else _nullcontext():
+                result = await agent.execute(task)
+
+            # Record token usage on root span
+            if root_span is not None and result.token_usage.total_tokens > 0:
+                root_span.add_event("agent_token_usage", attributes={
+                    "agent_name": agent.name,
+                    "input_tokens": result.token_usage.input_tokens,
+                    "output_tokens": result.token_usage.output_tokens,
+                    "total_tokens": result.token_usage.total_tokens,
+                })
 
             # 触发任务完成事件
             await self.event_bus.emit(Event(
@@ -287,6 +365,11 @@ class Orchestrator:
 
         except Exception as e:
             logger.error(f"任务执行失败: {e}")
+
+            # Record exception on root span
+            if root_span is not None:
+                root_span.set_status("ERROR", str(e))
+                root_span.record_exception(e)
 
             # 触发任务失败事件
             await self.event_bus.emit(Event(

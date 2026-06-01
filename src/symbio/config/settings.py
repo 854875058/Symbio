@@ -122,6 +122,17 @@ class HITLConfig(BaseSettings):
     model_config = {"env_prefix": "SYMBIO_HITL_"}
 
 
+class OtelConfig(BaseSettings):
+    """OpenTelemetry tracing configuration."""
+
+    enabled: bool = Field(default=False, description="Enable OpenTelemetry tracing")
+    exporter: str = Field(default="otlp", description="Exporter type (jaeger/otlp/console)")
+    endpoint: str = Field(default="http://localhost:4317", description="OTLP gRPC endpoint (works with Jaeger >= 1.35)")
+    service_name: str = Field(default="symbio", description="OTel service name")
+
+    model_config = {"env_prefix": "SYMBIO_OTEL_"}
+
+
 class Settings(BaseSettings):
     """Root configuration."""
 
@@ -139,6 +150,7 @@ class Settings(BaseSettings):
     server: ServerConfig = Field(default_factory=ServerConfig)
     evolution: EvolutionConfig = Field(default_factory=EvolutionConfig)
     hitl: HITLConfig = Field(default_factory=HITLConfig)
+    otel: OtelConfig = Field(default_factory=OtelConfig)
 
     model_config = {"env_prefix": "SYMBIO_"}
 
