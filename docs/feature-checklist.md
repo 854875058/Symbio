@@ -71,10 +71,15 @@
 ## P2 — 锦上添花
 
 - [ ] 离线微调 Ray Train 集成（需 5 万条轨迹）
-- [ ] 多模态记忆（图片/音频/视频）
+- [x] 多模态记忆（图片/PDF/代码） — `memory/multimodal.py`
 - [ ] K8s Ephemeral Sandbox
-- [ ] DAG 分层路由评估（70%/15%/10%/5%）
+- [x] DAG 分层路由评估（70%/15%/10%/5%） — `core/layered_router.py`
 - [x] 并发状态合并（MapReduce + 乐观锁） — StateManager CAS 操作已实现
+- [x] 冷启动代码仓库扫描 — `memory/cold_start.py`
+- [x] Testing Agent 失败重试闭环 — `agents/testing_agent.py` TestDrivenLoop
+- [x] 工具懒加载接入 Orchestrator — orchestrator.py 集成
+- [x] 安全攻击样本库（50+） — `security/attack_samples.py`
+- [x] 三道保险丝（步数/预算/重复） — `core/layered_router.py` CircuitBreaker
 
 ---
 
@@ -88,3 +93,4 @@
 | 2026-06-01 | HITL 异步审批网关 | c031390 |
 | 2026-06-01 | P0 集成（Initializer+Testing+StateManager+HITL接入） | a93576d, edbf1a0 |
 | 2026-06-01 | P1+P2 全部实现（8 个新模块） | d91d3f1 |
+| 2026-06-01 | P2 补全：分层路由+冷启动+重试+多模态+攻击样本 | (多个) |
