@@ -40,31 +40,31 @@
 
 ### 文章 4：记忆系统为什么向量数据库不够用
 
-- [ ] 记忆压缩流水线（聚类→模式→规则→T-Box注入→冷存储归档）
-- [ ] 版本化记忆（更新保留历史，可追溯/可回滚/可审计）
-- [ ] 四层冲突解决（时间戳/可信度加权/因果推理/用户确认）
-- [ ] 三级噪音过滤（规则0ms→分类器10ms→LLM 200ms）
-- [ ] 记忆写入安全网关（经过安全检查后才写入）
-- [ ] 五层遗忘策略 L3 冲突覆盖 + L5 项目清理
+- [x] 记忆压缩流水线（聚类→模式→规则→T-Box注入→冷存储归档） — `memory/compression.py`
+- [x] 版本化记忆（更新保留历史，可追溯/可回滚/可审计） — `memory/versioning.py`
+- [x] 四层冲突解决（时间戳/可信度加权/因果推理/用户确认） — `memory/versioning.py`
+- [x] 三级噪音过滤（规则0ms→分类器10ms→LLM 200ms） — `memory/filters.py`
+- [x] 记忆写入安全网关（经过安全检查后才写入） — `memory/filters.py`
+- [x] 五层遗忘策略 L3 冲突覆盖 + L5 项目清理 — `memory/filters.py`
 
 ### 文章 5：安全防护PromptInjection三层防火墙
 
-- [ ] 信任区域划分（不可信/半可信/可信）
-- [ ] 记忆写入安全网关（符号规则+语义分类+来源验证）
-- [ ] 安全测试流水线（1000+ 攻击样本自动化测试）
+- [x] 信任区域划分（不可信/半可信/可信） — `security/trust_zones.py`
+- [x] 记忆写入安全网关（符号规则+语义分类+来源验证） — `memory/filters.py`
+- [x] 安全测试流水线（1000+ 攻击样本自动化测试） — `security/trust_zones.py`
 
 ### 文章 8：Token成本优化从PromptCache到语义缓存
 
-- [ ] 工具懒加载（项目级静态隔离 + DAG节点级动态加载）
-- [ ] Prompt Cache 保活 Ping（4分钟心跳）
-- [ ] 成本监控仪表盘（Token消耗/缓存命中率/路由分布）
-- [ ] 项目级成本预算管理（月度预算 + 80%自动降级）
+- [x] 工具懒加载（项目级静态隔离 + DAG节点级动态加载） — `tools/lazy_loader.py`
+- [x] Prompt Cache 保活 Ping（4分钟心跳） — `core/cost_monitor.py`
+- [x] 成本监控仪表盘（Token消耗/缓存命中率/路由分布） — `core/cost_monitor.py`
+- [x] 项目级成本预算管理（月度预算 + 80%自动降级） — `core/cost_monitor.py`
 
 ### 文章 6：数据飞轮让Agent越用越聪明
 
-- [ ] SOP 蒸馏质量阈值（成功率100%/Token<1.5x/步数<1.5x/重试≤1）
-- [ ] 异步非阻塞轨迹捕获（内存队列+批量写入+背压控制）
-- [ ] 冷启动种子 SOP 库
+- [x] SOP 蒸馏质量阈值（成功率100%/Token<1.5x/步数<1.5x/重试≤1） — `evolution/sop_distiller.py`
+- [x] 异步非阻塞轨迹捕获（内存队列+批量写入+背压控制） — `evolution/sop_distiller.py`
+- [x] 冷启动种子 SOP 库 — `evolution/sop_distiller.py`
 
 ---
 
@@ -74,7 +74,7 @@
 - [ ] 多模态记忆（图片/音频/视频）
 - [ ] K8s Ephemeral Sandbox
 - [ ] DAG 分层路由评估（70%/15%/10%/5%）
-- [ ] 并发状态合并（MapReduce + 乐观锁）
+- [x] 并发状态合并（MapReduce + 乐观锁） — StateManager CAS 操作已实现
 
 ---
 
