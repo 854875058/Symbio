@@ -13,8 +13,11 @@ try:
 except ImportError:
     openai = None  # type: ignore[assignment]
 
+from symbio.agents.debate import DebateEngine
 from symbio.agents.registry import get_registry
+from symbio.agents.subagent import SubAgentManager
 from symbio.config.settings import get_settings
+from symbio.core.decomposer import TaskDecomposer
 from symbio.core.evaluator import ComplexityEvaluator
 from symbio.core.event_bus import Event, EventBus, EventType
 from symbio.core.guardrail import Guardrail
@@ -29,6 +32,7 @@ from symbio.utils.types import (
     Result,
     Task,
     TaskComplexity,
+    TokenUsage,
 )
 
 logger = get_logger("orchestrator")
@@ -59,6 +63,9 @@ class Orchestrator:
         self.rate_limiter = RateLimiter()
         self.event_bus = EventBus()
         self.registry = get_registry()
+        self.decomposer = TaskDecomposer()
+        self.subagent_manager = SubAgentManager(self.registry, self.event_bus, self.rate_limiter)
+        self.debate_engine = DebateEngine(use_llm=True)
 
     async def process(self, message: Message) -> Result:
         """处理用户消息
@@ -131,8 +138,43 @@ class Orchestrator:
             source="orchestrator",
         ))
 
-        # 7. 查找并执行 Agent
-        result = await self._execute_task(task, root_span)
+        # 7. 分解任务（Phase 2 集成）
+        decomposition = None
+        try:
+            async with tracer.span("orchestrator.decomposition") if tracer else _nullcontext():
+                decomposition = await self.decomposer.decompose(intent, task.task_id)
+                logger.info(
+                    f"任务分解完成: subtasks={len(decomposition.subtasks)}, "
+                    f"needs_debate={decomposition.needs_debate}"
+                )
+
+            # 广播分解开始事件
+            await self.event_bus.emit(Event(
+                type=EventType.TASK_STARTED,
+                data={
+                    "task_id": task.task_id,
+                    "phase": "decomposition",
+                    "subtask_count": len(decomposition.subtasks),
+                    "needs_debate": decomposition.needs_debate,
+                },
+                source="orchestrator",
+            ))
+        except Exception as exc:
+            logger.warning(f"任务分解失败，降级到单 Agent 执行: {exc}")
+            decomposition = None
+
+        # 8. 根据分解结果选择执行策略
+        if decomposition and len(decomposition.subtasks) > 1 and decomposition.needs_debate:
+            # --- 路径 A: 多智能体辩论 ---
+            result = await self._execute_with_debate(task, decomposition, root_span)
+
+        elif decomposition and len(decomposition.subtasks) > 1:
+            # --- 路径 B: 子任务并行执行 ---
+            result = await self._execute_with_subagents(task, decomposition, root_span)
+
+        else:
+            # --- 路径 C: 单 Agent 执行（原有逻辑） ---
+            result = await self._execute_task(task, root_span)
 
         # Record result on root span
         if root_span is not None:
@@ -150,7 +192,7 @@ class Orchestrator:
                     "model": result.token_usage.model,
                 })
 
-        # 8. 释放资源支票
+        # 9. 释放资源支票
         self.guardrail.release_ticket(task.task_id)
 
         return result
@@ -383,6 +425,196 @@ class Orchestrator:
                 success=False,
                 content=f"任务执行失败: {str(e)}",
             )
+
+    async def _execute_with_subagents(
+        self, task: Task, decomposition, root_span=None
+    ) -> Result:
+        """通过 SubAgentManager 并行执行多个子任务。
+
+        Args:
+            task: 父任务对象。
+            decomposition: DecompositionResult 分解结果。
+            root_span: 父 Span。
+
+        Returns:
+            聚合后的执行结果。
+        """
+        tracer = get_tracer()
+        try:
+            async with tracer.span(
+                "orchestrator.subagent_execution",
+                attributes={
+                    "task_id": task.task_id,
+                    "subtask_count": len(decomposition.subtasks),
+                },
+            ) if tracer else _nullcontext():
+                aggregated = await self.subagent_manager.execute_subtasks(
+                    subtasks=decomposition.subtasks,
+                    parent_task=task,
+                    execution_order=decomposition.execution_order,
+                )
+
+            # 将聚合 token 用量转换为 TokenUsage
+            token_usage = self._token_usage_from_dict(aggregated.total_token_usage)
+
+            result = Result(
+                task_id=task.task_id,
+                success=aggregated.success,
+                content=aggregated.combined_content,
+                token_usage=token_usage,
+                data={
+                    "total_subtasks": aggregated.total_subtasks,
+                    "completed_subtasks": aggregated.completed_subtasks,
+                    "failed_subtasks": aggregated.failed_subtasks,
+                    "execution_mode": "subagent",
+                },
+            )
+
+            await self.event_bus.emit(Event(
+                type=EventType.TASK_COMPLETED,
+                data={
+                    "task_id": task.task_id,
+                    "success": result.success,
+                    "subtask_count": aggregated.total_subtasks,
+                },
+                source="orchestrator",
+            ))
+
+            return result
+
+        except Exception as e:
+            logger.error(f"子任务执行失败: {e}")
+            if root_span is not None:
+                root_span.set_status("ERROR", str(e))
+                root_span.record_exception(e)
+
+            await self.event_bus.emit(Event(
+                type=EventType.TASK_FAILED,
+                data={"task_id": task.task_id, "error": str(e)},
+                source="orchestrator",
+            ))
+
+            return Result(
+                task_id=task.task_id,
+                success=False,
+                content=f"子任务执行失败: {str(e)}",
+            )
+
+    async def _execute_with_debate(
+        self, task: Task, decomposition, root_span=None
+    ) -> Result:
+        """通过 DebateEngine 运行多智能体辩论后执行子任务。
+
+        先运行辩论获取最佳提案，再用子任务执行器落实。
+
+        Args:
+            task: 父任务对象。
+            decomposition: DecompositionResult 分解结果。
+            root_span: 父 Span。
+
+        Returns:
+            辩论与执行的综合结果。
+        """
+        tracer = get_tracer()
+        debate_content = ""
+
+        # Phase A: 运行辩论
+        try:
+            async with tracer.span(
+                "orchestrator.debate",
+                attributes={"task_id": task.task_id},
+            ) if tracer else _nullcontext():
+                topic = decomposition.original_intent or task.intent.raw_text
+                initial_proposal = (
+                    decomposition.subtasks[0].description
+                    if decomposition.subtasks
+                    else ""
+                )
+                session = await self.debate_engine.run_debate(
+                    topic=topic,
+                    initial_proposal=initial_proposal,
+                )
+                debate_content = session.final_proposal
+
+            logger.info(
+                f"辩论完成: session={session.session_id}, "
+                f"status={session.status.value}, rounds={len(session.rounds)}"
+            )
+        except Exception as exc:
+            logger.warning(f"辩论执行失败，降级到最后提案: {exc}")
+            debate_content = decomposition.subtasks[0].description if decomposition.subtasks else ""
+
+        # Phase B: 用子任务执行器落实辩论结果
+        try:
+            async with tracer.span(
+                "orchestrator.subagent_execution",
+                attributes={
+                    "task_id": task.task_id,
+                    "subtask_count": len(decomposition.subtasks),
+                },
+            ) if tracer else _nullcontext():
+                aggregated = await self.subagent_manager.execute_subtasks(
+                    subtasks=decomposition.subtasks,
+                    parent_task=task,
+                    execution_order=decomposition.execution_order,
+                )
+
+            token_usage = self._token_usage_from_dict(aggregated.total_token_usage)
+
+            # 合并辩论提案与子任务执行结果
+            combined = (
+                f"## 辩论提案\n{debate_content}\n\n"
+                f"## 执行结果\n{aggregated.combined_content}"
+                if debate_content
+                else aggregated.combined_content
+            )
+
+            result = Result(
+                task_id=task.task_id,
+                success=aggregated.success,
+                content=combined,
+                token_usage=token_usage,
+                data={
+                    "total_subtasks": aggregated.total_subtasks,
+                    "completed_subtasks": aggregated.completed_subtasks,
+                    "failed_subtasks": aggregated.failed_subtasks,
+                    "execution_mode": "debate",
+                    "debate_proposal": debate_content,
+                },
+            )
+
+        except Exception as exc:
+            logger.error(f"辩论后子任务执行失败: {exc}")
+            # 降级：仅返回辩论提案作为结果
+            result = Result(
+                task_id=task.task_id,
+                success=True,
+                content=debate_content or "辩论已完成但执行失败",
+                data={"execution_mode": "debate_fallback"},
+            )
+
+        await self.event_bus.emit(Event(
+            type=EventType.TASK_COMPLETED,
+            data={
+                "task_id": task.task_id,
+                "success": result.success,
+                "execution_mode": result.data.get("execution_mode", "debate"),
+            },
+            source="orchestrator",
+        ))
+
+        return result
+
+    @staticmethod
+    def _token_usage_from_dict(usage_dict: dict) -> TokenUsage:
+        """将字典格式的 token 用量转换为 TokenUsage 对象。"""
+        return TokenUsage(
+            input_tokens=usage_dict.get("input_tokens", 0),
+            output_tokens=usage_dict.get("output_tokens", 0),
+            total_tokens=usage_dict.get("total_tokens", 0),
+            model=", ".join(usage_dict.get("models", [])) if "models" in usage_dict else usage_dict.get("model", ""),
+            cost_usd=usage_dict.get("cost_usd", 0.0),
+        )
 
     def get_status(self) -> dict:
         """获取调度中枢状态"""
