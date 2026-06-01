@@ -14,6 +14,7 @@ except ImportError:
     openai = None  # type: ignore[assignment]
 
 from symbio.agents.debate import DebateEngine
+from symbio.core.hitl_gateway import ApprovalGateway, ApprovalRequest, ApprovalStatus, RiskLevel
 from symbio.agents.registry import get_registry
 from symbio.agents.subagent import SubAgentManager
 from symbio.config.settings import get_settings
@@ -24,6 +25,7 @@ from symbio.core.guardrail import Guardrail
 from symbio.core.memory_bridge import MemoryBridge
 from symbio.core.rate_limiter import RateLimiter
 from symbio.core.router import ModelRouter
+from symbio.core.state_manager import InstructionGenerator, StateManager, TaskPhase
 from symbio.core.tracer import get_tracer
 from symbio.utils.logger import get_logger
 from symbio.utils.types import (
@@ -68,6 +70,10 @@ class Orchestrator:
         self.subagent_manager = SubAgentManager(self.registry, self.event_bus, self.rate_limiter)
         self.debate_engine = DebateEngine(use_llm=True)
         self.memory_bridge = MemoryBridge()
+        self.state_manager = StateManager()
+        self.instruction_generator = InstructionGenerator()
+        self.hitl_gateway = ApprovalGateway()
+        self._pending_hitl_tasks: dict[str, Task] = {}  # request_id -> Task
 
     async def initialize_memory(self) -> None:
         """初始化记忆系统（在首次处理消息时调用）"""
@@ -135,6 +141,19 @@ class Orchestrator:
             root_span.set_attribute("task_id", task.task_id)
             root_span.set_attribute("model_id", model_id)
 
+        # 4.1. 初始化全局状态（StateManager 驱动的状态通信）
+        try:
+            await self.state_manager.initialize(
+                task_id=task.task_id,
+                requirements=message.content,
+            )
+            await self.state_manager.update(
+                lambda s: s.model_copy(update={"phase": TaskPhase.PLANNING})
+            )
+            logger.debug(f"全局状态初始化完成: task_id={task.task_id}")
+        except Exception as exc:
+            logger.warning(f"状态初始化失败（不影响主流程）: {exc}")
+
         # 4.5. 记忆上下文增强（初始化记忆系统并注入相关记忆）
         try:
             await self.initialize_memory()
@@ -179,6 +198,30 @@ class Orchestrator:
                 },
                 source="orchestrator",
             ))
+
+            # 更新状态：进入执行阶段，存储分解结果到 checklist
+            try:
+                await self.state_manager.update(
+                    lambda s: s.model_copy(update={
+                        "phase": TaskPhase.EXECUTING,
+                        "checklist": {
+                            "items": [
+                                {
+                                    "name": st.name,
+                                    "description": st.description,
+                                    "status": "pending",
+                                }
+                                for st in decomposition.subtasks
+                            ],
+                            "needs_debate": decomposition.needs_debate,
+                            "execution_order": decomposition.execution_order,
+                        },
+                    })
+                )
+                logger.debug(f"状态更新为 EXECUTING: subtasks={len(decomposition.subtasks)}")
+            except Exception as exc:
+                logger.warning(f"状态更新失败（不影响主流程）: {exc}")
+
         except Exception as exc:
             logger.warning(f"任务分解失败，降级到单 Agent 执行: {exc}")
             decomposition = None
@@ -195,6 +238,24 @@ class Orchestrator:
         else:
             # --- 路径 C: 单 Agent 执行（原有逻辑） ---
             result = await self._execute_task(task, root_span)
+
+        # 8.1. 更新全局状态：记录执行结果
+        try:
+            final_phase = TaskPhase.COMPLETED if result.success else TaskPhase.FAILED
+            await self.state_manager.update(
+                lambda s: s.model_copy(update={
+                    "phase": final_phase,
+                    "status": "completed" if result.success else "failed",
+                    "metadata": {
+                        **s.metadata,
+                        "result_summary": result.content[:500] if result.content else "",
+                        "model": task.model,
+                    },
+                })
+            )
+            logger.debug(f"状态更新为 {final_phase.value}: success={result.success}")
+        except Exception as exc:
+            logger.warning(f"状态更新失败（不影响主流程）: {exc}")
 
         # 8.5. 存储执行结果到记忆系统
         try:
@@ -653,7 +714,85 @@ class Orchestrator:
             "guardrail": {
                 "active_tickets": len(self.guardrail._tickets),
             },
+            "hitl_pending": len(self.hitl_gateway._pending),
         }
+
+    # ------------------------------------------------------------------
+    # HITL (Human-in-the-Loop) 集成
+    # ------------------------------------------------------------------
+
+    async def _check_hitl_required(self, task: Task) -> Optional[str]:
+        """检查任务是否需要 HITL 审批，返回 request_id 或 None
+
+        当任务 metadata 中 risk_level 为 medium/high/critical 时，
+        提交审批请求并返回 request_id；low 风险直接返回 None。
+
+        Args:
+            task: 任务对象
+
+        Returns:
+            审批请求 ID（需要审批时），或 None（无需审批）
+        """
+        risk_level_str = task.metadata.get("risk_level", "low")
+        try:
+            risk_level = RiskLevel(risk_level_str)
+        except ValueError:
+            risk_level = RiskLevel.LOW
+
+        if risk_level == RiskLevel.LOW:
+            return None
+
+        request = ApprovalRequest(
+            task_id=task.task_id,
+            action=f"执行任务: {task.intent.raw_text[:100]}",
+            impact_scope="单次任务执行",
+            reason="任务复杂度较高，需要人工确认",
+            risk_level=risk_level,
+        )
+        request_id = await self.hitl_gateway.submit_request(request)
+
+        # 暂存任务，等待审批后恢复
+        self._pending_hitl_tasks[request_id] = task
+
+        logger.info(
+            f"HITL 审批已提交: request_id={request_id}, "
+            f"task_id={task.task_id}, risk_level={risk_level.value}"
+        )
+        return request_id
+
+    async def resume_after_approval(self, request_id: str) -> Optional[Result]:
+        """在人工审批通过后继续执行任务
+
+        Args:
+            request_id: 审批请求 ID
+
+        Returns:
+            执行结果，如果审批未通过或任务不存在则返回 None
+        """
+        request = await self.hitl_gateway.get_request(request_id)
+        if request is None:
+            logger.warning(f"HITL 恢复失败: 请求 {request_id} 不存在")
+            return None
+
+        if request.status != ApprovalStatus.APPROVED:
+            logger.warning(
+                f"HITL 恢复失败: 请求 {request_id} 状态为 {request.status.value}，需要 APPROVED"
+            )
+            return None
+
+        task = self._pending_hitl_tasks.pop(request_id, None)
+        if task is None:
+            logger.warning(f"HITL 恢复失败: 任务 {request.task_id} 未在暂存中找到")
+            return None
+
+        logger.info(f"HITL 审批通过，恢复执行任务: task_id={task.task_id}")
+        result = await self._execute_task(task)
+
+        # 将审批信息附加到结果中
+        result.data["hitl_approved"] = True
+        result.data["hitl_request_id"] = request_id
+
+        return result
 
     async def store_conversation(self, session_id: str, role: str, content: str) -> None:
         """存储对话到记忆系统
@@ -676,3 +815,31 @@ class Orchestrator:
         except Exception as exc:
             logger.warning(f"获取记忆统计失败: {exc}")
             return {"error": str(exc)}
+
+    async def get_current_instruction(self) -> str:
+        """获取当前任务指令
+
+        从全局状态的 checklist 中生成面向 Agent 的任务指令，
+        实现状态驱动的零对话通信。
+
+        Returns:
+            当前任务指令文本
+        """
+        state = await self.state_manager.read()
+        return self.instruction_generator.generate_instruction(state)
+
+    async def clear_agent_session(self, agent_name: str) -> None:
+        """清空 Agent 会话历史（每轮任务完成后）
+
+        通过事件总线发出信号，由 Agent 自行清理上下文，
+        避免跨任务的上下文污染。
+
+        Args:
+            agent_name: 要清空会话的 Agent 名称
+        """
+        await self.event_bus.emit(Event(
+            type=EventType.AGENT_COMPLETED,
+            data={"agent": agent_name, "clear_session": True},
+            source="orchestrator",
+        ))
+        logger.debug(f"已发送会话清理信号: agent={agent_name}")

@@ -19,6 +19,7 @@ from pathlib import Path
 
 from symbio.interfaces.database import get_db, close_db
 from symbio.memory.manager import MemoryManager
+from symbio.core.hitl_gateway import ApprovalGateway, ApprovalRequest, ApprovalStatus, RiskLevel, WebhookPayload
 from symbio.utils.logger import get_logger
 
 logger = get_logger("api")
@@ -54,6 +55,9 @@ async def startup():
     except Exception as e:
         logger.warning(f"MemoryManager 初始化失败（将仅使用 SQLite）: {e}")
         app.state.memory_manager = None
+    # 初始化 HITL 审批网关
+    app.state.hitl_gateway = ApprovalGateway()
+    logger.info("HITL ApprovalGateway 已初始化")
     logger.info("Symbio API 已启动，数据库已连接")
 
 
@@ -751,6 +755,64 @@ async def update_config(update: ConfigUpdate):
     get_settings.cache_clear()
 
     return {"success": True}
+
+
+# ============ HITL 审批 API ============
+
+@app.get("/api/hitl/pending")
+async def get_pending_approvals():
+    """获取所有待审批请求"""
+    gateway = app.state.hitl_gateway
+    pending = await gateway.get_pending()
+    return {"requests": [r.model_dump() for r in pending], "total": len(pending)}
+
+
+@app.post("/api/hitl/submit")
+async def submit_approval_request(request: ApprovalRequest):
+    """提交审批请求"""
+    gateway = app.state.hitl_gateway
+    request_id = await gateway.submit_request(request)
+    return {"request_id": request_id, "status": "submitted"}
+
+
+@app.post("/api/hitl/{request_id}/approve")
+async def approve_request(request_id: str, approver_id: str = "web-user", comment: str = ""):
+    """审批通过"""
+    gateway = app.state.hitl_gateway
+    try:
+        result = await gateway.approve(request_id, approver_id, comment)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="审批请求不存在")
+    return {"request": result.model_dump()}
+
+
+@app.post("/api/hitl/{request_id}/reject")
+async def reject_request(request_id: str, approver_id: str = "web-user", comment: str = ""):
+    """审批拒绝"""
+    gateway = app.state.hitl_gateway
+    try:
+        result = await gateway.reject(request_id, approver_id, comment)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="审批请求不存在")
+    return {"request": result.model_dump()}
+
+
+@app.get("/api/hitl/{request_id}")
+async def get_approval_request(request_id: str):
+    """获取审批请求详情"""
+    gateway = app.state.hitl_gateway
+    request = await gateway.get_request(request_id)
+    if request is None:
+        raise HTTPException(status_code=404, detail="审批请求不存在")
+    return {"request": request.model_dump()}
+
+
+@app.get("/api/hitl/history")
+async def get_approval_history(limit: int = 50):
+    """获取审批历史"""
+    gateway = app.state.hitl_gateway
+    history = gateway._history[-limit:]
+    return {"history": [r.model_dump() for r in history], "total": len(history)}
 
 
 # ============ WebSocket ============
