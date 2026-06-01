@@ -1012,12 +1012,15 @@ def get_tool_registry() -> ToolRegistry:
 
 def _register_builtin_tools(registry: ToolRegistry) -> None:
     """注册内置工具。"""
+    from symbio.tools.submit_task import SubmitTaskTool
+
     builtins = [
         CCTool(),
         ShellTool(),
         FileTool(),
         GitTool(),
         BrowserTool(),
+        SubmitTaskTool(),
     ]
     registry.register_many(builtins)
     logger.info(f"已注册 {len(builtins)} 个内置工具。")
