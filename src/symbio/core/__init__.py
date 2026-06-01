@@ -72,6 +72,19 @@ from .semantic_cache import (
     SemanticCacheConfig,
     SemanticCacheEngine,
 )
+from .cost_monitor import (
+    AgentCost,
+    BudgetManager,
+    BudgetStatus,
+    CacheKeepAlive,
+    CostSummary,
+    CostTracker,
+    ModelCost,
+    UsageRecord,
+    get_budget_manager,
+    get_cost_tracker,
+    shutdown_cost_monitor,
+)
 from .tracer import (
     ExporterType,
     MetricType,
@@ -162,6 +175,18 @@ __all__ = [
     "shutdown_tracer",
     "trace_agent",
     "trace_tool",
+    # Cost Monitor
+    "AgentCost",
+    "BudgetManager",
+    "BudgetStatus",
+    "CacheKeepAlive",
+    "CostSummary",
+    "CostTracker",
+    "ModelCost",
+    "UsageRecord",
+    "get_budget_manager",
+    "get_cost_tracker",
+    "shutdown_cost_monitor",
     # Memory Bridge
     "MemoryBridge",
     "get_memory_bridge",
