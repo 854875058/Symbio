@@ -337,7 +337,8 @@ class MultiModalMemory:
         Returns:
             ProcessedContent 包含文本表示和元数据
         """
-        logger.info(f"处理内容: type={content_type.value}, length={len(content)}")
+        type_name = content_type.value if isinstance(content_type, ContentModality) else str(content_type)
+        logger.info(f"处理内容: type={type_name}, length={len(content)}")
 
         try:
             if content_type == ContentModality.TEXT:
@@ -350,15 +351,17 @@ class MultiModalMemory:
                 language = kwargs.get("language", "python")
                 return self._process_code(content, language)
             else:
+                modality = content_type if isinstance(content_type, ContentModality) else ContentModality.TEXT
                 return ProcessedContent(
-                    modality=content_type,
+                    modality=modality,
                     original_content=content,
-                    error=f"不支持的内容模态: {content_type}",
+                    error=f"不支持的内容模态: {type_name}",
                 )
         except Exception as e:
             logger.error(f"内容处理失败: {e}")
+            modality = content_type if isinstance(content_type, ContentModality) else ContentModality.TEXT
             return ProcessedContent(
-                modality=content_type,
+                modality=modality,
                 original_content=content,
                 error=str(e),
             )

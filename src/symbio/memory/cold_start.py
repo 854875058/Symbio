@@ -658,85 +658,86 @@ class ColdStartScanner:
                 pass
 
             # 简易 YAML 行解析（不依赖 PyYAML）
+            # 使用状态机：跟踪当前所处的 YAML 块
             current_service: Optional[str] = None
-            indent_level = -1
+            current_block: str = ""  # 当前正在解析的属性块 (ports/volumes/environment)
+            services_indent = -1
+            svc_indent = -1
+            block_indent = -1
 
             for line in content.splitlines():
                 if not line.strip() or line.strip().startswith("#"):
                     continue
 
+                current_indent = len(line) - len(line.lstrip())
+                stripped = line.strip()
+
                 # 检测 "services:" 块
                 if re.match(r"^services\s*:", line):
-                    indent_level = len(line) - len(line.lstrip())
+                    services_indent = current_indent
+                    current_block = ""
                     continue
 
-                if indent_level < 0:
+                if services_indent < 0:
                     continue
-
-                current_indent = len(line) - len(line.lstrip())
 
                 # 服务名（比 services 低一级缩进，以冒号结尾）
-                if current_indent == indent_level + 2:
-                    svc_match = re.match(r"^\s+(\w[\w-]*)\s*:", line)
+                if current_indent == services_indent + 2 and not stripped.startswith("-"):
+                    svc_match = re.match(r"^(\s+)(\w[\w-]*)\s*:", line)
                     if svc_match:
-                        current_service = svc_match.group(1)
+                        current_service = svc_match.group(2)
+                        svc_indent = current_indent
+                        current_block = ""
                         services.append(DockerService(name=current_service))
                         continue
 
-                # 服务属性
-                if current_service and current_indent > indent_level + 2:
+                # 服务属性（比服务名再低一级缩进）
+                if current_service and services and current_indent > svc_indent >= 0:
                     svc = services[-1]
 
-                    # image
-                    img_match = re.match(r"^\s+image\s*:\s*(\S+)", line)
-                    if img_match:
-                        svc.image = img_match.group(1)
-                        continue
+                    # 检测属性 key
+                    key_match = re.match(r"^\s+(\w[\w-]*)\s*:", line)
+                    if key_match:
+                        attr_name = key_match.group(1)
+                        # 检查是否是新的顶层属性（非列表项）
+                        if current_indent == svc_indent + 2:
+                            current_block = attr_name
+                            block_indent = current_indent
 
-                    # ports 列表项
-                    port_match = re.match(r"^\s+-\s+[\"']?(\d+(?::\d+)?[^\"']*)[\"']?", line)
-                    if port_match and "ports" in line.lower() or (
-                        port_match and svc.ports is not None
-                    ):
-                        # 更精确：检查上下文中是否在 ports 块
-                        # 简化处理：收集所有看起来像端口映射的行
-                        port_val = port_match.group(1)
-                        if re.match(r"\d+", port_val):
-                            # 只在当前行有端口标记时才加入
-                            if "port" not in line.lower() and not self._line_in_ports_block(
-                                content, line
-                            ):
-                                continue
-                            svc.ports.append(port_val)
+                            # image 是标量值，直接提取
+                            if attr_name == "image":
+                                img_val = re.match(r"^\s+image\s*:\s*(\S+)", line)
+                                if img_val:
+                                    svc.image = img_val.group(1)
+                                current_block = ""
                             continue
 
-                    # volumes 列表项
-                    vol_match = re.match(r'^\s+-\s+[\"\'/]([^"\']+)[\"\']?', line)
-                    if vol_match:
-                        # 简化处理
-                        pass
+                    # 列表项（以 "- " 开头）
+                    if stripped.startswith("- ") and current_block:
+                        item_val = stripped[2:].strip().strip("\"'")
 
-            return services
+                        if current_block == "ports":
+                            # 端口映射: "8080:80" 或 "8080:80/tcp"
+                            if re.match(r"\d+", item_val):
+                                svc.ports.append(item_val)
+                        elif current_block == "volumes":
+                            svc.volumes.append(item_val)
+                        elif current_block == "depends_on":
+                            svc.depends_on.append(item_val)
+                        continue
+
+                    # environment 键值对
+                    if current_block == "environment":
+                        env_match = re.match(r"^\s+(\w[\w-]*)\s*[:=]\s*(.+)", line)
+                        if env_match:
+                            key = env_match.group(1)
+                            val = env_match.group(2).strip().strip("\"'")
+                            svc.environment[key] = val
 
         except Exception as e:
             logger.warning(f"解析 docker-compose 失败: {e}")
-            return services
 
-    @staticmethod
-    def _line_in_ports_block(content: str, target_line: str) -> bool:
-        """检查目标行是否在 ports 块内（简易判断）"""
-        lines = content.splitlines()
-        for i, line in enumerate(lines):
-            if line == target_line:
-                # 向上查找最近的 key
-                for j in range(i - 1, max(i - 5, -1), -1):
-                    prev = lines[j].strip()
-                    if prev.startswith("ports"):
-                        return True
-                    if prev and not prev.startswith("-") and not prev.startswith("#"):
-                        return False
-                break
-        return False
+        return services
 
     # ------------------------------------------------------------------
     # .env.example 扫描

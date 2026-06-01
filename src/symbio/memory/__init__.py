@@ -1,4 +1,4 @@
-"""Memory system: ontology engine, memory manager, versioning."""
+"""Memory system: ontology engine, memory manager, versioning, cold start scanner."""
 
 from .manager import (
     ConversationSession,
@@ -39,6 +39,16 @@ from .versioning import (
     ResolutionStrategy,
     VersionedMemory,
 )
+from .cold_start import (
+    ColdStartScanner,
+    Dependency,
+    DockerInfo,
+    DockerService,
+    FileTypeInfo,
+    ProjectStructure,
+    ScanResult,
+    scan_and_populate,
+)
 
 __all__ = [
     # Memory Manager
@@ -77,4 +87,13 @@ __all__ = [
     "Resolution",
     "ResolutionStrategy",
     "VersionedMemory",
+    # Cold Start Scanner
+    "ColdStartScanner",
+    "Dependency",
+    "DockerInfo",
+    "DockerService",
+    "FileTypeInfo",
+    "ProjectStructure",
+    "ScanResult",
+    "scan_and_populate",
 ]
