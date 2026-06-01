@@ -8,31 +8,31 @@
 
 ### 文章 1：多Agent系统为什么总是过早宣布完成
 
-- [ ] `submit_task` 强制 Tool Calling 结束机制
-- [ ] JSON Checklist 数据模型（files/test/completion_criteria）
+- [x] `submit_task` 强制 Tool Calling 结束机制 — `tools/submit_task.py`
+- [x] JSON Checklist 数据模型（files/test/completion_criteria） — `agents/checklist.py`
 - [ ] Initializer Agent 任务开始时自动生成 Checklist
-- [ ] `submit_task` 验证逻辑（文件存在/非空/checklist 完成/测试通过）
+- [x] `submit_task` 验证逻辑（文件存在/非空/checklist 完成/测试通过） — ChecklistValidator
 - [ ] Testing Agent 闭环验证（pytest/npm test → 失败回退 → 重试）
-- [ ] 状态驱动通信（全局状态对象 Single Source of Truth）
+- [x] 状态驱动通信（全局状态对象 Single Source of Truth） — StateManager
 - [ ] 每轮任务完成后清空 Agent 会话历史
 
 ### 文章 2：Agent间通信的致命陷阱
 
-- [ ] StateManager 类（asyncio.Lock + read/update/CAS 操作）
-- [ ] 全局状态对象标准化结构（task_id/status/phase/checklist/files/tests/errors/metadata）
-- [ ] Orchestrator.generate_instruction（从 pending checklist 生成指令）
-- [ ] Orchestrator.get_minimal_context（最小上下文裁剪）
-- [ ] 状态持久化到 SQLite
-- [ ] Agent 间零对话通信集成
+- [x] StateManager 类（asyncio.Lock + read/update/CAS 操作） — `core/state_manager.py`
+- [x] 全局状态对象标准化结构（task_id/status/phase/checklist/files/tests/errors/metadata） — GlobalState
+- [x] Orchestrator.generate_instruction（从 pending checklist 生成指令） — InstructionGenerator
+- [x] Orchestrator.get_minimal_context（最小上下文裁剪） — InstructionGenerator
+- [x] 状态持久化到 SQLite — aiosqlite state_snapshots 表
+- [ ] Agent 间零对话通信集成（将 StateManager 接入 Orchestrator 主流程）
 
 ### 文章 7：HITL-Agent卡住了怎么办
 
-- [ ] 异步审批网关（冻结→通知→继续其他任务→回调→恢复）
-- [ ] 审批请求六要素（做什么/影响范围/为什么/替代方案/操作按钮/超时）
-- [ ] 分级审批（低/中/高/极高 → 自动通过/1人/2人/3人）
-- [ ] Webhook 回调端点（JWT 签名验证）
+- [x] 异步审批网关（冻结→通知→继续其他任务→回调→恢复） — `core/hitl_gateway.py`
+- [x] 审批请求六要素（做什么/影响范围/为什么/替代方案/操作按钮/超时） — ApprovalRequest
+- [x] 分级审批（低/中/高/极高 → 自动通过/1人/2人/3人） — RiskLevel
+- [x] Webhook 回调端点（JWT 签名验证） — generate/verify_approval_token
 - [ ] HITL 与 DAG 集成（节点标记 + 非阻塞）
-- [ ] 防审批疲劳（合并同类/智能升级/置信度加权）
+- [x] 防审批疲劳（合并同类/智能升级/置信度加权） — FatiguePreventer
 
 ---
 
@@ -83,6 +83,6 @@
 | 日期 | 完成项 | Commit |
 |------|--------|--------|
 | 2026-06-01 | Phase 1-3 基础架构 + 记忆系统 | (多个) |
-| | submit_task + Checklist 机制 | |
-| | StateManager + 零对话通信 | |
-| | HITL 异步审批网关 | |
+| 2026-06-01 | submit_task + Checklist 机制 | 4d8a96c |
+| 2026-06-01 | StateManager + 零对话通信 | affc805 |
+| 2026-06-01 | HITL 异步审批网关 | c031390 |
