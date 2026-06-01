@@ -27,6 +27,7 @@ from symbio.core.rate_limiter import RateLimiter
 from symbio.core.router import ModelRouter
 from symbio.core.state_manager import InstructionGenerator, StateManager, TaskPhase
 from symbio.core.tracer import get_tracer
+from symbio.tools.lazy_loader import ToolLazyLoader
 from symbio.utils.logger import get_logger
 from symbio.utils.types import (
     Intent,
@@ -73,6 +74,7 @@ class Orchestrator:
         self.state_manager = StateManager()
         self.instruction_generator = InstructionGenerator()
         self.hitl_gateway = ApprovalGateway()
+        self.tool_loader = ToolLazyLoader()
         self._pending_hitl_tasks: dict[str, Task] = {}  # request_id -> Task
 
     async def initialize_memory(self) -> None:
@@ -226,6 +228,21 @@ class Orchestrator:
             logger.warning(f"任务分解失败，降级到单 Agent 执行: {exc}")
             decomposition = None
 
+        # 7.5. 工具懒加载 — 按任务需求加载所需工具 Schema
+        try:
+            tool_schemas = self.tool_loader.load_for_node({
+                "node_id": task.task_id,
+                "tools": task.intent.requires_tools,
+            })
+            task.metadata["available_tools"] = [s.name for s in tool_schemas]
+            if tool_schemas:
+                logger.debug(
+                    f"工具懒加载完成: task_id={task.task_id}, "
+                    f"tools={[s.name for s in tool_schemas]}"
+                )
+        except Exception as exc:
+            logger.warning(f"工具懒加载失败（不影响主流程）: {exc}")
+
         # 8. 根据分解结果选择执行策略
         if decomposition and len(decomposition.subtasks) > 1 and decomposition.needs_debate:
             # --- 路径 A: 多智能体辩论 ---
@@ -266,6 +283,14 @@ class Orchestrator:
             )
         except Exception as exc:
             logger.debug(f"执行结果存储到记忆失败（不影响主流程）: {exc}")
+
+        # 8.6. 工具懒卸载 — 释放当前任务关联的工具 Schema
+        try:
+            unloaded = self.tool_loader.unload_node_tools(task.task_id)
+            if unloaded:
+                logger.debug(f"工具懒卸载完成: task_id={task.task_id}, unloaded={unloaded}")
+        except Exception as exc:
+            logger.warning(f"工具懒卸载失败（不影响主流程）: {exc}")
 
         # Record result on root span
         if root_span is not None:
@@ -814,6 +839,15 @@ class Orchestrator:
             return self.memory_bridge.get_stats()
         except Exception as exc:
             logger.warning(f"获取记忆统计失败: {exc}")
+            return {"error": str(exc)}
+
+    def get_tool_stats(self) -> dict:
+        """获取工具懒加载统计信息"""
+        try:
+            stats = self.tool_loader.get_stats()
+            return stats.model_dump()
+        except Exception as exc:
+            logger.warning(f"获取工具统计失败: {exc}")
             return {"error": str(exc)}
 
     async def get_current_instruction(self) -> str:

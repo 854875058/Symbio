@@ -86,3 +86,5 @@
 | 2026-06-01 | submit_task + Checklist 机制 | 4d8a96c |
 | 2026-06-01 | StateManager + 零对话通信 | affc805 |
 | 2026-06-01 | HITL 异步审批网关 | c031390 |
+| 2026-06-01 | P0 集成（Initializer+Testing+StateManager+HITL接入） | a93576d, edbf1a0 |
+| 2026-06-01 | P1+P2 全部实现（8 个新模块） | d91d3f1 |
