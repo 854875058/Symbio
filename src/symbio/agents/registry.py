@@ -6,7 +6,7 @@ from typing import Optional
 
 from symbio.agents.base import BaseAgent
 from symbio.utils.logger import get_logger
-from symbio.utils.types import Intent, TaskComplexity
+from symbio.utils.types import AgentState, Intent, TaskComplexity
 
 logger = get_logger("registry")
 
@@ -118,7 +118,3 @@ def register_agent(name: str = None):
         _registry.register(agent_class)
         return agent_class
     return decorator
-
-
-# 导入 AgentState 用于类型检查
-from symbio.utils.types import AgentState

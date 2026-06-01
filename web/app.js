@@ -25,6 +25,7 @@ const state = {
   wsReconnectTimer: null,
   streaming: false,
   streamContent: '',
+  config: {},
 };
 
 // ============ DOM ============
@@ -51,6 +52,7 @@ const dom = {
   skillsGrid: $('#skills-grid'),
   skillsSearch: $('#skills-search'),
   btnImportSkill: $('#btn-import-skill'),
+  configSection: $('#llm-config-section'),
 };
 
 // ============ Navigation ============
@@ -60,7 +62,7 @@ function switchPage(name) {
   dom.pages.forEach(p => p.classList.toggle('active', p.id === `page-${name}`));
 
   // Load data when switching to a page
-  if (name === 'models') loadModels();
+  if (name === 'models') { loadModels(); loadConfig(); }
   if (name === 'tasks') loadTasks();
   if (name === 'memory') loadMemories();
   if (name === 'skills') loadSkills();
@@ -1352,6 +1354,154 @@ function esc(text) {
   const d = document.createElement('div');
   d.textContent = text;
   return d.innerHTML;
+}
+
+// ============ LLM Config ============
+async function loadConfig() {
+  try {
+    const res = await fetch(`${API}/config`);
+    const data = await res.json();
+    state.config = data;
+    renderConfig();
+  } catch (e) {
+    console.warn('加载 LLM 配置失败:', e.message);
+    toast('error', '加载配置失败', e.message);
+  }
+}
+
+async function saveConfig() {
+  const anthropicKey = document.getElementById('config-anthropic-key')?.value?.trim() || '';
+  const anthropicUrl = document.getElementById('config-anthropic-url')?.value?.trim() || '';
+  const openaiKey = document.getElementById('config-openai-key')?.value?.trim() || '';
+  const openaiUrl = document.getElementById('config-openai-url')?.value?.trim() || '';
+  const modelLow = document.getElementById('config-model-low')?.value || '';
+  const modelMedium = document.getElementById('config-model-medium')?.value || '';
+  const modelHigh = document.getElementById('config-model-high')?.value || '';
+
+  try {
+    const res = await fetch(`${API}/config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        anthropic_api_key: anthropicKey,
+        anthropic_base_url: anthropicUrl,
+        openai_api_key: openaiKey,
+        openai_base_url: openaiUrl,
+        model_low: modelLow,
+        model_medium: modelMedium,
+        model_high: modelHigh,
+      }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success) {
+        toast('success', '配置已保存', 'LLM 配置已更新');
+        // Reload config to reflect saved state
+        await loadConfig();
+      } else {
+        toast('error', '保存失败', '服务器返回异常');
+      }
+    } else {
+      const data = await res.json();
+      toast('error', '保存失败', data.detail || '未知错误');
+    }
+  } catch (e) {
+    toast('error', '保存失败', e.message);
+  }
+}
+
+function renderConfig() {
+  if (!dom.configSection) return;
+  const c = state.config;
+
+  // Build model options from state.models
+  const modelOptions = state.models.map(m =>
+    `<option value="${esc(m.model_id)}">${esc(m.display_name || m.model_id)}</option>`
+  ).join('');
+
+  // Helper to create a <select> with pre-selected value
+  function tierSelect(id, selectedValue, label) {
+    const defaultOptions = [
+      { value: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku' },
+      { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
+      { value: 'claude-opus-4-20250514', label: 'Claude Opus 4' },
+    ];
+
+    // Merge: default options + models from state, deduplicated by model_id
+    const seen = new Set();
+    const allOptions = [];
+    for (const opt of defaultOptions) {
+      if (!seen.has(opt.value)) {
+        seen.add(opt.value);
+        allOptions.push(opt);
+      }
+    }
+    for (const m of state.models) {
+      if (!seen.has(m.model_id)) {
+        seen.add(m.model_id);
+        allOptions.push({ value: m.model_id, label: m.display_name || m.model_id });
+      }
+    }
+
+    const optionsHtml = allOptions.map(opt =>
+      `<option value="${esc(opt.value)}" ${opt.value === selectedValue ? 'selected' : ''}>${esc(opt.label)}</option>`
+    ).join('');
+
+    return `
+      <div class="form-group">
+        <label>${label}</label>
+        <select id="${id}">${optionsHtml}</select>
+      </div>
+    `;
+  }
+
+  dom.configSection.innerHTML = `
+    <div class="config-card">
+      <div class="config-card-header">
+        <h3>LLM 配置</h3>
+        <button class="btn-primary" id="btn-save-config">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          保存配置
+        </button>
+      </div>
+      <div class="config-card-body">
+        <div class="config-row">
+          <div class="config-group">
+            <div class="config-section-title">Anthropic</div>
+            <div class="form-group">
+              <label>API Key</label>
+              <input type="password" id="config-anthropic-key" value="${esc(c.anthropic_api_key || '')}" placeholder="sk-ant-...">
+            </div>
+            <div class="form-group">
+              <label>Base URL</label>
+              <input type="text" id="config-anthropic-url" value="${esc(c.anthropic_base_url || 'https://api.anthropic.com')}">
+            </div>
+          </div>
+          <div class="config-group">
+            <div class="config-section-title">OpenAI 兼容</div>
+            <div class="form-group">
+              <label>API Key</label>
+              <input type="password" id="config-openai-key" value="${esc(c.openai_api_key || '')}" placeholder="sk-...">
+            </div>
+            <div class="form-group">
+              <label>Base URL</label>
+              <input type="text" id="config-openai-url" value="${esc(c.openai_base_url || 'https://api.openai.com/v1')}">
+            </div>
+          </div>
+        </div>
+        <div class="config-section-title">模型路由</div>
+        <div class="config-tier-row">
+          ${tierSelect('config-model-low', c.model_low, '简单任务 (low)')}
+          ${tierSelect('config-model-medium', c.model_medium, '中等任务 (medium)')}
+          ${tierSelect('config-model-high', c.model_high, '复杂任务 (high)')}
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Attach save handler
+  document.getElementById('btn-save-config')?.addEventListener('click', saveConfig);
 }
 
 // ============ Sessions Sync ============

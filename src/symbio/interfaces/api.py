@@ -991,6 +991,70 @@ async def websocket_chat(websocket: WebSocket):
             pass
 
 
+# ============ 配置 API ============
+
+@app.get("/api/config")
+async def get_config():
+    """获取 LLM 配置"""
+    from symbio.config.settings import Settings
+
+    config_path = Path("symbio.yaml")
+    if config_path.exists():
+        settings = Settings.from_yaml(config_path)
+    else:
+        settings = Settings()
+
+    return {
+        "anthropic_api_key": settings.model.anthropic_api_key,
+        "anthropic_base_url": settings.model.anthropic_base_url,
+        "openai_api_key": settings.model.openai_api_key,
+        "openai_base_url": settings.model.openai_base_url,
+        "model_low": settings.model.model_low,
+        "model_medium": settings.model.model_medium,
+        "model_high": settings.model.model_high,
+    }
+
+
+class ConfigUpdate(BaseModel):
+    anthropic_api_key: Optional[str] = None
+    anthropic_base_url: Optional[str] = None
+    openai_api_key: Optional[str] = None
+    openai_base_url: Optional[str] = None
+    model_low: Optional[str] = None
+    model_medium: Optional[str] = None
+    model_high: Optional[str] = None
+
+
+@app.post("/api/config")
+async def update_config(update: ConfigUpdate):
+    """保存 LLM 配置"""
+    from symbio.config.settings import Settings
+
+    config_path = Path("symbio.yaml")
+    if config_path.exists():
+        settings = Settings.from_yaml(config_path)
+    else:
+        settings = Settings()
+
+    if update.anthropic_api_key is not None:
+        settings.model.anthropic_api_key = update.anthropic_api_key
+    if update.anthropic_base_url is not None:
+        settings.model.anthropic_base_url = update.anthropic_base_url
+    if update.openai_api_key is not None:
+        settings.model.openai_api_key = update.openai_api_key
+    if update.openai_base_url is not None:
+        settings.model.openai_base_url = update.openai_base_url
+    if update.model_low is not None:
+        settings.model.model_low = update.model_low
+    if update.model_medium is not None:
+        settings.model.model_medium = update.model_medium
+    if update.model_high is not None:
+        settings.model.model_high = update.model_high
+
+    settings.to_yaml(config_path)
+    return {"success": True}
+
+
 # ============ 静态文件 ============
 
 web_dir = Path(__file__).parent.parent.parent.parent / "web"
