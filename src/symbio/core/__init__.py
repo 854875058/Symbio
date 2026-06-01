@@ -38,6 +38,15 @@ from .dag_engine import (
 )
 from .event_bus import EventBus, Event
 from .memory_bridge import MemoryBridge, get_memory_bridge
+from .state_manager import (
+    ErrorRecord,
+    FileInfo,
+    GlobalState,
+    InstructionGenerator,
+    StateManager,
+    TaskPhase,
+    TestResults,
+)
 from .injection_guard import (
     AttackType,
     AuditRecord,
@@ -156,4 +165,12 @@ __all__ = [
     # Memory Bridge
     "MemoryBridge",
     "get_memory_bridge",
+    # State Manager
+    "ErrorRecord",
+    "FileInfo",
+    "GlobalState",
+    "InstructionGenerator",
+    "StateManager",
+    "TaskPhase",
+    "TestResults",
 ]
