@@ -11,6 +11,7 @@
 - SOPDistiller: 从成功轨迹蒸馏标准操作流程（SOP）
 - AsyncTrajectoryCapture: 异步内存队列捕获轨迹步骤，后台批量写入
 - SeedSOP: 内置种子 SOP（代码生成、调试、数据分析、API 集成、部署）
+- OfflineFineTuner: 离线微调基础设施（数据准备、校验、Ray Train 集成）
 """
 
 from symbio.evolution.dataset_exporter import (
@@ -77,6 +78,14 @@ from symbio.evolution.sop_distiller import (
     StepPriority,
     TrajectoryData,
     TrajectoryQueueStats,
+)
+from symbio.evolution.fine_tuner import (
+    FineTuneConfig,
+    FineTuneJob,
+    JobStatus,
+    OfflineFineTuner,
+    TrainingMetrics,
+    ValidationReport,
 )
 from symbio.evolution.eval_pipeline import (
     ActualToolCall,
@@ -162,6 +171,13 @@ __all__ = [
     "PerformanceRecord",
     "PerformanceSummary",
     "SelfOptimizer",
+    # fine_tuner
+    "FineTuneConfig",
+    "FineTuneJob",
+    "JobStatus",
+    "OfflineFineTuner",
+    "TrainingMetrics",
+    "ValidationReport",
     # eval_pipeline
     "ActualToolCall",
     "BaselineManager",
