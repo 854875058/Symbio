@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import json
+import time
 from datetime import datetime
 from enum import Enum
 from typing import Any, Callable, Optional
 from uuid import uuid4
 
+import httpx
 from pydantic import BaseModel, Field
 
+from symbio.config.settings import get_settings
 from symbio.utils.logger import get_logger
 
 logger = get_logger("agents.debate")
@@ -193,6 +197,269 @@ class RefinerStrategy(RoleStrategy):
 
 
 # ---------------------------------------------------------------------------
+# LLM 驱动策略
+# ---------------------------------------------------------------------------
+
+class _LLMRoleStrategy(RoleStrategy):
+    """LLM 驱动角色策略基类 - 通过 Anthropic API 生成真实推理内容"""
+
+    # 子类必须覆盖
+    _system_prompt: str = ""
+
+    def __init__(self, role: DebateRole, settings: Any | None = None):
+        super().__init__(role)
+        self._settings = settings or get_settings()
+        self._call_count: int = 0
+        self._total_tokens: int = 0
+
+    @property
+    def call_count(self) -> int:
+        return self._call_count
+
+    @property
+    def total_tokens(self) -> int:
+        return self._total_tokens
+
+    def _format_history(self, history: list[DebateRound]) -> str:
+        """将辩论历史格式化为可读上下文"""
+        if not history:
+            return "No previous rounds."
+        lines: list[str] = []
+        for r in history:
+            lines.append(f"Round {r.round_number}:")
+            if r.proposal:
+                lines.append(f"  - Proposer: {r.proposal.content}")
+            if r.critique:
+                lines.append(f"  - Critic: {r.critique.content}")
+            if r.refinement:
+                lines.append(f"  - Refiner: {r.refinement.content}")
+            lines.append(f"  Consensus score: {r.consensus_score:.2f}")
+            lines.append("")
+        return "\n".join(lines)
+
+    async def _call_llm(self, user_message: str) -> dict[str, Any] | None:
+        """调用 Anthropic Messages API 并返回解析后的 JSON dict
+
+        Returns:
+            解析成功返回 dict，失败返回 None
+        """
+        mc = self._settings.model
+        if not mc.anthropic_api_key:
+            logger.debug(f"{self.role.value} LLM 策略: 无 API key，将降级到模板")
+            return None
+
+        try:
+            url = mc.anthropic_base_url.rstrip("/") + "/v1/messages"
+            headers = {
+                "x-api-key": mc.anthropic_api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            }
+            body = {
+                "model": mc.model_low,
+                "max_tokens": 1024,
+                "system": self._system_prompt,
+                "messages": [{"role": "user", "content": user_message}],
+            }
+
+            async with httpx.AsyncClient(timeout=60) as client:
+                resp = await client.post(url, json=body, headers=headers)
+                resp.raise_for_status()
+
+            data = resp.json()
+            text = data["content"][0]["text"].strip()
+
+            # 追踪 token 使用
+            usage = data.get("usage", {})
+            input_tokens = usage.get("input_tokens", 0)
+            output_tokens = usage.get("output_tokens", 0)
+            self._total_tokens += input_tokens + output_tokens
+            self._call_count += 1
+
+            # 尝试从 JSON 块或纯文本中提取 JSON
+            return self._parse_json_response(text)
+
+        except Exception as exc:
+            logger.warning(f"{self.role.value} LLM 调用失败: {exc}")
+            return None
+
+    @staticmethod
+    def _parse_json_response(text: str) -> dict[str, Any] | None:
+        """从 LLM 响应文本中提取 JSON 对象"""
+        # 先尝试直接解析
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+
+        # 尝试从 ```json ... ``` 代码块中提取
+        if "```" in text:
+            start = text.find("{")
+            end = text.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                try:
+                    return json.loads(text[start : end + 1])
+                except json.JSONDecodeError:
+                    pass
+
+        # 尝试找到第一个 { 到最后一个 }
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            try:
+                return json.loads(text[start : end + 1])
+            except json.JSONDecodeError:
+                pass
+
+        logger.debug(f"无法从 LLM 响应中提取 JSON: {text[:200]}")
+        return None
+
+    def _build_user_message(
+        self,
+        topic: str,
+        history: list[DebateRound],
+        current_proposal: str,
+    ) -> str:
+        """构造发送给 LLM 的用户消息"""
+        history_text = self._format_history(history)
+        return (
+            f"Debate topic: {topic}\n\n"
+            f"Current proposal: {current_proposal or '(none yet)'}\n\n"
+            f"Debate history:\n{history_text}\n\n"
+            f"Please respond with your JSON output."
+        )
+
+    async def generate_argument(
+        self,
+        topic: str,
+        history: list[DebateRound],
+        current_proposal: str,
+    ) -> Argument:
+        """生成发言 - 优先使用 LLM，失败则降级到模板"""
+        user_message = self._build_user_message(topic, history, current_proposal)
+        llm_result = await self._call_llm(user_message)
+
+        if llm_result and isinstance(llm_result, dict):
+            content = llm_result.get("content", "")
+            reasoning = llm_result.get("reasoning", "")
+            confidence_raw = llm_result.get("confidence", 0.5)
+            try:
+                confidence = float(confidence_raw)
+                confidence = max(0.0, min(1.0, confidence))
+            except (TypeError, ValueError):
+                confidence = 0.5
+
+            if content:
+                return Argument(
+                    role=self.role,
+                    round_number=len(history) + 1,
+                    content=content,
+                    reasoning=reasoning or f"LLM 驱动的{self.role.value}分析",
+                    confidence=confidence,
+                )
+
+        # 降级到模板策略
+        logger.info(f"{self.role.value} LLM 未返回有效内容，降级到模板策略")
+        return await self._fallback_argument(topic, history, current_proposal)
+
+    async def _fallback_argument(
+        self,
+        topic: str,
+        history: list[DebateRound],
+        current_proposal: str,
+    ) -> Argument:
+        """子类必须实现的模板降级逻辑"""
+        raise NotImplementedError
+
+
+class LLMProposerStrategy(_LLMRoleStrategy):
+    """LLM 驱动的提案者策略"""
+
+    _system_prompt = (
+        "You are the PROPOSER in a multi-agent debate. "
+        "Your job is to create or improve a proposal.\n"
+        "Be specific, actionable, and thorough. Support your ideas with reasoning.\n"
+        'Respond in JSON: {"content": "your proposal", "reasoning": "your reasoning", "confidence": 0.0-1.0}'
+    )
+
+    def __init__(self, settings: Any | None = None):
+        super().__init__(DebateRole.PROPOSER, settings)
+
+    async def _fallback_argument(
+        self,
+        topic: str,
+        history: list[DebateRound],
+        current_proposal: str,
+    ) -> Argument:
+        content = f"针对主题「{topic}」的提案: {current_proposal or '需要制定详细方案'}"
+        return Argument(
+            role=self.role,
+            round_number=len(history) + 1,
+            content=content,
+            reasoning="基于主题分析和已有讨论生成提案",
+            confidence=0.7,
+        )
+
+
+class LLMCriticStrategy(_LLMRoleStrategy):
+    """LLM 驱动的批评者策略"""
+
+    _system_prompt = (
+        "You are the CRITIC in a multi-agent debate. "
+        "Your job is to identify weaknesses, risks, and gaps.\n"
+        "Be constructive but thorough. Point out specific issues and suggest improvements.\n"
+        'Respond in JSON: {"content": "your critique", "reasoning": "your reasoning", "confidence": 0.0-1.0}'
+    )
+
+    def __init__(self, settings: Any | None = None):
+        super().__init__(DebateRole.CRITIC, settings)
+
+    async def _fallback_argument(
+        self,
+        topic: str,
+        history: list[DebateRound],
+        current_proposal: str,
+    ) -> Argument:
+        content = f"对当前提案「{current_proposal}」的审查意见: 需要进一步完善细节和边界条件"
+        return Argument(
+            role=self.role,
+            round_number=len(history) + 1,
+            content=content,
+            reasoning="对提案进行批判性分析",
+            confidence=0.6,
+        )
+
+
+class LLMRefinerStrategy(_LLMRoleStrategy):
+    """LLM 驱动的精炼者策略"""
+
+    _system_prompt = (
+        "You are the REFINER in a multi-agent debate. "
+        "Synthesize the proposal and critique into an improved version.\n"
+        "Address the critic's concerns while preserving the proposal's strengths.\n"
+        'Respond in JSON: {"content": "refined proposal", "reasoning": "your reasoning", "confidence": 0.0-1.0}'
+    )
+
+    def __init__(self, settings: Any | None = None):
+        super().__init__(DebateRole.REFINER, settings)
+
+    async def _fallback_argument(
+        self,
+        topic: str,
+        history: list[DebateRound],
+        current_proposal: str,
+    ) -> Argument:
+        content = f"综合讨论后改进方案: 在「{current_proposal}」基础上进行优化"
+        return Argument(
+            role=self.role,
+            round_number=len(history) + 1,
+            content=content,
+            reasoning="综合提案和批评意见进行精炼",
+            confidence=0.75,
+        )
+
+
+# ---------------------------------------------------------------------------
 # 共识检测器
 # ---------------------------------------------------------------------------
 
@@ -291,10 +558,30 @@ class DebateEngine:
         consensus_detector: ConsensusDetector | None = None,
         max_rounds: int = 5,
         consensus_threshold: float = 0.8,
+        use_llm: bool = True,
     ):
-        self.proposer = proposer or ProposerStrategy()
-        self.critic = critic or CriticStrategy()
-        self.refiner = refiner or RefinerStrategy()
+        self._use_llm = use_llm
+        if proposer is not None:
+            self.proposer = proposer
+        elif use_llm:
+            self.proposer = LLMProposerStrategy()
+        else:
+            self.proposer = ProposerStrategy()
+
+        if critic is not None:
+            self.critic = critic
+        elif use_llm:
+            self.critic = LLMCriticStrategy()
+        else:
+            self.critic = CriticStrategy()
+
+        if refiner is not None:
+            self.refiner = refiner
+        elif use_llm:
+            self.refiner = LLMRefinerStrategy()
+        else:
+            self.refiner = RefinerStrategy()
+
         self.consensus_detector = consensus_detector or ConsensusDetector(
             threshold=consensus_threshold
         )
@@ -333,9 +620,11 @@ class DebateEngine:
         logger.info(f"辩论开始: session={session.session_id}, topic={topic}, max_rounds={self.max_rounds}")
 
         current_proposal = initial_proposal
+        round_durations: list[float] = []
 
         for round_num in range(1, self.max_rounds + 1):
             logger.info(f"辩论第 {round_num} 轮开始")
+            round_start = time.monotonic()
 
             debate_round = DebateRound(
                 round_number=round_num,
@@ -380,10 +669,13 @@ class DebateEngine:
             debate_round.status = DebateRoundStatus.COMPLETED
             debate_round.completed_at = datetime.now()
 
+            round_elapsed = time.monotonic() - round_start
+            round_durations.append(round_elapsed)
+
             session.rounds.append(debate_round)
             logger.info(
                 f"辩论第 {round_num} 轮完成: consensus_score={consensus.score:.2f}, "
-                f"is_consensus={consensus.is_consensus}"
+                f"is_consensus={consensus.is_consensus}, duration={round_elapsed:.2f}s"
             )
 
             if consensus.is_consensus:
@@ -392,6 +684,7 @@ class DebateEngine:
                 session.final_proposal = current_proposal
                 session.final_consensus = consensus
                 session.completed_at = datetime.now()
+                self._add_debate_summary(session, round_durations)
                 logger.info(f"辩论达成共识: session={session.session_id}, rounds={round_num}")
                 return session
 
@@ -404,8 +697,28 @@ class DebateEngine:
             summary=f"达到最大轮数 {self.max_rounds} 仍未达成共识",
         )
         session.completed_at = datetime.now()
+        self._add_debate_summary(session, round_durations)
         logger.warning(f"辩论未达成共识: session={session.session_id}, reached max rounds={self.max_rounds}")
         return session
+
+    def _add_debate_summary(
+        self, session: DebateSession, round_durations: list[float]
+    ) -> None:
+        """将辩论摘要（LLM 调用次数、token 用量、各轮耗时）写入 session.metadata"""
+        total_llm_calls = 0
+        total_tokens = 0
+        for strategy in (self.proposer, self.critic, self.refiner):
+            if isinstance(strategy, _LLMRoleStrategy):
+                total_llm_calls += strategy.call_count
+                total_tokens += strategy.total_tokens
+
+        summary: dict[str, Any] = {
+            "total_llm_calls": total_llm_calls,
+            "total_tokens_used": total_tokens,
+            "round_durations_sec": [round(d, 3) for d in round_durations],
+            "total_duration_sec": round(sum(round_durations), 3),
+        }
+        session.metadata["debate_summary"] = summary
 
     def get_session(self, session_id: str) -> DebateSession | None:
         """获取辩论会话"""
