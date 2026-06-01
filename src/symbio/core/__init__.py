@@ -11,6 +11,11 @@ from .cache_aligner import (
     PrefixGroup,
     PrefixSegment,
 )
+from .decomposer import (
+    DecompositionResult,
+    SubTask,
+    TaskDecomposer,
+)
 from .context_pruner import (
     ContextMessage,
     ContextPruner,
@@ -77,6 +82,10 @@ from .tracer import (
 )
 
 __all__ = [
+    # Decomposer
+    "DecompositionResult",
+    "SubTask",
+    "TaskDecomposer",
     # Cache Aligner
     "AlignmentResult",
     "AlignmentStrategy",
