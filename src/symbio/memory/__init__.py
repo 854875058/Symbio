@@ -49,6 +49,13 @@ from .cold_start import (
     ScanResult,
     scan_and_populate,
 )
+from .multimodal import (
+    CodeParser,
+    CodeStructure,
+    ContentModality,
+    MultiModalMemory,
+    ProcessedContent,
+)
 
 __all__ = [
     # Memory Manager
@@ -96,4 +103,10 @@ __all__ = [
     "ProjectStructure",
     "ScanResult",
     "scan_and_populate",
+    # Multi-Modal Memory
+    "CodeParser",
+    "CodeStructure",
+    "ContentModality",
+    "MultiModalMemory",
+    "ProcessedContent",
 ]
