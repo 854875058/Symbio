@@ -8,6 +8,9 @@
 - PromptOps: Prompt 版本控制、A/B 测试、灰度发布
 - SelfOptimizer: Prompt 效果追踪、自动优化、进化日志
 - EvalPipeline: 评测管道，支持多维度评估与回归检测
+- SOPDistiller: 从成功轨迹蒸馏标准操作流程（SOP）
+- AsyncTrajectoryCapture: 异步内存队列捕获轨迹步骤，后台批量写入
+- SeedSOP: 内置种子 SOP（代码生成、调试、数据分析、API 集成、部署）
 """
 
 from symbio.evolution.dataset_exporter import (
@@ -63,6 +66,18 @@ from symbio.evolution.self_optimizer import (
     PerformanceSummary,
     SelfOptimizer,
 )
+from symbio.evolution.sop_distiller import (
+    AsyncTrajectoryCapture,
+    DecisionPoint,
+    PrioritizedStep,
+    SeedSOP,
+    SOP,
+    SOPDistiller,
+    SOPQualityThresholds,
+    StepPriority,
+    TrajectoryData,
+    TrajectoryQueueStats,
+)
 from symbio.evolution.eval_pipeline import (
     ActualToolCall,
     BaselineManager,
@@ -88,6 +103,17 @@ from symbio.evolution.eval_pipeline import (
 )
 
 __all__ = [
+    # sop_distiller
+    "AsyncTrajectoryCapture",
+    "DecisionPoint",
+    "PrioritizedStep",
+    "SeedSOP",
+    "SOP",
+    "SOPDistiller",
+    "SOPQualityThresholds",
+    "StepPriority",
+    "TrajectoryData",
+    "TrajectoryQueueStats",
     # dataset_exporter
     "DatasetExporter",
     "ExportConfig",

@@ -1,4 +1,4 @@
-"""Memory system: ontology engine, memory manager."""
+"""Memory system: ontology engine, memory manager, versioning."""
 
 from .manager import (
     ConversationSession,
@@ -28,6 +28,17 @@ from .ontology import (
     RelationType,
     SubGraph,
 )
+from .versioning import (
+    ConflictInfo,
+    ConflictResolver,
+    ConflictStatus,
+    ConflictType,
+    CredibilitySource,
+    MemoryVersion,
+    Resolution,
+    ResolutionStrategy,
+    VersionedMemory,
+)
 
 __all__ = [
     # Memory Manager
@@ -56,4 +67,14 @@ __all__ = [
     "RelationInstance",
     "RelationType",
     "SubGraph",
+    # Versioning & Conflict Resolution
+    "ConflictInfo",
+    "ConflictResolver",
+    "ConflictStatus",
+    "ConflictType",
+    "CredibilitySource",
+    "MemoryVersion",
+    "Resolution",
+    "ResolutionStrategy",
+    "VersionedMemory",
 ]
