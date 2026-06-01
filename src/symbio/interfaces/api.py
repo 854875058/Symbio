@@ -18,6 +18,7 @@ import yaml
 from pathlib import Path
 
 from symbio.interfaces.database import get_db, close_db
+from symbio.memory.manager import MemoryManager
 from symbio.utils.logger import get_logger
 
 logger = get_logger("api")
@@ -42,14 +43,25 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup():
-    """启动时初始化数据库"""
+    """启动时初始化数据库和记忆管理器"""
     await get_db()
+    # 初始化 MemoryManager（语义搜索）
+    try:
+        memory_manager = MemoryManager()
+        await memory_manager.initialize()
+        app.state.memory_manager = memory_manager
+        logger.info("MemoryManager 已初始化")
+    except Exception as e:
+        logger.warning(f"MemoryManager 初始化失败（将仅使用 SQLite）: {e}")
+        app.state.memory_manager = None
     logger.info("Symbio API 已启动，数据库已连接")
 
 
 @app.on_event("shutdown")
 async def shutdown():
-    """关闭时释放数据库连接"""
+    """关闭时释放数据库连接和记忆管理器"""
+    if hasattr(app.state, 'memory_manager') and app.state.memory_manager:
+        await app.state.memory_manager.close()
     await close_db()
     logger.info("Symbio API 已关闭")
 
@@ -107,6 +119,14 @@ class ConfigUpdate(BaseModel):
 
 class DirImportRequest(BaseModel):
     path: str
+
+
+class MemoryStoreRequest(BaseModel):
+    content: str
+    title: str = ""
+    tags: list[str] = []
+    importance: float = 0.5
+    memory_type: str = "long_term"  # short_term, long_term, episodic, semantic, procedural
 
 
 # ============ 辅助函数 ============
@@ -184,6 +204,10 @@ async def chat(request: ChatRequest):
     user_msg_id = f"msg-{uuid.uuid4().hex[:12]}"
     await db.create_message(user_msg_id, session_id, "user", request.message, now_str, 0)
 
+    # 自动存入 MemoryManager（语义搜索）
+    if hasattr(app.state, 'memory_manager') and app.state.memory_manager:
+        await app.state.memory_manager.add_conversation_turn("user", request.message, session_id)
+
     # 更新会话标题（如果是新会话的第一条消息）
     session = await db.get_session(session_id)
     if session and session["title"] == "新对话":
@@ -231,6 +255,10 @@ async def chat(request: ChatRequest):
             f"msg-{uuid.uuid4().hex[:12]}", session_id, "assistant",
             content, time.strftime("%Y-%m-%dT%H:%M:%S"), token_usage["total"],
         )
+
+        # 自动存入 MemoryManager（语义搜索）
+        if hasattr(app.state, 'memory_manager') and app.state.memory_manager:
+            await app.state.memory_manager.add_conversation_turn("assistant", content, session_id)
 
         return ChatResponse(success=True, content=content, session_id=session_id, token_usage=token_usage)
 
@@ -365,21 +393,128 @@ async def test_model(model_id: str):
 
 @app.get("/api/memory")
 async def list_memories():
-    """记忆列表"""
+    """记忆列表（SQLite 持久化 + MemoryManager 统计）"""
     db = await get_db()
     memories = await db.list_memories()
-    return {"memories": memories, "total": len(memories)}
+
+    # 附加 MemoryManager 统计信息
+    stats = None
+    if hasattr(app.state, 'memory_manager') and app.state.memory_manager:
+        mm_stats = app.state.memory_manager.get_stats()
+        stats = mm_stats.model_dump()
+
+    return {"memories": memories, "total": len(memories), "stats": stats}
 
 
 @app.get("/api/memory/search")
 async def search_memories(q: str = Query("", description="搜索关键词")):
-    """搜索记忆（关键词匹配 + 重要度排序）"""
+    """搜索记忆（语义搜索 + 关键词回退）"""
     db = await get_db()
     if not q:
         memories = await db.list_memories()
-        return {"memories": memories, "query": q}
-    results = await db.search_memories(q)
-    return {"memories": results, "query": q}
+        return {"memories": memories, "query": q, "search_type": "keyword"}
+
+    # 尝试语义搜索
+    semantic_results = []
+    if hasattr(app.state, 'memory_manager') and app.state.memory_manager:
+        try:
+            search_results = await app.state.memory_manager.search(q)
+            semantic_results = [
+                {
+                    "memory_id": r.memory.memory_id,
+                    "content": r.memory.content,
+                    "memory_type": r.memory.memory_type.value,
+                    "importance": r.memory.importance,
+                    "tags": r.memory.tags,
+                    "score": r.score,
+                    "match_type": r.match_type,
+                    "created_at": r.memory.created_at.isoformat() if r.memory.created_at else None,
+                }
+                for r in search_results
+            ]
+        except Exception as e:
+            logger.warning(f"语义搜索失败，回退到关键词搜索: {e}")
+
+    # SQLite 关键词搜索
+    keyword_results = await db.search_memories(q)
+
+    # 合并结果，按内容去重
+    if semantic_results:
+        seen_contents = {r["content"].strip() for r in semantic_results}
+        merged = list(semantic_results)
+        for kr in keyword_results:
+            if kr.get("content", "").strip() not in seen_contents:
+                merged.append(kr)
+                seen_contents.add(kr.get("content", "").strip())
+        search_type = "hybrid" if keyword_results else "semantic"
+        return {"memories": merged, "query": q, "search_type": search_type}
+
+    return {"memories": keyword_results, "query": q, "search_type": "keyword"}
+
+
+@app.post("/api/memory/store")
+async def store_memory(req: MemoryStoreRequest):
+    """手动存储记忆（同时写入 SQLite 和 MemoryManager）"""
+    db = await get_db()
+    memory_id = f"mem-{uuid.uuid4().hex[:12]}"
+    now_str = time.strftime("%Y-%m-%dT%H:%M:%S")
+
+    # 写入 SQLite（持久化）
+    await db.create_memory(
+        memory_id=memory_id,
+        content=req.content,
+        title=req.title or req.content[:30],
+        tags=req.tags,
+        importance=req.importance,
+    )
+
+    # 写入 MemoryManager（语义搜索）
+    memory_item = None
+    if hasattr(app.state, 'memory_manager') and app.state.memory_manager:
+        from symbio.memory.manager import MemoryType
+        mt = MemoryType(req.memory_type) if req.memory_type in [e.value for e in MemoryType] else MemoryType.LONG_TERM
+        memory_item = await app.state.memory_manager.add_memory(
+            content=req.content,
+            memory_type=mt,
+            tags=req.tags,
+            importance=req.importance,
+            source="manual",
+        )
+
+    return {
+        "success": True,
+        "memory_id": memory_id,
+        "semantic_id": memory_item.memory_id if memory_item else None,
+    }
+
+
+@app.post("/api/memory/consolidate")
+async def consolidate_memories():
+    """触发记忆巩固（将重要短期记忆转为长期记忆）"""
+    if not hasattr(app.state, 'memory_manager') or not app.state.memory_manager:
+        raise HTTPException(status_code=503, detail="MemoryManager 未初始化")
+
+    consolidated = await app.state.memory_manager.consolidate()
+    return {"success": True, "consolidated": consolidated}
+
+
+@app.get("/api/memory/stats")
+async def memory_stats():
+    """记忆系统统计信息"""
+    db = await get_db()
+    # SQLite 统计
+    memories = await db.list_memories()
+    sqlite_total = len(memories)
+
+    # MemoryManager 统计
+    mm_stats = None
+    if hasattr(app.state, 'memory_manager') and app.state.memory_manager:
+        mm_stats = app.state.memory_manager.get_stats().model_dump()
+
+    return {
+        "sqlite": {"total": sqlite_total},
+        "memory_manager": mm_stats,
+    }
 
 
 # ============ Skills API ============
@@ -644,6 +779,10 @@ async def websocket_chat(websocket: WebSocket):
             user_msg_id = f"msg-{uuid.uuid4().hex[:12]}"
             await db.create_message(user_msg_id, session_id, "user", content, now_str, 0)
 
+            # 自动存入 MemoryManager（语义搜索）
+            if hasattr(app.state, 'memory_manager') and app.state.memory_manager:
+                await app.state.memory_manager.add_conversation_turn("user", content, session_id)
+
             # 更新会话标题
             session = await db.get_session(session_id)
             if session and session["title"] == "新对话":
@@ -713,6 +852,10 @@ async def websocket_chat(websocket: WebSocket):
                 f"msg-{uuid.uuid4().hex[:12]}", session_id, "assistant",
                 full_response, time.strftime("%Y-%m-%dT%H:%M:%S"), token_input + token_output,
             )
+
+            # 自动存入 MemoryManager（语义搜索）
+            if hasattr(app.state, 'memory_manager') and app.state.memory_manager:
+                await app.state.memory_manager.add_conversation_turn("assistant", full_response, session_id)
 
             # 发送完成信号
             await websocket.send_text(json.dumps({
