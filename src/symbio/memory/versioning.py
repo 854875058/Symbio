@@ -336,6 +336,8 @@ class VersionedMemory:
 
         try:
             self._db = await aiosqlite.connect(str(self._db_path))
+            # 使用 Row 工厂以支持按列名访问
+            self._db.row_factory = aiosqlite.Row
             # 启用 WAL 模式以提升并发性能
             await self._db.execute("PRAGMA journal_mode=WAL")
             # 启用外键约束
@@ -769,6 +771,7 @@ class ConflictResolver:
 
         try:
             self._db = await aiosqlite.connect(str(self._db_path))
+            self._db.row_factory = aiosqlite.Row
             await self._db.execute("PRAGMA journal_mode=WAL")
             await self._db.execute("PRAGMA foreign_keys=ON")
 
