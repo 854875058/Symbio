@@ -56,6 +56,17 @@ from .multimodal import (
     MultiModalMemory,
     ProcessedContent,
 )
+from .audit import (
+    AuditFlag,
+    AuditItem,
+    AuditReport,
+    AuditResult,
+    CleanupAction,
+    CleanupDetail,
+    CleanupResult,
+    MemoryAuditor,
+    Severity,
+)
 
 __all__ = [
     # Memory Manager
@@ -109,4 +120,14 @@ __all__ = [
     "ContentModality",
     "MultiModalMemory",
     "ProcessedContent",
+    # Memory Audit
+    "AuditFlag",
+    "AuditItem",
+    "AuditReport",
+    "AuditResult",
+    "CleanupAction",
+    "CleanupDetail",
+    "CleanupResult",
+    "MemoryAuditor",
+    "Severity",
 ]

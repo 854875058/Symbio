@@ -58,8 +58,20 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
           <span>Skills</span>
         </button>
+        <button class="nav-tab" data-page="dashboard">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+          <span>仪表盘</span>
+        </button>
+        <button class="nav-tab" data-page="hitl">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><polyline points="17 11 19 13 23 9"/></svg>
+          <span>审批</span>
+        </button>
       </div>
       <div class="navbar-actions">
+        <button class="icon-btn" id="theme-toggle" title="切换主题">
+          <svg class="icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          <svg class="icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+        </button>
         <button class="icon-btn" title="Ctrl+K">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9l3 3 3-3"/></svg>
         </button>
@@ -224,6 +236,89 @@
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
             <p>记忆库为空</p>
             <span class="empty-hint">对话中的重要信息会自动存储</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Dashboard Page -->
+      <div class="page" id="page-dashboard">
+        <div class="page-header">
+          <h2>仪表盘</h2>
+          <div class="page-header-bar">
+            <button class="btn-outline" id="btn-refresh-dashboard">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/><polyline points="21 3 21 9 15 9"/></svg>
+              刷新
+            </button>
+          </div>
+        </div>
+        <div class="dashboard-content" id="dashboard-content">
+          <div class="dashboard-cards" id="dashboard-cards">
+            <div class="dash-card">
+              <div class="dash-card-icon" style="background:var(--accent-dim);color:var(--accent)">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+              </div>
+              <div class="dash-card-info">
+                <div class="dash-card-value" id="dash-total-messages">0</div>
+                <div class="dash-card-label">总消息数</div>
+              </div>
+            </div>
+            <div class="dash-card">
+              <div class="dash-card-icon" style="background:var(--purple-dim);color:var(--purple)">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+              </div>
+              <div class="dash-card-info">
+                <div class="dash-card-value" id="dash-total-tokens">0</div>
+                <div class="dash-card-label">总 Token 消耗</div>
+              </div>
+            </div>
+            <div class="dash-card">
+              <div class="dash-card-icon" style="background:var(--green-dim);color:var(--green)">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+              </div>
+              <div class="dash-card-info">
+                <div class="dash-card-value" id="dash-active-sessions">0</div>
+                <div class="dash-card-label">活跃会话</div>
+              </div>
+            </div>
+            <div class="dash-card">
+              <div class="dash-card-icon" style="background:var(--amber-dim);color:var(--amber)">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              </div>
+              <div class="dash-card-info">
+                <div class="dash-card-value" id="dash-memory-count">0</div>
+                <div class="dash-card-label">记忆条数</div>
+              </div>
+            </div>
+          </div>
+          <div class="dashboard-chart-section">
+            <h3 class="dash-section-title">Token 使用趋势</h3>
+            <div class="bar-chart" id="token-bar-chart"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- HITL Page -->
+      <div class="page" id="page-hitl">
+        <div class="page-header">
+          <h2>审批中心</h2>
+          <div class="page-header-bar">
+            <select class="select-input" id="hitl-filter">
+              <option value="pending">待审批</option>
+              <option value="approved">已通过</option>
+              <option value="rejected">已拒绝</option>
+              <option value="all">全部</option>
+            </select>
+            <button class="btn-outline" id="btn-refresh-hitl">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/><polyline points="21 3 21 9 15 9"/></svg>
+              刷新
+            </button>
+          </div>
+        </div>
+        <div class="hitl-grid" id="hitl-grid">
+          <div class="empty-state-lg">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><polyline points="17 11 19 13 23 9"/></svg>
+            <p>暂无待审批项</p>
+            <span class="empty-hint">HITL 请求将在此显示</span>
           </div>
         </div>
       </div>

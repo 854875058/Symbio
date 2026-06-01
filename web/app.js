@@ -26,6 +26,11 @@ const state = {
   streaming: false,
   streamContent: '',
   config: {},
+  hitlItems: [],
+  hitlFilter: 'pending',
+  theme: localStorage.getItem('symbio-theme') || 'dark',
+  pagesLoaded: {},
+  virtualScrollEnabled: false,
 };
 
 // ============ DOM ============
@@ -53,6 +58,11 @@ const dom = {
   skillsSearch: $('#skills-search'),
   btnImportSkill: $('#btn-import-skill'),
   configSection: $('#llm-config-section'),
+  themeToggle: $('#theme-toggle'),
+  dashboardCards: $('#dashboard-cards'),
+  tokenBarChart: $('#token-bar-chart'),
+  hitlGrid: $('#hitl-grid'),
+  hitlFilter: $('#hitl-filter'),
 };
 
 // ============ Navigation ============
@@ -61,11 +71,14 @@ async function switchPage(name) {
   dom.navTabs.forEach(t => t.classList.toggle('active', t.dataset.page === name));
   dom.pages.forEach(p => p.classList.toggle('active', p.id === `page-${name}`));
 
-  // Load data when switching to a page (sequential to avoid race conditions)
-  if (name === 'models') { await loadModels(); await loadConfig(); }
-  if (name === 'tasks') await loadTasks();
-  if (name === 'memory') await loadMemories();
-  if (name === 'skills') await loadSkills();
+  // Lazy load: only load data on first visit per page (avoids re-fetching on tab switch)
+  if (name === 'models' && !state.pagesLoaded.models) { state.pagesLoaded.models = true; await loadModels(); await loadConfig(); }
+  else if (name === 'models') { await loadModels(); }
+  if (name === 'tasks' && !state.pagesLoaded.tasks) { state.pagesLoaded.tasks = true; await loadTasks(); }
+  if (name === 'memory' && !state.pagesLoaded.memory) { state.pagesLoaded.memory = true; await loadMemories(); }
+  if (name === 'skills' && !state.pagesLoaded.skills) { state.pagesLoaded.skills = true; await loadSkills(); }
+  if (name === 'dashboard') await loadDashboard();
+  if (name === 'hitl') await loadHitl();
 }
 
 dom.navTabs.forEach(tab => {
@@ -137,10 +150,24 @@ function createMessageEl(msg) {
       <div class="message-bubble">${formatContent(msg.content)}</div>
       <div class="message-meta">
         <span>${time}</span>
-        ${msg.tokens ? `<span>${msg.tokens} tokens</span>` : ''}
+        ${msg.tokens ? `<span class="message-token-badge">${msg.tokens} tokens</span>` : ''}
+        <button class="message-copy-btn" title="复制消息" data-content="${esc(msg.content).replace(/"/g, '&quot;')}">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+        </button>
       </div>
     </div>
   `;
+
+  // Attach copy handler
+  div.querySelector('.message-copy-btn')?.addEventListener('click', function() {
+    const text = this.dataset.content.replace(/&quot;/g, '"');
+    navigator.clipboard.writeText(text).then(() => {
+      toast('success', '已复制', '消息内容已复制到剪贴板');
+    }).catch(() => {
+      toast('error', '复制失败', '无法访问剪贴板');
+    });
+  });
+
   return div;
 }
 
@@ -164,7 +191,12 @@ function updateStreamingEl(text) {
   if (!el) return;
   const bubble = el.querySelector('.message-bubble');
   bubble.innerHTML = formatContent(text) + '<span class="cursor-blink"></span>';
-  dom.messages.scrollTop = dom.messages.scrollHeight;
+  // Add subtle glow during streaming
+  el.classList.add('streaming-glow');
+  // Smooth scroll to bottom
+  requestAnimationFrame(() => {
+    dom.messages.scrollTop = dom.messages.scrollHeight;
+  });
 }
 
 function finalizeStreamingEl(fullContent, tokenUsage) {
@@ -175,18 +207,113 @@ function finalizeStreamingEl(fullContent, tokenUsage) {
   bubble.innerHTML = formatContent(fullContent);
   const meta = el.querySelector('.message-meta');
   const time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-  meta.innerHTML = `<span>${time}</span>${tokenUsage ? `<span>${tokenUsage.total} tokens</span>` : ''}`;
+  const tokenBadge = tokenUsage ? `<span class="message-token-badge">${tokenUsage.total} tokens</span>` : '';
+  const safeContent = esc(fullContent).replace(/"/g, '&quot;');
+  meta.innerHTML = `<span>${time}</span>${tokenBadge}
+    <button class="message-copy-btn" title="复制消息" data-content="${safeContent}">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+    </button>`;
+  meta.querySelector('.message-copy-btn')?.addEventListener('click', function() {
+    const text = this.dataset.content.replace(/&quot;/g, '"');
+    navigator.clipboard.writeText(text).then(() => {
+      toast('success', '已复制', '消息内容已复制到剪贴板');
+    }).catch(() => {
+      toast('error', '复制失败', '无法访问剪贴板');
+    });
+  });
 }
 
 function formatContent(text) {
   if (!text) return '';
   let html = esc(text);
-  html = html.replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+
+  // Code blocks (with syntax highlighting header + copy button)
+  html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
+    const langLabel = lang || 'code';
+    const highlighted = highlightSyntax(code.trim());
+    return `<pre><div class="code-header"><span>${langLabel}</span><button class="code-copy-btn" onclick="copyCodeBlock(this)">复制</button></div><code>${highlighted}</code></pre>`;
+  });
+
+  // Inline code
   html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+  // Bold
   html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  // Italic
+  html = html.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>');
+  // Strikethrough
+  html = html.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+
+  // Headers
+  html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+
+  // Blockquotes
+  html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
+
+  // Horizontal rules
+  html = html.replace(/^---+$/gm, '<hr>');
+
+  // Links
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+
+  // Unordered lists
+  html = html.replace(/^[\-\*] (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
+
+  // Ordered lists
+  html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+
+  // Tables (simple)
+  html = html.replace(/^\|(.+)\|$/gm, (match, content) => {
+    const cells = content.split('|').map(c => c.trim());
+    if (cells.every(c => /^[-:]+$/.test(c))) return ''; // separator row
+    const isHeader = false;
+    const tag = isHeader ? 'th' : 'td';
+    return '<tr>' + cells.map(c => `<${tag}>${c}</${tag}>`).join('') + '</tr>';
+  });
+  html = html.replace(/((?:<tr>.*<\/tr>\n?)+)/g, '<table>$1</table>');
+
+  // Paragraphs: double newlines
+  html = html.replace(/\n\n/g, '</p><p>');
+  // Single newlines to <br> (but not inside pre/table)
   html = html.replace(/\n/g, '<br>');
+
   return html;
 }
+
+function highlightSyntax(code) {
+  // Basic keyword highlighting
+  let h = code;
+  // Comments (single-line)
+  h = h.replace(/(\/\/.*$|#.*$)/gm, '<span class="cm">$1</span>');
+  // Strings
+  h = h.replace(/(&quot;[^&]*&quot;|&#39;[^&]*&#39;|"[^"]*"|'[^']*')/g, '<span class="str">$1</span>');
+  // Numbers
+  h = h.replace(/\b(\d+\.?\d*)\b/g, '<span class="num">$1</span>');
+  // Keywords
+  const kws = ['function', 'const', 'let', 'var', 'return', 'if', 'else', 'for', 'while', 'class', 'import', 'export', 'from', 'async', 'await', 'try', 'catch', 'throw', 'new', 'this', 'def', 'print', 'self', 'None', 'True', 'False', 'public', 'private', 'static', 'void', 'int', 'string', 'bool'];
+  const kwRe = new RegExp('\\b(' + kws.join('|') + ')\\b', 'g');
+  h = h.replace(kwRe, '<span class="kw">$1</span>');
+  return h;
+}
+
+function copyCodeBlock(btn) {
+  const pre = btn.closest('pre');
+  const code = pre.querySelector('code');
+  const text = code.textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = '已复制';
+    setTimeout(() => { btn.textContent = orig; }, 1500);
+  }).catch(() => {
+    toast('error', '复制失败', '无法访问剪贴板');
+  });
+}
+// Make copyCodeBlock globally accessible for inline onclick
+window.copyCodeBlock = copyCodeBlock;
 
 // ============ WebSocket ============
 function connectWebSocket() {
@@ -417,6 +544,33 @@ dom.chips.forEach(chip => {
 dom.togglePanel?.addEventListener('click', () => {
   dom.panel.classList.toggle('hidden');
 });
+
+// ============ Keyboard Shortcuts ============
+document.addEventListener('keydown', (e) => {
+  // Esc to close modals
+  if (e.key === 'Escape') {
+    const modal = document.querySelector('.modal-overlay');
+    if (modal) {
+      modal.remove();
+      return;
+    }
+  }
+});
+
+// ============ Theme Toggle ============
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('symbio-theme', theme);
+  state.theme = theme;
+}
+
+dom.themeToggle?.addEventListener('click', () => {
+  const newTheme = state.theme === 'dark' ? 'light' : 'dark';
+  applyTheme(newTheme);
+});
+
+// Apply saved theme on load
+applyTheme(state.theme);
 
 // ============ Status ============
 function updateStatus() {
@@ -1375,7 +1529,15 @@ async function deleteSkill(id) {
 function toast(type, title, msg) {
   const el = document.createElement('div');
   el.className = `toast ${type}`;
+
+  const iconSvg = {
+    success: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>',
+    error: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+    info: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+  };
+
   el.innerHTML = `
+    <div class="toast-icon ${type}">${iconSvg[type] || iconSvg.info}</div>
     <div style="flex:1">
       <div style="font-weight:600;font-size:0.85rem">${esc(title)}</div>
       ${msg ? `<div style="font-size:0.75rem;color:var(--text-secondary);margin-top:2px">${esc(msg)}</div>` : ''}
@@ -1603,11 +1765,217 @@ async function loadSessionMessages(sessionId) {
   }
 }
 
+// ============ Dashboard Page ============
+async function loadDashboard() {
+  try {
+    // Fetch memory stats
+    const memRes = await fetch(`${API}/memory/stats`);
+    const memData = await memRes.json();
+
+    // Fetch sessions
+    const sessRes = await fetch(`${API}/sessions`);
+    const sessData = await sessRes.json();
+
+    // Update cards
+    const totalMessages = (sessData.sessions || []).reduce((sum, s) => sum + (s.message_count || 0), 0);
+    const totalTokens = memData.total_tokens || state.tokens.total;
+    const activeSessions = (sessData.sessions || []).length;
+    const memoryCount = memData.total_count || 0;
+
+    document.getElementById('dash-total-messages').textContent = totalMessages;
+    document.getElementById('dash-total-tokens').textContent = formatNumber(totalTokens);
+    document.getElementById('dash-active-sessions').textContent = activeSessions;
+    document.getElementById('dash-memory-count').textContent = memoryCount;
+
+    // Render bar chart from session token data
+    renderTokenChart(sessData.sessions || []);
+  } catch (e) {
+    console.warn('加载仪表盘数据失败:', e.message);
+    // Use local state as fallback
+    document.getElementById('dash-total-tokens').textContent = formatNumber(state.tokens.total);
+    document.getElementById('dash-active-sessions').textContent = state.sessions.length;
+  }
+}
+
+function renderTokenChart(sessions) {
+  const chart = dom.tokenBarChart;
+  if (!chart) return;
+
+  // Build data: last 7 sessions or fallback to mock
+  const data = sessions.slice(-7).map(s => ({
+    label: (s.title || '会话').substring(0, 6),
+    value: s.token_count || s.tokens || 0,
+  }));
+
+  // If no data, show placeholder
+  if (data.length === 0 || data.every(d => d.value === 0)) {
+    const placeholders = ['会话1', '会话2', '会话3', '会话4', '会话5'];
+    chart.innerHTML = placeholders.map((l, i) => {
+      const h = Math.max(8, Math.floor(Math.random() * 80 + 20));
+      return `<div class="bar-chart-bar"><div class="bar-chart-fill" style="height:${h}%" data-value="0"></div><div class="bar-chart-label">${l}</div></div>`;
+    }).join('');
+    return;
+  }
+
+  const maxVal = Math.max(...data.map(d => d.value), 1);
+  chart.innerHTML = data.map(d => {
+    const pct = Math.max(4, Math.round((d.value / maxVal) * 100));
+    return `<div class="bar-chart-bar"><div class="bar-chart-fill" style="height:${pct}%" data-value="${d.value}"></div><div class="bar-chart-label">${esc(d.label)}</div></div>`;
+  }).join('');
+}
+
+function formatNumber(n) {
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+  return String(n);
+}
+
+// Refresh dashboard button
+$('#btn-refresh-dashboard')?.addEventListener('click', loadDashboard);
+
+// ============ HITL Page ============
+async function loadHitl() {
+  showLoading(dom.hitlGrid, '加载审批列表...');
+  try {
+    const filter = state.hitlFilter;
+    const url = filter === 'all' ? `${API}/hitl` : `${API}/hitl/pending`;
+    const res = await fetch(url);
+    const data = await res.json();
+    state.hitlItems = data.requests || data.items || [];
+    renderHitl();
+  } catch (e) {
+    toast('error', '加载审批列表失败', e.message);
+    dom.hitlGrid.innerHTML = `<div class="empty-state-lg"><p>加载失败，请重试</p></div>`;
+  }
+}
+
+function renderHitl() {
+  const filtered = state.hitlFilter === 'all'
+    ? state.hitlItems
+    : state.hitlItems.filter(i => i.status === state.hitlFilter);
+
+  if (filtered.length === 0) {
+    dom.hitlGrid.innerHTML = `
+      <div class="empty-state-lg">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><polyline points="17 11 19 13 23 9"/></svg>
+        <p>${state.hitlFilter === 'pending' ? '暂无待审批项' : '无匹配记录'}</p>
+        <span class="empty-hint">${state.hitlFilter === 'pending' ? 'HITL 请求将在此显示' : '尝试切换筛选条件'}</span>
+      </div>
+    `;
+    return;
+  }
+
+  dom.hitlGrid.innerHTML = filtered.map(item => `
+    <div class="hitl-card" data-id="${item.id}">
+      <div class="hitl-card-header">
+        <div class="hitl-card-title">${esc(item.title || item.action || '审批请求')}</div>
+        <span class="hitl-card-status hitl-status-${item.status}">${hitlStatusLabel(item.status)}</span>
+      </div>
+      <div class="hitl-card-desc">${esc(item.description || item.reason || '')}</div>
+      <div class="hitl-card-meta">
+        <span>${esc(item.agent || item.source || 'system')}</span>
+        <span>${formatTime(item.created_at || item.timestamp)}</span>
+      </div>
+      ${item.status === 'pending' ? `
+        <div class="hitl-card-actions">
+          <button class="btn-approve" data-id="${item.id}">通过</button>
+          <button class="btn-reject" data-id="${item.id}">拒绝</button>
+        </div>
+      ` : ''}
+    </div>
+  `).join('');
+
+  // Attach action listeners
+  dom.hitlGrid.querySelectorAll('.btn-approve').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      approveHitl(btn.dataset.id);
+    });
+  });
+  dom.hitlGrid.querySelectorAll('.btn-reject').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      rejectHitl(btn.dataset.id);
+    });
+  });
+}
+
+function hitlStatusLabel(status) {
+  const map = { pending: '待审批', approved: '已通过', rejected: '已拒绝' };
+  return map[status] || status;
+}
+
+async function approveHitl(id) {
+  try {
+    const res = await fetch(`${API}/hitl/${id}/approve`, { method: 'POST' });
+    if (res.ok) {
+      toast('success', '已通过', '审批请求已通过');
+      loadHitl();
+    } else {
+      const data = await res.json();
+      toast('error', '操作失败', data.detail || '未知错误');
+    }
+  } catch (e) {
+    toast('error', '操作失败', e.message);
+  }
+}
+
+async function rejectHitl(id) {
+  try {
+    const res = await fetch(`${API}/hitl/${id}/reject`, { method: 'POST' });
+    if (res.ok) {
+      toast('success', '已拒绝', '审批请求已拒绝');
+      loadHitl();
+    } else {
+      const data = await res.json();
+      toast('error', '操作失败', data.detail || '未知错误');
+    }
+  } catch (e) {
+    toast('error', '操作失败', e.message);
+  }
+}
+
+// HITL filter
+dom.hitlFilter?.addEventListener('change', (e) => {
+  state.hitlFilter = e.target.value;
+  renderHitl();
+});
+$('#btn-refresh-hitl')?.addEventListener('click', loadHitl);
+
+// ============ Virtual Scroll (basic) ============
+function setupVirtualScroll() {
+  const container = dom.messages;
+  if (!container) return;
+
+  // Only enable if many messages (>100)
+  container.addEventListener('scroll', () => {
+    if (state.messages.length < 50) return;
+    // Hide messages far from viewport
+    const msgs = container.querySelectorAll('.message');
+    const scrollTop = container.scrollTop;
+    const viewHeight = container.clientHeight;
+    msgs.forEach(msg => {
+      const top = msg.offsetTop - container.offsetTop;
+      const bottom = top + msg.offsetHeight;
+      // Hide if far outside viewport (200px buffer)
+      if (bottom < scrollTop - 400 || top > scrollTop + viewHeight + 400) {
+        msg.style.visibility = 'hidden';
+      } else {
+        msg.style.visibility = 'visible';
+      }
+    });
+  });
+}
+
 // ============ Init ============
 async function init() {
+  // Apply theme
+  applyTheme(state.theme);
+
   await loadSessions();
   await checkHealth();
   connectWebSocket();
+  setupVirtualScroll();
   setInterval(checkHealth, 30000);
   console.log('Symbio UI initialized');
 }

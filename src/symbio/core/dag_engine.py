@@ -20,6 +20,7 @@ import networkx as nx
 from pydantic import BaseModel, Field
 
 from symbio.core.event_bus import Event, EventBus, EventType
+from symbio.core.state_manager import StateManager
 from symbio.utils.logger import get_logger
 
 logger = get_logger("dag_engine")
@@ -141,6 +142,22 @@ class DAGStats(BaseModel):
     cancelled: int = 0
 
 
+class NodeResult(BaseModel):
+    """节点执行结果的结构化表示，用于 MapReduce 合并。
+
+    Attributes:
+        node_id: 节点唯一标识。
+        output: 节点输出数据。
+        status: 执行状态（success / failed）。
+        metadata: 附加元数据。
+    """
+
+    node_id: str
+    output: Any = None
+    status: str = "success"
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 # ---------------------------------------------------------------------------
 # DAG 引擎
 # ---------------------------------------------------------------------------
@@ -157,10 +174,15 @@ class DAGEngine:
         - 完整状态追踪与事件广播
     """
 
-    def __init__(self, event_bus: Optional[EventBus] = None) -> None:
+    def __init__(
+        self,
+        event_bus: Optional[EventBus] = None,
+        state_manager: Optional[StateManager] = None,
+    ) -> None:
         self._graph = nx.DiGraph()
         self._nodes: dict[str, DAGNode] = {}
         self._event_bus = event_bus
+        self._state_manager = state_manager
         self._lock = asyncio.Lock()
         self._cancelled = False
         logger.info("DAGEngine initialized")
@@ -401,6 +423,11 @@ class DAGEngine:
     async def _execute_node(self, node: DAGNode, context: dict[str, Any]) -> None:
         """执行单个节点并处理其观测结果。
 
+        当配置了 StateManager 时，使用 CAS 乐观锁进行并发安全的状态更新：
+        1. 执行前读取当前状态版本号
+        2. 节点执行完成后，通过 CAS 更新状态
+        3. 若 CAS 失败（版本冲突），读取最新版本后重试
+
         Args:
             node: 要执行的节点。
             context: 传递给节点可调用对象的上下文。
@@ -426,6 +453,16 @@ class DAGEngine:
             {"node_id": node.node_id, "node_name": node.name},
         )
 
+        # CAS 乐观锁：执行前读取当前版本号
+        expected_version: Optional[int] = None
+        if self._state_manager is not None:
+            try:
+                state_snapshot = await self._state_manager.read()
+                expected_version = state_snapshot.version
+            except RuntimeError:
+                # StateManager 未初始化，退化为无 CAS 模式
+                expected_version = None
+
         try:
             observation = await node.callable_ref(context)
             node.result = observation
@@ -436,6 +473,10 @@ class DAGEngine:
                 f"Node '{node.name}' (id={node.node_id}) completed successfully "
                 f"(expected={observation.expected})"
             )
+
+            # CAS 更新：将节点结果写入全局状态，冲突时重试
+            if self._state_manager is not None and expected_version is not None:
+                await self._cas_update_state(node, observation, expected_version)
 
             await self._emit_event(
                 EventType.AGENT_COMPLETED,
@@ -467,6 +508,61 @@ class DAGEngine:
                 EventType.AGENT_FAILED,
                 {"node_id": node.node_id, "node_name": node.name, "error": str(exc)},
             )
+
+    async def _cas_update_state(
+        self,
+        node: DAGNode,
+        observation: NodeObservation,
+        expected_version: int,
+        max_retries: int = 5,
+    ) -> None:
+        """通过 CAS 乐观锁将节点结果写入全局状态。
+
+        若版本冲突（其他并行节点已更新状态），则读取最新版本后重试。
+
+        Args:
+            node: 已完成的节点。
+            observation: 节点观测结果。
+            expected_version: 执行开始时读取的版本号。
+            max_retries: 最大重试次数。
+        """
+        def _make_updater(obs: NodeObservation, nid: str) -> Callable:  # type: ignore[type-arg]
+            def updater(state):  # type: ignore[no-untyped-def]
+                state.metadata[f"node_result:{nid}"] = {
+                    "output": obs.output,
+                    "expected": obs.expected,
+                    "node_meta": obs.metadata,
+                }
+                return state
+            return updater
+
+        updater_fn = _make_updater(observation, node.node_id)
+
+        for attempt in range(1, max_retries + 1):
+            success = await self._state_manager.compare_and_swap(  # type: ignore[union-attr]
+                expected_version=expected_version,
+                updater=updater_fn,
+            )
+
+            if success:
+                logger.debug(
+                    f"CAS update succeeded for node '{node.name}' "
+                    f"(version {expected_version} -> {expected_version + 1})"
+                )
+                return
+
+            # CAS 失败：读取最新版本并重试
+            logger.warning(
+                f"CAS conflict for node '{node.name}' "
+                f"(attempt {attempt}/{max_retries}), retrying..."
+            )
+            latest_state = await self._state_manager.read()  # type: ignore[union-attr]
+            expected_version = latest_state.version
+
+        logger.error(
+            f"CAS update exhausted {max_retries} retries for node '{node.name}'; "
+            f"result stored locally only"
+        )
 
     # ------------------------------------------------------------------
     # 拓扑重构
@@ -729,6 +825,51 @@ class DAGEngine:
         self._nodes.clear()
         self._cancelled = False
         logger.info("DAG cleared")
+
+    # ------------------------------------------------------------------
+    # MapReduce 结果合并
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def merge_results(results: list[NodeResult]) -> dict[str, Any]:
+        """合并多个节点执行结果（MapReduce 风格）。
+
+        将一组 NodeResult 聚合为单个字典：
+        - outputs: {node_id: output} 所有节点输出的映射
+        - succeeded: 成功节点的 node_id 列表
+        - failed: 失败节点的 node_id 列表
+        - all_metadata: 所有节点元数据的合并（后者覆盖前者）
+        - merged_output: 所有成功节点 output 的列表（便于下游 reduce）
+
+        Args:
+            results: 节点执行结果列表。
+
+        Returns:
+            聚合后的字典。
+        """
+        outputs: dict[str, Any] = {}
+        succeeded: list[str] = []
+        failed: list[str] = []
+        all_metadata: dict[str, Any] = {}
+        merged_output: list[Any] = []
+
+        for r in results:
+            outputs[r.node_id] = r.output
+            all_metadata[r.node_id] = r.metadata
+            if r.status == "success":
+                succeeded.append(r.node_id)
+                if r.output is not None:
+                    merged_output.append(r.output)
+            else:
+                failed.append(r.node_id)
+
+        return {
+            "outputs": outputs,
+            "succeeded": succeeded,
+            "failed": failed,
+            "all_metadata": all_metadata,
+            "merged_output": merged_output,
+        }
 
     # ------------------------------------------------------------------
     # 可视化 / 调试
