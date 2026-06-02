@@ -526,9 +526,16 @@ async def memory_stats():
 
 @app.get("/api/skills")
 async def list_skills():
-    """返回 Skills 列表"""
+    """返回 Skills 列表（数据库 + 本地扫描）"""
     db = await get_db()
     skills = await db.list_skills()
+
+    # 合并本地扫描的真实 Skill
+    db_names = {s["name"] for s in skills}
+    for real in _scan_real_skills():
+        if real["name"] not in db_names:
+            skills.append(real)
+
     return {"skills": skills, "total": len(skills)}
 
 
@@ -707,17 +714,69 @@ async def import_skills_from_dir(req: DirImportRequest):
 
 
 def _find_skill_directory(skill_name: str) -> Optional[Path]:
-    """查找 Skill 目录"""
-    search_paths = [
-        Path.home() / ".claude" / "skills" / skill_name,
-        Path.home() / ".claude" / "commands" / skill_name,
-        Path("skills") / skill_name,
-        Path("src/symbio/skills/builtin") / skill_name,
+    """查找 Skill 目录（精确匹配 + 模糊匹配）"""
+    search_dirs = [
+        Path.home() / ".claude" / "skills",
+        Path.home() / ".claude" / "commands",
+        Path("skills"),
+        Path("src/symbio/skills/builtin"),
     ]
-    for p in search_paths:
+    # 精确匹配
+    for base in search_dirs:
+        p = base / skill_name
         if p.is_dir():
             return p
+
+    # 模糊匹配（忽略大小写、连字符/下划线）
+    normalized = skill_name.lower().replace("-", "").replace("_", "")
+    for base in search_dirs:
+        if not base.is_dir():
+            continue
+        for d in base.iterdir():
+            if d.is_dir():
+                d_normalized = d.name.lower().replace("-", "").replace("_", "")
+                if d_normalized == normalized:
+                    return d
+
     return None
+
+
+def _scan_real_skills() -> list[dict]:
+    """扫描 ~/.claude/skills/ 目录下的真实 Skill"""
+    skills = []
+    skills_dir = Path.home() / ".claude" / "skills"
+    if not skills_dir.is_dir():
+        return skills
+
+    for d in sorted(skills_dir.iterdir()):
+        if not d.is_dir() or d.name.startswith("."):
+            continue
+
+        # 读取 SKILL.md 获取描述
+        description = ""
+        readme_content = _read_skill_readme(d)
+        if readme_content:
+            # 提取第一行作为描述
+            lines = [l.strip() for l in readme_content.split("\n") if l.strip() and not l.startswith("#")]
+            if lines:
+                description = lines[0][:200]
+
+        # 读取 manifest
+        manifest = _read_skill_manifest(d)
+
+        skills.append({
+            "id": f"fs-{d.name}",
+            "name": d.name,
+            "description": description or f"本地 Skill: {d.name}",
+            "version": manifest.get("version", "1.0.0") if manifest else "1.0.0",
+            "source": "local",
+            "enabled": True,
+            "trigger_keywords": manifest.get("trigger_keywords", []) if manifest else [],
+            "created_at": "",
+            "_directory": str(d),
+        })
+
+    return skills
 
 
 def _list_skill_files(skill_dir: Path) -> list[dict]:
@@ -749,12 +808,11 @@ def _get_file_type(suffix: str) -> str:
 
 
 def _read_skill_readme(skill_dir: Path) -> Optional[str]:
-    """读取 skill.md 或 README.md"""
-    for name in ["skill.md", "README.md", "readme.md"]:
-        p = skill_dir / name
-        if p.exists():
+    """读取 skill.md 或 README.md（大小写不敏感）"""
+    for item in skill_dir.iterdir():
+        if item.is_file() and item.stem.lower() in ("skill", "readme") and item.suffix.lower() == ".md":
             try:
-                return p.read_text(encoding="utf-8", errors="ignore")[:50000]
+                return item.read_text(encoding="utf-8", errors="ignore")[:50000]
             except Exception:
                 pass
     return None
@@ -816,10 +874,34 @@ async def get_skill_detail(skill_id: str):
     """获取 Skill 完整详情（含文件内容和目录结构）"""
     db = await get_db()
     skill = await db.get_skill(skill_id)
+
+    # 处理本地文件系统 Skill（fs-* 前缀）
+    if not skill and skill_id.startswith("fs-"):
+        skill_name = skill_id[3:]  # 去掉 "fs-" 前缀
+        skill_dir = Path.home() / ".claude" / "skills" / skill_name
+        if skill_dir.is_dir():
+            readme = _read_skill_readme(skill_dir)
+            manifest = _read_skill_manifest(skill_dir)
+            description = ""
+            if readme:
+                lines = [l.strip() for l in readme.split("\n") if l.strip() and not l.startswith("#")]
+                if lines:
+                    description = lines[0][:200]
+            skill = {
+                "id": skill_id,
+                "name": skill_name,
+                "description": description or f"本地 Skill: {skill_name}",
+                "version": manifest.get("version", "1.0.0") if manifest else "1.0.0",
+                "source": "local",
+                "enabled": True,
+                "trigger_keywords": manifest.get("trigger_keywords", []) if manifest else [],
+                "created_at": "",
+            }
+
     if not skill:
         raise HTTPException(status_code=404, detail="Skill 不存在")
 
-    # Try to find skill directory
+    # 查找 Skill 目录
     skill_dir = _find_skill_directory(skill["name"])
 
     result = {
@@ -843,17 +925,30 @@ async def get_skill_detail(skill_id: str):
     return result
 
 
+async def _resolve_skill_dir(skill_id: str) -> Path:
+    """统一解析 Skill 目录（支持数据库 Skill 和本地 fs-* Skill）"""
+    db = await get_db()
+    skill = await db.get_skill(skill_id)
+
+    if skill:
+        skill_dir = _find_skill_directory(skill["name"])
+        if skill_dir:
+            return skill_dir
+
+    # 处理本地文件系统 Skill
+    if skill_id.startswith("fs-"):
+        skill_name = skill_id[3:]
+        skill_dir = Path.home() / ".claude" / "skills" / skill_name
+        if skill_dir.is_dir():
+            return skill_dir
+
+    raise HTTPException(status_code=404, detail="Skill 目录不存在")
+
+
 @app.get("/api/skills/{skill_id}/file")
 async def get_skill_file(skill_id: str, path: str = Query(..., description="文件相对路径")):
     """读取 Skill 目录中的指定文件"""
-    db = await get_db()
-    skill = await db.get_skill(skill_id)
-    if not skill:
-        raise HTTPException(status_code=404, detail="Skill 不存在")
-
-    skill_dir = _find_skill_directory(skill["name"])
-    if not skill_dir:
-        raise HTTPException(status_code=404, detail="Skill 目录不存在")
+    skill_dir = await _resolve_skill_dir(skill_id)
 
     file_path = skill_dir / path
     # Security: prevent path traversal
@@ -884,14 +979,7 @@ class FileUpdateRequest(BaseModel):
 @app.put("/api/skills/{skill_id}/file")
 async def update_skill_file(skill_id: str, req: FileUpdateRequest):
     """保存 Skill 目录中的文件"""
-    db = await get_db()
-    skill = await db.get_skill(skill_id)
-    if not skill:
-        raise HTTPException(status_code=404, detail="Skill 不存在")
-
-    skill_dir = _find_skill_directory(skill["name"])
-    if not skill_dir:
-        raise HTTPException(status_code=404, detail="Skill 目录不存在")
+    skill_dir = await _resolve_skill_dir(skill_id)
 
     file_path = skill_dir / req.path
     # Security: prevent path traversal
