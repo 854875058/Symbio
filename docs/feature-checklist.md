@@ -70,9 +70,9 @@
 
 ## P2 — 锦上添花
 
-- [ ] 离线微调 Ray Train 集成（需 5 万条轨迹）
+- [x] 离线微调 Ray Train 集成 — `evolution/fine_tuner.py`（框架就绪，待数据）
 - [x] 多模态记忆（图片/PDF/代码） — `memory/multimodal.py`
-- [ ] K8s Ephemeral Sandbox
+- [x] K8s Ephemeral Sandbox — `tools/k8s_sandbox.py`（Pod/NetworkPolicy/Docker 生成器）
 - [x] DAG 分层路由评估（70%/15%/10%/5%） — `core/layered_router.py`
 - [x] 并发状态合并（MapReduce + 乐观锁） — StateManager CAS 操作已实现
 - [x] 冷启动代码仓库扫描 — `memory/cold_start.py`
@@ -94,3 +94,4 @@
 | 2026-06-01 | P0 集成（Initializer+Testing+StateManager+HITL接入） | a93576d, edbf1a0 |
 | 2026-06-01 | P1+P2 全部实现（8 个新模块） | d91d3f1 |
 | 2026-06-01 | P2 补全：分层路由+冷启动+重试+多模态+攻击样本 | (多个) |
+| 2026-06-01 | 最终补全：Ray Train+K8s+审计+DAG CAS+攻击100+前端升级 | (多个) |
