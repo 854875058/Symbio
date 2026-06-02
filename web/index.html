@@ -356,6 +356,31 @@
             <span class="empty-hint">点击"自动检测"发现已安装的 Skills，或手动导入</span>
           </div>
         </div>
+
+        <!-- Skill Detail Page -->
+        <div class="skill-detail-page" id="skill-detail-page" style="display:none;">
+          <div class="skill-detail-topbar">
+            <button class="btn-back-skills" onclick="backToSkillsGrid()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+              返回列表
+            </button>
+          </div>
+          <div class="skill-detail-header" id="skill-detail-header"></div>
+          <div class="skill-tabs" id="skill-tabs">
+            <button class="skill-tab active" data-tab="overview">概览</button>
+            <button class="skill-tab" data-tab="docs">文档</button>
+            <button class="skill-tab" data-tab="files">文件</button>
+            <button class="skill-tab" data-tab="config">配置</button>
+            <button class="skill-tab" data-tab="tests">测试</button>
+          </div>
+          <div class="skill-tab-panels">
+            <div class="skill-tab-panel active" id="panel-overview"></div>
+            <div class="skill-tab-panel" id="panel-docs"></div>
+            <div class="skill-tab-panel" id="panel-files"></div>
+            <div class="skill-tab-panel" id="panel-config"></div>
+            <div class="skill-tab-panel" id="panel-tests"></div>
+          </div>
+        </div>
       </div>
     </div>
 

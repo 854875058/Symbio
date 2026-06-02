@@ -16,6 +16,7 @@ const state = {
   taskFilter: 'all',
   memories: [],
   skills: [],
+  skillDetail: null,
   tokens: { input: 0, output: 0, total: 0 },
   cost: 0,
   connected: false,
@@ -1180,7 +1181,7 @@ function renderSkills(query) {
   }
 
   dom.skillsGrid.innerHTML = state.skills.map(sk => `
-    <div class="skill-card" data-id="${sk.id}">
+    <div class="skill-card" data-id="${sk.id}" onclick="showSkillDetailPage('${sk.id}')">
       <div class="skill-card-header">
         <div class="skill-card-info">
           <div class="skill-card-name">
@@ -1524,6 +1525,287 @@ async function deleteSkill(id) {
     }
   } catch (e) { toast('error', '删除失败', e.message); }
 }
+
+// ============ Skill Detail Page ============
+async function showSkillDetailPage(id) {
+  const grid = document.getElementById('skills-grid');
+  const detail = document.getElementById('skill-detail-page');
+  if (!grid || !detail) return;
+
+  grid.style.display = 'none';
+  detail.style.display = 'flex';
+
+  // Fetch detail from API
+  let skillData = null;
+  try {
+    const res = await fetch(`${API}/skills/${id}/detail`);
+    if (res.ok) skillData = await res.json();
+  } catch(e) {}
+
+  // Fallback to local data
+  if (!skillData) {
+    const sk = state.skills.find(s => s.id === id);
+    if (sk) skillData = { skill: sk, files: [], readme: null, manifest: null, prompts: [], tests: [] };
+  }
+  if (!skillData || !skillData.skill) {
+    toast('error', '加载失败', '无法获取 Skill 详情');
+    backToSkillsGrid();
+    return;
+  }
+
+  state.skillDetail = skillData;
+  renderSkillDetailHeader(skillData.skill);
+  renderSkillOverview(skillData);
+  renderSkillDocs(skillData);
+  renderSkillFiles(skillData, id);
+  renderSkillConfig(skillData);
+  renderSkillTests(skillData);
+}
+
+function backToSkillsGrid() {
+  document.getElementById('skills-grid').style.display = '';
+  document.getElementById('skill-detail-page').style.display = 'none';
+  state.skillDetail = null;
+}
+
+function renderSkillDetailHeader(sk) {
+  const el = document.getElementById('skill-detail-header');
+  if (!el) return;
+  el.innerHTML = `
+    <div class="sdh-info">
+      <div class="sdh-title">
+        <h1>${esc(sk.name)}</h1>
+        <span class="skill-version-badge">v${esc(sk.version)}</span>
+        <span class="skill-source-badge skill-source-${sk.source}">${esc(sk.source)}</span>
+      </div>
+      <p class="sdh-desc">${esc(sk.description || '暂无描述')}</p>
+      <div class="sdh-meta">
+        <span class="sdh-meta-item">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+          ${esc(sk.created_at || '未知')}
+        </span>
+        <span class="sdh-meta-item badge ${sk.enabled ? 'badge-green' : 'badge-gray'}">${sk.enabled ? '已启用' : '已禁用'}</span>
+      </div>
+      ${(sk.trigger_keywords && sk.trigger_keywords.length) ? `
+      <div class="sdh-keywords">${sk.trigger_keywords.map(k => `<span class="skill-keyword">${esc(k)}</span>`).join('')}</div>
+      ` : ''}
+    </div>
+  `;
+}
+
+function renderSkillOverview(data) {
+  const el = document.getElementById('panel-overview');
+  if (!el) return;
+  const sk = data.skill;
+  const manifest = data.manifest || {};
+
+  let html = `<div class="skill-overview-grid">`;
+
+  // Description card
+  html += `<div class="so-card"><h4>描述</h4><p>${esc(sk.description || '暂无描述')}</p></div>`;
+
+  // Metadata card
+  html += `<div class="so-card"><h4>基本信息</h4>
+    <div class="so-meta"><span>名称</span><span>${esc(sk.name)}</span></div>
+    <div class="so-meta"><span>版本</span><span>v${esc(sk.version)}</span></div>
+    <div class="so-meta"><span>来源</span><span>${esc(sk.source)}</span></div>
+    <div class="so-meta"><span>状态</span><span>${sk.enabled ? '启用' : '禁用'}</span></div>
+    <div class="so-meta"><span>创建时间</span><span>${esc(sk.created_at || '未知')}</span></div>
+  </div>`;
+
+  // Manifest info
+  if (manifest.author || manifest.license || manifest.dependencies) {
+    html += `<div class="so-card"><h4>包信息</h4>`;
+    if (manifest.author) html += `<div class="so-meta"><span>作者</span><span>${esc(manifest.author)}</span></div>`;
+    if (manifest.license) html += `<div class="so-meta"><span>许可证</span><span>${esc(manifest.license)}</span></div>`;
+    if (manifest.dependencies) {
+      html += `<div class="so-deps"><h5>依赖</h5>`;
+      for (const [dep, ver] of Object.entries(manifest.dependencies)) {
+        html += `<span class="so-dep-tag">${esc(dep)}: ${esc(ver)}</span>`;
+      }
+      html += `</div>`;
+    }
+    html += `</div>`;
+  }
+
+  // Directory info
+  html += `<div class="so-card"><h4>目录</h4><p class="so-path">${esc(data.directory || '未找到本地目录')}</p></div>`;
+
+  html += `</div>`;
+  el.innerHTML = html;
+}
+
+function renderSkillDocs(data) {
+  const el = document.getElementById('panel-docs');
+  if (!el) return;
+  if (data.readme) {
+    el.innerHTML = `<div class="skill-doc-content">${formatContent(data.readme)}</div>`;
+  } else {
+    el.innerHTML = `<div class="empty-state"><p>暂无文档</p><span class="empty-hint">在 Skill 目录下创建 skill.md 或 README.md 即可显示</span></div>`;
+  }
+}
+
+function renderSkillFiles(data, skillId) {
+  const el = document.getElementById('panel-files');
+  if (!el) return;
+
+  if (!data.files || data.files.length === 0) {
+    el.innerHTML = `<div class="empty-state"><p>暂无文件</p><span class="empty-hint">${data.directory ? '目录为空' : '未找到 Skill 目录'}</span></div>`;
+    return;
+  }
+
+  el.innerHTML = `
+    <div class="file-split">
+      <div class="file-tree" id="file-tree"></div>
+      <div class="file-viewer" id="file-viewer">
+        <div class="file-viewer-placeholder">&larr; 选择文件查看内容</div>
+      </div>
+    </div>
+  `;
+
+  renderFileTree(data.files, skillId);
+}
+
+function renderFileTree(files, skillId) {
+  const tree = document.getElementById('file-tree');
+  if (!tree) return;
+
+  // Build tree structure
+  const root = {};
+  files.forEach(f => {
+    const parts = f.name.split(/[\\/]/);
+    let node = root;
+    parts.forEach((part, i) => {
+      if (i === parts.length - 1) {
+        node[part] = { file: f };
+      } else {
+        if (!node[part] || node[part].file) node[part] = {};
+        node = node[part];
+      }
+    });
+  });
+
+  tree.innerHTML = renderTreeNode(root, skillId, 0);
+}
+
+function renderTreeNode(node, skillId, depth) {
+  let html = '';
+  const entries = Object.entries(node).sort((a, b) => {
+    const aIsDir = !a[1].file;
+    const bIsDir = !b[1].file;
+    if (aIsDir && !bIsDir) return -1;
+    if (!aIsDir && bIsDir) return 1;
+    return a[0].localeCompare(b[0]);
+  });
+
+  for (const [name, val] of entries) {
+    const indent = depth * 16;
+    if (val.file) {
+      const icon = getFileIcon(val.file.type);
+      html += `<div class="ft-item ft-file" style="padding-left:${indent + 8}px" onclick="loadSkillFile('${skillId}', '${esc(val.file.name)}')">
+        ${icon}<span class="ft-name">${esc(name)}</span>
+        <span class="ft-size">${formatFileSize(val.file.size)}</span>
+      </div>`;
+    } else {
+      html += `<div class="ft-item ft-folder" style="padding-left:${indent}px" onclick="this.classList.toggle('ft-collapsed')">
+        <span class="ft-arrow">&#9660;</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
+        <span class="ft-name">${esc(name)}</span>
+      </div>
+      <div class="ft-children">${renderTreeNode(val, skillId, depth + 1)}</div>`;
+    }
+  }
+  return html;
+}
+
+function getFileIcon(type) {
+  const icons = {
+    markdown: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>',
+    code: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 18l6-6-6-6"/><path d="M8 6l-6 6 6 6"/></svg>',
+    config: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
+    text: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>',
+    script: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>',
+    other: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>',
+  };
+  return icons[type] || icons.other;
+}
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+async function loadSkillFile(skillId, filePath) {
+  const viewer = document.getElementById('file-viewer');
+  if (!viewer) return;
+  viewer.innerHTML = '<div class="file-viewer-loading">加载中...</div>';
+
+  try {
+    const res = await fetch(`${API}/skills/${skillId}/file?path=${encodeURIComponent(filePath)}`);
+    if (!res.ok) throw new Error('加载失败');
+    const data = await res.json();
+
+    const isCode = /\.(py|js|ts|json|yaml|yml|sh|html|css|md)$/.test(filePath);
+
+    viewer.innerHTML = `
+      <div class="fv-header">
+        <span class="fv-path">${esc(filePath)}</span>
+        <span class="fv-size">${formatFileSize(data.size)}</span>
+        <button class="fv-copy" onclick="navigator.clipboard.writeText(document.querySelector('.fv-content').textContent)">复制</button>
+      </div>
+      <div class="fv-content">${isCode ? highlightSyntax(data.content) : esc(data.content)}</div>
+    `;
+  } catch(e) {
+    viewer.innerHTML = `<div class="file-viewer-error">${esc(e.message)}</div>`;
+  }
+}
+
+function renderSkillConfig(data) {
+  const el = document.getElementById('panel-config');
+  if (!el) return;
+  const manifest = data.manifest;
+  if (!manifest) {
+    el.innerHTML = `<div class="empty-state"><p>暂无配置</p><span class="empty-hint">在 Skill 目录下创建 skill.yaml 或 manifest.json 即可</span></div>`;
+    return;
+  }
+
+  el.innerHTML = `
+    <div class="skill-config-section">
+      <h4>Manifest 配置</h4>
+      <div class="skill-config-viewer">${highlightSyntax(JSON.stringify(manifest, null, 2))}</div>
+    </div>
+  `;
+}
+
+function renderSkillTests(data) {
+  const el = document.getElementById('panel-tests');
+  if (!el) return;
+  if (!data.tests || data.tests.length === 0) {
+    el.innerHTML = `<div class="empty-state"><p>暂无测试</p><span class="empty-hint">在 Skill 目录下创建 test_*.py 或 *.test.js 文件</span></div>`;
+    return;
+  }
+
+  el.innerHTML = data.tests.map(t => `
+    <div class="skill-test-item">
+      <div class="sti-header">
+        <span class="sti-name">${esc(t.name)}</span>
+      </div>
+      <pre class="sti-content"><code>${highlightSyntax(t.content)}</code></pre>
+    </div>
+  `).join('');
+}
+
+// Skill Detail Tab switching
+document.addEventListener('click', (e) => {
+  const tab = e.target.closest('.skill-tab');
+  if (!tab) return;
+  const tabName = tab.dataset.tab;
+  document.querySelectorAll('.skill-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.skill-tab-panel').forEach(p => p.classList.remove('active'));
+  tab.classList.add('active');
+  document.getElementById(`panel-${tabName}`)?.classList.add('active');
+});
 
 // ============ Toast ============
 function toast(type, title, msg) {
