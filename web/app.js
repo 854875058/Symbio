@@ -1752,12 +1752,88 @@ async function loadSkillFile(skillId, filePath) {
       <div class="fv-header">
         <span class="fv-path">${esc(filePath)}</span>
         <span class="fv-size">${formatFileSize(data.size)}</span>
-        <button class="fv-copy" onclick="navigator.clipboard.writeText(document.querySelector('.fv-content').textContent)">复制</button>
+        <div class="fv-actions">
+          <button class="fv-btn fv-copy" onclick="navigator.clipboard.writeText(document.querySelector('.fv-content-edit')?.value || document.querySelector('.fv-content')?.textContent)">复制</button>
+          <button class="fv-btn fv-edit" onclick="toggleSkillFileEdit('${skillId}', '${esc(filePath)}')">编辑</button>
+        </div>
       </div>
-      <div class="fv-content">${isCode ? highlightSyntax(data.content) : esc(data.content)}</div>
+      <div class="fv-content" data-raw="${esc(data.content).replace(/"/g, '&quot;')}">${isCode ? highlightSyntax(data.content) : esc(data.content)}</div>
     `;
   } catch(e) {
     viewer.innerHTML = `<div class="file-viewer-error">${esc(e.message)}</div>`;
+  }
+}
+
+function toggleSkillFileEdit(skillId, filePath) {
+  const viewer = document.getElementById('file-viewer');
+  if (!viewer) return;
+
+  const contentEl = viewer.querySelector('.fv-content');
+  const editBtn = viewer.querySelector('.fv-edit');
+  const headerEl = viewer.querySelector('.fv-header');
+
+  // Check if already in edit mode
+  const textarea = viewer.querySelector('.fv-content-edit');
+  if (textarea) {
+    // Switch back to view mode - restore original content
+    const raw = contentEl?.dataset?.raw || '';
+    const isCode = /\.(py|js|ts|json|yaml|yml|sh|html|css|md)$/.test(filePath);
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'fv-content';
+    contentDiv.dataset.raw = raw;
+    contentDiv.innerHTML = isCode ? highlightSyntax(raw) : esc(raw);
+    textarea.replaceWith(contentDiv);
+    editBtn.textContent = '编辑';
+    editBtn.classList.remove('fv-editing');
+    // Remove save/cancel buttons
+    viewer.querySelector('.fv-save')?.remove();
+    viewer.querySelector('.fv-cancel')?.remove();
+    return;
+  }
+
+  if (!contentEl) return;
+  const raw = contentEl.dataset.raw || contentEl.textContent;
+
+  // Create textarea
+  const textareaEl = document.createElement('textarea');
+  textareaEl.className = 'fv-content-edit';
+  textareaEl.value = raw;
+  textareaEl.spellcheck = false;
+  contentEl.replaceWith(textareaEl);
+
+  // Update edit button
+  editBtn.textContent = '取消';
+  editBtn.classList.add('fv-editing');
+
+  // Add save button
+  const actionsEl = viewer.querySelector('.fv-actions');
+  if (!viewer.querySelector('.fv-save')) {
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'fv-btn fv-save';
+    saveBtn.textContent = '保存';
+    saveBtn.onclick = () => saveSkillFile(skillId, filePath, textareaEl.value);
+    actionsEl.insertBefore(saveBtn, editBtn);
+  }
+
+  textareaEl.focus();
+}
+
+async function saveSkillFile(skillId, filePath, content) {
+  try {
+    const res = await fetch(`${API}/skills/${skillId}/file`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: filePath, content }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || '保存失败');
+    }
+    toast('success', '已保存', `${filePath} 已更新`);
+    // Reload the file view
+    loadSkillFile(skillId, filePath);
+  } catch(e) {
+    toast('error', '保存失败', e.message);
   }
 }
 

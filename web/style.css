@@ -2053,6 +2053,39 @@ textarea::placeholder { color:var(--text-tertiary); }
   transition: all 150ms;
 }
 .fv-copy:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+.fv-actions { display: flex; gap: 6px; }
+.fv-btn {
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  padding: 2px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  transition: all 150ms;
+}
+.fv-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+.fv-edit { }
+.fv-editing { background: var(--accent); color: #fff; border-color: var(--accent); }
+.fv-save { background: #22c55e; color: #fff; border-color: #22c55e; font-weight: 600; }
+.fv-save:hover { background: #16a34a; border-color: #16a34a; }
+.fv-content-edit {
+  flex: 1;
+  padding: 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow: auto;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 2px solid var(--accent);
+  border-radius: 0 0 10px 0;
+  resize: none;
+  outline: none;
+  white-space: pre;
+  tab-size: 4;
+}
 .fv-content {
   flex: 1;
   padding: 12px;

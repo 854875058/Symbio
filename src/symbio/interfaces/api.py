@@ -876,6 +876,42 @@ async def get_skill_file(skill_id: str, path: str = Query(..., description="文�
         raise HTTPException(status_code=500, detail=f"读取失败: {str(e)}")
 
 
+class FileUpdateRequest(BaseModel):
+    path: str
+    content: str
+
+
+@app.put("/api/skills/{skill_id}/file")
+async def update_skill_file(skill_id: str, req: FileUpdateRequest):
+    """保存 Skill 目录中的文件"""
+    db = await get_db()
+    skill = await db.get_skill(skill_id)
+    if not skill:
+        raise HTTPException(status_code=404, detail="Skill 不存在")
+
+    skill_dir = _find_skill_directory(skill["name"])
+    if not skill_dir:
+        raise HTTPException(status_code=404, detail="Skill 目录不存在")
+
+    file_path = skill_dir / req.path
+    # Security: prevent path traversal
+    try:
+        file_path = file_path.resolve()
+        if not str(file_path).startswith(str(skill_dir.resolve())):
+            raise HTTPException(status_code=403, detail="路径不允许")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=400, detail="无效路径")
+
+    try:
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_text(req.content, encoding="utf-8")
+        return {"success": True, "path": req.path, "size": file_path.stat().st_size}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"保存失败: {str(e)}")
+
+
 # ============ 配置 API ============
 
 @app.get("/api/config")
