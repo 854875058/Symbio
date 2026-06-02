@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from typing import Optional
 import asyncio
 import json
+import os
 import uuid
 import time
 import yaml
@@ -703,6 +704,176 @@ async def import_skills_from_dir(req: DirImportRequest):
                 imported += 1
 
     return {"imported": imported}
+
+
+def _find_skill_directory(skill_name: str) -> Optional[Path]:
+    """查找 Skill 目录"""
+    search_paths = [
+        Path.home() / ".claude" / "skills" / skill_name,
+        Path.home() / ".claude" / "commands" / skill_name,
+        Path("skills") / skill_name,
+        Path("src/symbio/skills/builtin") / skill_name,
+    ]
+    for p in search_paths:
+        if p.is_dir():
+            return p
+    return None
+
+
+def _list_skill_files(skill_dir: Path) -> list[dict]:
+    """列出 Skill 目录下的所有文件"""
+    files = []
+    try:
+        for item in sorted(skill_dir.rglob("*")):
+            if item.is_file() and not item.name.startswith("."):
+                rel = item.relative_to(skill_dir)
+                files.append({
+                    "name": str(rel),
+                    "path": str(item),
+                    "size": item.stat().st_size,
+                    "type": _get_file_type(item.suffix),
+                })
+    except Exception:
+        pass
+    return files
+
+
+def _get_file_type(suffix: str) -> str:
+    """根据后缀判断文件类型"""
+    types = {
+        ".md": "markdown", ".yaml": "config", ".yml": "config", ".json": "config",
+        ".py": "code", ".js": "code", ".ts": "code",
+        ".txt": "text", ".sh": "script",
+    }
+    return types.get(suffix.lower(), "other")
+
+
+def _read_skill_readme(skill_dir: Path) -> Optional[str]:
+    """读取 skill.md 或 README.md"""
+    for name in ["skill.md", "README.md", "readme.md"]:
+        p = skill_dir / name
+        if p.exists():
+            try:
+                return p.read_text(encoding="utf-8", errors="ignore")[:50000]
+            except Exception:
+                pass
+    return None
+
+
+def _read_skill_manifest(skill_dir: Path) -> Optional[dict]:
+    """读取 manifest 文件 (skill.yaml / skill.json)"""
+    for name in ["skill.yaml", "skill.json", "manifest.json", "manifest.yaml"]:
+        p = skill_dir / name
+        if p.exists():
+            try:
+                content = p.read_text(encoding="utf-8", errors="ignore")
+                if name.endswith(".json"):
+                    return json.loads(content)
+                else:
+                    return yaml.safe_load(content)
+            except Exception:
+                pass
+    return None
+
+
+def _read_skill_prompts(skill_dir: Path) -> list[dict]:
+    """读取提示词文件"""
+    prompts = []
+    prompt_dir = skill_dir / "prompts"
+    if not prompt_dir.is_dir():
+        prompt_dir = skill_dir
+    for p in prompt_dir.glob("*.md"):
+        if p.name.lower() not in ("readme.md", "skill.md"):
+            try:
+                prompts.append({
+                    "name": p.stem,
+                    "content": p.read_text(encoding="utf-8", errors="ignore")[:20000],
+                })
+            except Exception:
+                pass
+    return prompts
+
+
+def _read_skill_tests(skill_dir: Path) -> list[dict]:
+    """读取测试文件"""
+    tests = []
+    test_dir = skill_dir / "tests"
+    if not test_dir.is_dir():
+        test_dir = skill_dir
+    for p in list(test_dir.glob("test_*.py")) + list(test_dir.glob("*.test.js")):
+        try:
+            tests.append({
+                "name": p.name,
+                "content": p.read_text(encoding="utf-8", errors="ignore")[:10000],
+            })
+        except Exception:
+            pass
+    return tests
+
+
+@app.get("/api/skills/{skill_id}/detail")
+async def get_skill_detail(skill_id: str):
+    """获取 Skill 完整详情（含文件内容和目录结构）"""
+    db = await get_db()
+    skill = await db.get_skill(skill_id)
+    if not skill:
+        raise HTTPException(status_code=404, detail="Skill 不存在")
+
+    # Try to find skill directory
+    skill_dir = _find_skill_directory(skill["name"])
+
+    result = {
+        "skill": skill,
+        "directory": None,
+        "files": [],
+        "readme": None,
+        "manifest": None,
+        "prompts": [],
+        "tests": [],
+    }
+
+    if skill_dir and os.path.isdir(skill_dir):
+        result["directory"] = str(skill_dir)
+        result["files"] = _list_skill_files(skill_dir)
+        result["readme"] = _read_skill_readme(skill_dir)
+        result["manifest"] = _read_skill_manifest(skill_dir)
+        result["prompts"] = _read_skill_prompts(skill_dir)
+        result["tests"] = _read_skill_tests(skill_dir)
+
+    return result
+
+
+@app.get("/api/skills/{skill_id}/file")
+async def get_skill_file(skill_id: str, path: str = Query(..., description="文件相对路径")):
+    """读取 Skill 目录中的指定文件"""
+    db = await get_db()
+    skill = await db.get_skill(skill_id)
+    if not skill:
+        raise HTTPException(status_code=404, detail="Skill 不存在")
+
+    skill_dir = _find_skill_directory(skill["name"])
+    if not skill_dir:
+        raise HTTPException(status_code=404, detail="Skill 目录不存在")
+
+    file_path = skill_dir / path
+    # Security: prevent path traversal
+    try:
+        file_path = file_path.resolve()
+        if not str(file_path).startswith(str(skill_dir.resolve())):
+            raise HTTPException(status_code=403, detail="路径不允许")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=400, detail="无效路径")
+
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    try:
+        content = file_path.read_text(encoding="utf-8", errors="ignore")[:100000]
+        return {"path": path, "content": content, "size": file_path.stat().st_size}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"读取失败: {str(e)}")
 
 
 # ============ 配置 API ============
