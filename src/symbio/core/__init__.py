@@ -16,6 +16,7 @@ from .decomposer import (
     SubTask,
     TaskDecomposer,
 )
+from .execution_state_store import ExecutionStateStore
 from .context_pruner import (
     ContextMessage,
     ContextPruner,
@@ -110,6 +111,7 @@ __all__ = [
     "DecompositionResult",
     "SubTask",
     "TaskDecomposer",
+    "ExecutionStateStore",
     # Cache Aligner
     "AlignmentResult",
     "AlignmentStrategy",
