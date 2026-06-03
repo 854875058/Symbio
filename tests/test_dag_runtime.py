@@ -143,6 +143,72 @@ async def test_agent_receives_task_with_node_action_parameters_policy_and_metada
     await store.close()
 
 
+async def test_agent_receives_passthrough_task_metadata_from_execution_node(tmp_path):
+    node = ExecutionNode(
+        node_id="node-1",
+        name="Answer",
+        description="Answer with memory",
+        executor="worker",
+        metadata={
+            "parameters": {},
+            "task_metadata": {
+                "memory_context": "=== 相关记忆 ===\n1. Python 优化",
+                "available_tools": ["shell"],
+            },
+        },
+    )
+    store = await create_store(tmp_path, make_plan(node))
+    registry = AgentRegistry()
+    agent = RecordingAgent()
+    registry.register_instance(agent)
+
+    await DAGRuntime(store, registry).run("exec-1")
+
+    assert agent.tasks[0].metadata["memory_context"].startswith("=== 相关记忆 ===")
+    assert agent.tasks[0].metadata["available_tools"] == ["shell"]
+    assert agent.tasks[0].metadata["node_metadata"] == node.metadata
+
+    await store.close()
+
+
+async def test_runtime_preserves_task_metadata_when_runtime_keys_collide(tmp_path):
+    node = ExecutionNode(
+        node_id="node-1",
+        name="Answer",
+        executor="worker",
+        workflow_policy={"require_plan": True},
+        metadata={
+            "parameters": {},
+            "task_metadata": {
+                "execution_id": "caller-exec",
+                "node_id": "caller-node",
+                "workflow_policy": {"caller": True},
+                "node_metadata": {"caller": True},
+            },
+        },
+    )
+    store = await create_store(tmp_path, make_plan(node))
+    registry = AgentRegistry()
+    agent = RecordingAgent()
+    registry.register_instance(agent)
+
+    await DAGRuntime(store, registry).run("exec-1")
+
+    metadata = agent.tasks[0].metadata
+    assert metadata["execution_id"] == "caller-exec"
+    assert metadata["node_id"] == "caller-node"
+    assert metadata["workflow_policy"] == {"caller": True}
+    assert metadata["node_metadata"] == {"caller": True}
+    assert metadata["dag_runtime"] == {
+        "execution_id": "exec-1",
+        "node_id": "node-1",
+        "workflow_policy": {"require_plan": True},
+        "node_metadata": node.metadata,
+    }
+
+    await store.close()
+
+
 async def test_runtime_preserves_parameters_from_single_node_planner(tmp_path):
     task = Task(
         task_id="task-params",

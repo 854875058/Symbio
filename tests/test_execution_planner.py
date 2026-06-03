@@ -75,6 +75,19 @@ async def test_force_single_node_compiles_plan_without_calling_decomposer():
     assert node.verification_required is False
 
 
+async def test_single_node_plan_preserves_task_runtime_metadata_for_runtime_handoff():
+    task = make_task("say hello", task_id="task-meta")
+    task.metadata["memory_context"] = "=== 相关记忆 ===\n1. hello"
+    task.metadata["workflow_guidance"] = "Always verify"
+
+    plan = await ExecutionPlanner().plan(task, force_single_node=True)
+
+    assert plan.nodes[0].metadata["task_metadata"]["memory_context"].startswith(
+        "=== 相关记忆 ==="
+    )
+    assert plan.nodes[0].metadata["task_metadata"]["workflow_guidance"] == "Always verify"
+
+
 async def test_decomposition_compiles_dependencies_to_edges():
     decomposition = DecompositionResult(
         task_id="task-2",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Optional
 
@@ -15,9 +16,11 @@ except ImportError:
 
 from symbio.agents.debate import DebateEngine
 from symbio.core.hitl_gateway import ApprovalGateway, ApprovalRequest, ApprovalStatus, RiskLevel
+from symbio.core.hitl_notifier import HITLNotifier
 from symbio.agents.registry import get_registry
 from symbio.agents.subagent import SubAgentManager
 from symbio.config.settings import get_settings
+from symbio.core.dag_orchestrator import DAGOrchestrator
 from symbio.core.decomposer import TaskDecomposer
 from symbio.core.evaluator import ComplexityEvaluator
 from symbio.core.event_bus import Event, EventBus, EventType
@@ -27,9 +30,11 @@ from symbio.core.rate_limiter import RateLimiter
 from symbio.core.router import ModelRouter
 from symbio.core.state_manager import InstructionGenerator, StateManager, TaskPhase
 from symbio.core.tracer import get_tracer
+from symbio.core.workflow_policy import workflow_policy_for_intent
 from symbio.tools.lazy_loader import ToolLazyLoader
 from symbio.utils.logger import get_logger
 from symbio.utils.types import (
+    AgentState,
     Intent,
     Message,
     MessageSource,
@@ -40,6 +45,9 @@ from symbio.utils.types import (
 )
 
 logger = get_logger("orchestrator")
+
+DEFAULT_HITL_DB_PATH = str(Path("data") / "hitl.db")
+DEFAULT_STATE_DB_PATH = str(Path("data") / "state.db")
 
 
 @asynccontextmanager
@@ -71,16 +79,23 @@ class Orchestrator:
         self.subagent_manager = SubAgentManager(self.registry, self.event_bus, self.rate_limiter)
         self.debate_engine = DebateEngine(use_llm=True)
         self.memory_bridge = MemoryBridge()
-        self.state_manager = StateManager()
+        self.state_manager = StateManager(persist_path=DEFAULT_STATE_DB_PATH)
         self.instruction_generator = InstructionGenerator()
-        self.hitl_gateway = ApprovalGateway()
+        self.hitl_gateway = ApprovalGateway(persist_path=DEFAULT_HITL_DB_PATH)
+        self.hitl_notifier = HITLNotifier.from_settings()
         self.tool_loader = ToolLazyLoader()
+        self.dag_orchestrator = DAGOrchestrator(registry=self.registry)
         self._pending_hitl_tasks: dict[str, Task] = {}  # request_id -> Task
 
     async def initialize_memory(self) -> None:
         """初始化记忆系统（在首次处理消息时调用）"""
         if not self.memory_bridge._initialized:
             await self.memory_bridge.initialize()
+
+    async def _close_runtime_resources(self) -> None:
+        """Close ephemeral persistence handles opened during task execution."""
+        await self.state_manager.close()
+        await self.hitl_gateway.close()
 
     async def process(self, message: Message) -> Result:
         """处理用户消息
@@ -95,10 +110,16 @@ class Orchestrator:
 
         # If tracer is unavailable, run without tracing
         if tracer is None:
-            return await self._process_inner(message)
+            try:
+                return await self._process_inner(message)
+            finally:
+                await self._close_runtime_resources()
 
         async with tracer.span("orchestrator.process") as root_span:
-            return await self._process_inner(message, root_span)
+            try:
+                return await self._process_inner(message, root_span)
+            finally:
+                await self._close_runtime_resources()
 
     async def _process_inner(self, message: Message, root_span=None) -> Result:
         """内部处理逻辑，可选地被 Span 包裹。"""
@@ -135,6 +156,11 @@ class Orchestrator:
                 intent=intent,
                 model=model_id,
             )
+            if message.metadata:
+                task.metadata.update(message.metadata)
+            workflow_policy = workflow_policy_for_intent(intent)
+            task.metadata["workflow_policy"] = workflow_policy.model_dump()
+            task.metadata["workflow_guidance"] = workflow_policy.to_prompt()
             if task_span is not None:
                 task_span.set_attribute("task_id", task.task_id)
 
@@ -150,7 +176,15 @@ class Orchestrator:
                 requirements=message.content,
             )
             await self.state_manager.update(
-                lambda s: s.model_copy(update={"phase": TaskPhase.PLANNING})
+                lambda s: s.model_copy(update={
+                    "phase": TaskPhase.PLANNING,
+                    "metadata": {
+                        **s.metadata,
+                        "workflow_policy": task.metadata.get("workflow_policy"),
+                        "workflow_guidance": task.metadata.get("workflow_guidance"),
+                        "message_metadata": message.metadata,
+                    },
+                })
             )
             logger.debug(f"全局状态初始化完成: task_id={task.task_id}")
         except Exception as exc:
@@ -180,138 +214,46 @@ class Orchestrator:
         ))
 
         # 7. 分解任务（Phase 2 集成）
-        decomposition = None
-        try:
-            async with tracer.span("orchestrator.decomposition") if tracer else _nullcontext():
-                decomposition = await self.decomposer.decompose(intent, task.task_id)
-                logger.info(
-                    f"任务分解完成: subtasks={len(decomposition.subtasks)}, "
-                    f"needs_debate={decomposition.needs_debate}"
-                )
-
-            # 广播分解开始事件
+        hitl_request_id = await self._check_hitl_required(task)
+        if hitl_request_id:
+            task.state = AgentState.WAITING
             await self.event_bus.emit(Event(
-                type=EventType.TASK_STARTED,
+                type=EventType.HITL_SUSPENDED,
                 data={
                     "task_id": task.task_id,
-                    "phase": "decomposition",
-                    "subtask_count": len(decomposition.subtasks),
-                    "needs_debate": decomposition.needs_debate,
+                    "request_id": hitl_request_id,
+                    "risk_level": task.metadata.get("risk_level", "low"),
                 },
                 source="orchestrator",
             ))
-
-            # 更新状态：进入执行阶段，存储分解结果到 checklist
             try:
                 await self.state_manager.update(
                     lambda s: s.model_copy(update={
-                        "phase": TaskPhase.EXECUTING,
-                        "checklist": {
-                            "items": [
-                                {
-                                    "name": st.name,
-                                    "description": st.description,
-                                    "status": "pending",
-                                }
-                                for st in decomposition.subtasks
-                            ],
-                            "needs_debate": decomposition.needs_debate,
-                            "execution_order": decomposition.execution_order,
+                        "status": "waiting_approval",
+                        "metadata": {
+                            **s.metadata,
+                            "hitl_pending": True,
+                            "hitl_request_id": hitl_request_id,
                         },
                     })
                 )
-                logger.debug(f"状态更新为 EXECUTING: subtasks={len(decomposition.subtasks)}")
             except Exception as exc:
-                logger.warning(f"状态更新失败（不影响主流程）: {exc}")
+                logger.warning(f"HITL 状态更新失败（不影响审批等待）: {exc}")
 
-        except Exception as exc:
-            logger.warning(f"任务分解失败，降级到单 Agent 执行: {exc}")
-            decomposition = None
-
-        # 7.5. 工具懒加载 — 按任务需求加载所需工具 Schema
-        try:
-            tool_schemas = self.tool_loader.load_for_node({
-                "node_id": task.task_id,
-                "tools": task.intent.requires_tools,
-            })
-            task.metadata["available_tools"] = [s.name for s in tool_schemas]
-            if tool_schemas:
-                logger.debug(
-                    f"工具懒加载完成: task_id={task.task_id}, "
-                    f"tools={[s.name for s in tool_schemas]}"
-                )
-        except Exception as exc:
-            logger.warning(f"工具懒加载失败（不影响主流程）: {exc}")
-
-        # 8. 根据分解结果选择执行策略
-        if decomposition and len(decomposition.subtasks) > 1 and decomposition.needs_debate:
-            # --- 路径 A: 多智能体辩论 ---
-            result = await self._execute_with_debate(task, decomposition, root_span)
-
-        elif decomposition and len(decomposition.subtasks) > 1:
-            # --- 路径 B: 子任务并行执行 ---
-            result = await self._execute_with_subagents(task, decomposition, root_span)
-
-        else:
-            # --- 路径 C: 单 Agent 执行（原有逻辑） ---
-            result = await self._execute_task(task, root_span)
-
-        # 8.1. 更新全局状态：记录执行结果
-        try:
-            final_phase = TaskPhase.COMPLETED if result.success else TaskPhase.FAILED
-            await self.state_manager.update(
-                lambda s: s.model_copy(update={
-                    "phase": final_phase,
-                    "status": "completed" if result.success else "failed",
-                    "metadata": {
-                        **s.metadata,
-                        "result_summary": result.content[:500] if result.content else "",
-                        "model": task.model,
-                    },
-                })
-            )
-            logger.debug(f"状态更新为 {final_phase.value}: success={result.success}")
-        except Exception as exc:
-            logger.warning(f"状态更新失败（不影响主流程）: {exc}")
-
-        # 8.5. 存储执行结果到记忆系统
-        try:
-            await self.memory_bridge.store_execution_result(
+            self.guardrail.release_ticket(task.task_id)
+            return Result(
                 task_id=task.task_id,
-                result_content=result.content,
-                metadata={"success": result.success, "model": task.model},
+                success=True,
+                content="任务已暂停，等待人类审批后继续执行。",
+                data={
+                    "hitl_pending": True,
+                    "hitl_request_id": hitl_request_id,
+                    "task_id": task.task_id,
+                    "risk_level": task.metadata.get("risk_level", "low"),
+                },
             )
-        except Exception as exc:
-            logger.debug(f"执行结果存储到记忆失败（不影响主流程）: {exc}")
 
-        # 8.6. 工具懒卸载 — 释放当前任务关联的工具 Schema
-        try:
-            unloaded = self.tool_loader.unload_node_tools(task.task_id)
-            if unloaded:
-                logger.debug(f"工具懒卸载完成: task_id={task.task_id}, unloaded={unloaded}")
-        except Exception as exc:
-            logger.warning(f"工具懒卸载失败（不影响主流程）: {exc}")
-
-        # Record result on root span
-        if root_span is not None:
-            root_span.set_attribute("success", result.success)
-            root_span.add_event("task_completed", attributes={
-                "task_id": task.task_id,
-                "success": result.success,
-            })
-            # Record token usage as span event
-            if result.token_usage.total_tokens > 0:
-                root_span.add_event("token_usage", attributes={
-                    "input_tokens": result.token_usage.input_tokens,
-                    "output_tokens": result.token_usage.output_tokens,
-                    "total_tokens": result.token_usage.total_tokens,
-                    "model": result.token_usage.model,
-                })
-
-        # 9. 释放资源支票
-        self.guardrail.release_ticket(task.task_id)
-
-        return result
+        return await self._execute_via_dag(task, root_span=root_span, release_ticket=True)
 
     _VALID_ACTIONS: set[str] = {
         "chat", "code_review", "write_code", "analyze_data",
@@ -773,11 +715,23 @@ class Orchestrator:
             impact_scope="单次任务执行",
             reason="任务复杂度较高，需要人工确认",
             risk_level=risk_level,
+            metadata={
+                "intent": task.intent.raw_text,
+                "workflow_policy": task.metadata.get("workflow_policy"),
+                "workflow_guidance": task.metadata.get("workflow_guidance"),
+                "risk_level": risk_level.value,
+            },
         )
         request_id = await self.hitl_gateway.submit_request(request)
+        if request.status == ApprovalStatus.PENDING:
+            await self.hitl_notifier.notify(request)
 
         # 暂存任务，等待审批后恢复
         self._pending_hitl_tasks[request_id] = task
+        await self.hitl_gateway.attach_task_context(
+            request_id,
+            task.model_dump(mode="json"),
+        )
 
         logger.info(
             f"HITL 审批已提交: request_id={request_id}, "
@@ -807,17 +761,124 @@ class Orchestrator:
 
         task = self._pending_hitl_tasks.pop(request_id, None)
         if task is None:
+            task_context = await self.hitl_gateway.get_task_context(request_id)
+            if task_context is not None:
+                task = Task.model_validate(task_context)
+        if task is None:
             logger.warning(f"HITL 恢复失败: 任务 {request.task_id} 未在暂存中找到")
             return None
 
         logger.info(f"HITL 审批通过，恢复执行任务: task_id={task.task_id}")
-        result = await self._execute_task(task)
+        try:
+            await self.state_manager.restore(task.task_id)
+        except Exception as exc:
+            logger.warning(f"HITL 状态恢复失败（不影响恢复执行）: {exc}")
+        result = await self._execute_via_dag(task, release_ticket=False)
+        await self.hitl_gateway.clear_task_context(request_id)
 
         # 将审批信息附加到结果中
         result.data["hitl_approved"] = True
         result.data["hitl_request_id"] = request_id
 
+        await self.event_bus.emit(Event(
+            type=EventType.HITL_APPROVED,
+            data={
+                "task_id": task.task_id,
+                "request_id": request_id,
+                "success": result.success,
+            },
+            source="orchestrator",
+        ))
+
         return result
+
+    def _load_task_tools(self, task: Task) -> None:
+        try:
+            tool_schemas = self.tool_loader.load_for_node({
+                "node_id": task.task_id,
+                "tools": task.intent.requires_tools,
+            })
+            task.metadata["available_tools"] = [s.name for s in tool_schemas]
+            if tool_schemas:
+                logger.debug(
+                    f"工具懒加载完成: task_id={task.task_id}, "
+                    f"tools={[s.name for s in tool_schemas]}"
+                )
+        except Exception as exc:
+            logger.warning(f"工具懒加载失败（不影响主流程）: {exc}")
+
+    async def _execute_via_dag(
+        self,
+        task: Task,
+        *,
+        root_span=None,
+        release_ticket: bool,
+    ) -> Result:
+        self._load_task_tools(task)
+
+        try:
+            try:
+                await self.state_manager.update(
+                    lambda s: s.model_copy(update={"phase": TaskPhase.EXECUTING})
+                )
+            except Exception as exc:
+                logger.warning(f"状态更新失败（不影响主流程）: {exc}")
+
+            result = await self.dag_orchestrator.execute(task)
+            task.result = result
+            task.state = AgentState.COMPLETED if result.success else AgentState.FAILED
+
+            try:
+                final_phase = TaskPhase.COMPLETED if result.success else TaskPhase.FAILED
+                await self.state_manager.update(
+                    lambda s: s.model_copy(update={
+                        "phase": final_phase,
+                        "status": "completed" if result.success else "failed",
+                        "metadata": {
+                            **s.metadata,
+                            "result_summary": result.content[:500] if result.content else "",
+                            "model": task.model,
+                        },
+                    })
+                )
+                logger.debug(f"状态更新为 {final_phase.value}: success={result.success}")
+            except Exception as exc:
+                logger.warning(f"状态更新失败（不影响主流程）: {exc}")
+
+            try:
+                await self.memory_bridge.store_execution_result(
+                    task_id=task.task_id,
+                    result_content=result.content,
+                    metadata={"success": result.success, "model": task.model},
+                )
+            except Exception as exc:
+                logger.debug(f"执行结果存储到记忆失败（不影响主流程）: {exc}")
+
+            if root_span is not None:
+                root_span.set_attribute("success", result.success)
+                root_span.add_event("task_completed", attributes={
+                    "task_id": task.task_id,
+                    "success": result.success,
+                })
+                if result.token_usage.total_tokens > 0:
+                    root_span.add_event("token_usage", attributes={
+                        "input_tokens": result.token_usage.input_tokens,
+                        "output_tokens": result.token_usage.output_tokens,
+                        "total_tokens": result.token_usage.total_tokens,
+                        "model": result.token_usage.model,
+                    })
+
+            return result
+        finally:
+            try:
+                unloaded = self.tool_loader.unload_node_tools(task.task_id)
+                if unloaded:
+                    logger.debug(f"工具懒卸载完成: task_id={task.task_id}, unloaded={unloaded}")
+            except Exception as exc:
+                logger.warning(f"工具懒卸载失败（不影响主流程）: {exc}")
+
+            if release_ticket:
+                self.guardrail.release_ticket(task.task_id)
 
     async def store_conversation(self, session_id: str, role: str, content: str) -> None:
         """存储对话到记忆系统

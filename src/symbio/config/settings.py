@@ -118,6 +118,13 @@ class HITLConfig(BaseSettings):
     # IM notification
     notify_platform: str = Field(default="", description="Notification platform (qq/wechat/feishu)")
     notify_chat_id: str = Field(default="", description="Notification chat ID")
+    notify_endpoint: str = Field(default="", description="Notification bridge endpoint")
+    notify_chat_type: str = Field(default="group", description="Chat type (group/private)")
+    notify_access_token: str = Field(default="", description="Notification bridge access token")
+    notify_targets: list[dict[str, str]] = Field(default_factory=list, description="Notification targets")
+    notify_timeout: float = Field(default=5.0, description="Notification HTTP timeout (seconds)")
+    callback_base_url: str = Field(default="", description="Public API base URL for approval links")
+    im_webhook_token: str = Field(default="", description="Shared token for IM approval callbacks")
 
     model_config = {"env_prefix": "SYMBIO_HITL_"}
 

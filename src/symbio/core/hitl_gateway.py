@@ -12,9 +12,11 @@ import json
 import time
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Callable, Optional
+from pathlib import Path
+from typing import Any, Callable, Optional
 from uuid import uuid4
 
+import aiosqlite
 from pydantic import BaseModel, Field
 
 
@@ -87,6 +89,7 @@ class ApprovalRequest(BaseModel):
     # 回调
     callback_url: str = ""
     jwt_token: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class WebhookPayload(BaseModel):
@@ -181,11 +184,16 @@ class ApprovalGateway:
         await gateway.approve(request_id, approver_id="alice")
     """
 
-    def __init__(self) -> None:
+    def __init__(self, persist_path: str = "") -> None:
         self._pending: dict[str, ApprovalRequest] = {}
         self._history: list[ApprovalRequest] = []
+        self._task_contexts: dict[str, dict[str, Any]] = {}
         self._lock = asyncio.Lock()
+        self._storage_lock = asyncio.Lock()
         self._callbacks: dict[str, list[Callable]] = {}
+        self._persist_path = persist_path
+        self._db: Optional[aiosqlite.Connection] = None
+        self._loaded = False
 
     # -- public API ---------------------------------------------------------
 
@@ -194,11 +202,15 @@ class ApprovalGateway:
 
         LOW-risk requests are auto-approved immediately.
         """
+        await self._ensure_storage()
+
         # Auto-approve LOW risk
         if request.risk_level == RiskLevel.LOW:
             request.status = ApprovalStatus.AUTO_APPROVED
             request.resolved_at = datetime.now()
-            self._history.append(request)
+            async with self._lock:
+                self._history.append(request)
+            await self._persist_request(request)
             # Fire callback if registered
             await self._fire_callbacks(request)
             return request.request_id
@@ -216,9 +228,10 @@ class ApprovalGateway:
 
         async with self._lock:
             self._pending[request.request_id] = request
+        await self._persist_request(request)
 
         # Start timeout timer
-        asyncio.create_task(self._timeout_handler(request))
+        self._schedule_timeout(request)
 
         return request.request_id
 
@@ -229,6 +242,7 @@ class ApprovalGateway:
         comment: str = "",
     ) -> ApprovalRequest:
         """Record an approval. Resolves the request when enough approvals accumulate."""
+        await self._ensure_storage()
         async with self._lock:
             request = self._pending.get(request_id)
             if request is None:
@@ -255,9 +269,15 @@ class ApprovalGateway:
                 request.resolved_at = datetime.now()
                 del self._pending[request_id]
                 self._history.append(request)
-                await self._fire_callbacks(request)
+                resolved = True
+            else:
+                resolved = False
 
-            return request
+        await self._persist_request(request)
+        if resolved:
+            await self._fire_callbacks(request)
+
+        return request
 
     async def reject(
         self,
@@ -266,6 +286,7 @@ class ApprovalGateway:
         comment: str = "",
     ) -> ApprovalRequest:
         """Reject a request (immediate resolution)."""
+        await self._ensure_storage()
         async with self._lock:
             request = self._pending.get(request_id)
             if request is None:
@@ -283,16 +304,19 @@ class ApprovalGateway:
             del self._pending[request_id]
             self._history.append(request)
 
+        await self._persist_request(request)
         await self._fire_callbacks(request)
         return request
 
     async def get_pending(self) -> list[ApprovalRequest]:
         """Return all pending approval requests."""
+        await self._ensure_storage()
         async with self._lock:
             return list(self._pending.values())
 
     async def get_request(self, request_id: str) -> Optional[ApprovalRequest]:
         """Fetch a request by id (pending or history)."""
+        await self._ensure_storage()
         async with self._lock:
             if request_id in self._pending:
                 return self._pending[request_id]
@@ -303,17 +327,66 @@ class ApprovalGateway:
 
     async def get_history(self) -> list[ApprovalRequest]:
         """Return all resolved requests."""
+        await self._ensure_storage()
         return list(self._history)
+
+    async def attach_task_context(
+        self,
+        request_id: str,
+        task_context: dict[str, Any],
+    ) -> None:
+        """Persist task context so HITL resume survives process restarts."""
+        await self._ensure_storage()
+        async with self._lock:
+            self._task_contexts[request_id] = task_context
+        await self._persist_task_context(request_id, task_context)
+
+    async def get_task_context(self, request_id: str) -> Optional[dict[str, Any]]:
+        """Return persisted task context for a request."""
+        await self._ensure_storage()
+        async with self._lock:
+            return self._task_contexts.get(request_id)
+
+    async def clear_task_context(self, request_id: str) -> None:
+        """Remove persisted task context once resume is complete."""
+        await self._ensure_storage()
+        async with self._lock:
+            self._task_contexts.pop(request_id, None)
+        if self._db is not None:
+            await self._db.execute(
+                "DELETE FROM hitl_task_contexts WHERE request_id = ?",
+                (request_id,),
+            )
+            await self._db.commit()
 
     def on_resolved(self, request_id: str, callback: Callable) -> None:
         """Register a callback to be invoked when a request is resolved."""
         self._callbacks.setdefault(request_id, []).append(callback)
 
+    async def close(self) -> None:
+        """Close persistence connection when the host shuts down."""
+        if self._db is not None:
+            await self._db.close()
+            self._db = None
+            self._loaded = False
+
     # -- internal -----------------------------------------------------------
 
-    async def _timeout_handler(self, request: ApprovalRequest) -> None:
+    def _schedule_timeout(self, request: ApprovalRequest) -> None:
+        if request.timeout_seconds <= 0:
+            return
+        elapsed = max((datetime.now() - request.created_at).total_seconds(), 0)
+        remaining = max(request.timeout_seconds - elapsed, 0)
+        asyncio.create_task(self._timeout_handler(request, remaining))
+
+    async def _timeout_handler(
+        self,
+        request: ApprovalRequest,
+        delay_seconds: Optional[float] = None,
+    ) -> None:
         """Sleep until timeout, then resolve if still pending."""
-        await asyncio.sleep(request.timeout_seconds)
+        await asyncio.sleep(request.timeout_seconds if delay_seconds is None else delay_seconds)
+        await self._ensure_storage()
         async with self._lock:
             if request.request_id not in self._pending:
                 return  # already resolved
@@ -331,6 +404,7 @@ class ApprovalGateway:
             request.resolved_at = datetime.now()
             del self._pending[request.request_id]
             self._history.append(request)
+        await self._persist_request(request)
         await self._fire_callbacks(request)
 
     async def _fire_callbacks(self, request: ApprovalRequest) -> None:
@@ -344,6 +418,112 @@ class ApprovalGateway:
                     await result
             except Exception:
                 pass  # callbacks should not crash the gateway
+
+    async def _ensure_storage(self) -> None:
+        """Initialize and load persisted state when configured."""
+        if not self._persist_path:
+            return
+
+        async with self._storage_lock:
+            if self._db is None:
+                db_path = Path(self._persist_path)
+                db_path.parent.mkdir(parents=True, exist_ok=True)
+                self._db = await aiosqlite.connect(str(db_path))
+                await self._db.execute("PRAGMA journal_mode=WAL")
+                await self._db.execute("""
+                    CREATE TABLE IF NOT EXISTS hitl_requests (
+                        request_id TEXT PRIMARY KEY,
+                        status TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        resolved_at TEXT,
+                        request_json TEXT NOT NULL
+                    )
+                """)
+                await self._db.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_hitl_requests_status
+                    ON hitl_requests(status)
+                """)
+                await self._db.execute("""
+                    CREATE TABLE IF NOT EXISTS hitl_task_contexts (
+                        request_id TEXT PRIMARY KEY,
+                        task_json TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )
+                """)
+                await self._db.commit()
+
+            if self._loaded:
+                return
+
+            self._pending.clear()
+            self._history.clear()
+            self._task_contexts.clear()
+
+            cursor = await self._db.execute(
+                "SELECT request_json FROM hitl_requests ORDER BY created_at ASC"
+            )
+            for row in await cursor.fetchall():
+                request = ApprovalRequest.model_validate_json(row[0])
+                if request.status == ApprovalStatus.PENDING:
+                    self._pending[request.request_id] = request
+                    self._schedule_timeout(request)
+                else:
+                    self._history.append(request)
+
+            cursor = await self._db.execute(
+                "SELECT request_id, task_json FROM hitl_task_contexts"
+            )
+            for row in await cursor.fetchall():
+                self._task_contexts[row[0]] = json.loads(row[1])
+
+            self._loaded = True
+
+    async def _persist_request(self, request: ApprovalRequest) -> None:
+        """Upsert a request snapshot when persistence is enabled."""
+        if self._db is None:
+            return
+        await self._db.execute(
+            """
+            INSERT INTO hitl_requests (request_id, status, created_at, resolved_at, request_json)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(request_id) DO UPDATE SET
+                status = excluded.status,
+                resolved_at = excluded.resolved_at,
+                request_json = excluded.request_json
+            """,
+            (
+                request.request_id,
+                request.status.value,
+                request.created_at.isoformat(),
+                request.resolved_at.isoformat() if request.resolved_at else None,
+                request.model_dump_json(),
+            ),
+        )
+        await self._db.commit()
+
+    async def _persist_task_context(
+        self,
+        request_id: str,
+        task_context: dict[str, Any],
+    ) -> None:
+        """Upsert serialized task context when persistence is enabled."""
+        if self._db is None:
+            return
+        await self._db.execute(
+            """
+            INSERT INTO hitl_task_contexts (request_id, task_json, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(request_id) DO UPDATE SET
+                task_json = excluded.task_json,
+                updated_at = excluded.updated_at
+            """,
+            (
+                request_id,
+                json.dumps(task_context, ensure_ascii=False),
+                datetime.now().isoformat(),
+            ),
+        )
+        await self._db.commit()
 
 
 # ---------------------------------------------------------------------------

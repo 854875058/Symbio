@@ -40,6 +40,7 @@ from symbio.agents.debate import (
     RefinerStrategy,
 )
 from symbio.agents.registry import AgentRegistry
+from symbio.core import DAGOrchestrator, ExecutionStateStore
 from symbio.core.decomposer import (
     DecompositionResult,
     SubTask,
@@ -150,6 +151,23 @@ def _make_mock_agent(name="general", execute_result=None):
     agent.execute = AsyncMock(return_value=execute_result)
     agent.can_handle = MagicMock(return_value=True)
     return agent
+
+
+class _FakeDAGOrchestrator:
+    def __init__(self, result_content="dag result", success=True):
+        self.tasks = []
+        self.execute = AsyncMock(side_effect=self._execute)
+        self.result_content = result_content
+        self.success = success
+
+    async def _execute(self, task):
+        self.tasks.append(task)
+        return Result(
+            task_id=task.task_id,
+            success=self.success,
+            content=self.result_content,
+            data={"execution_id": "exec-1"},
+        )
 
 
 # ================================================================
@@ -895,26 +913,16 @@ class TestOrchestratorIntegration:
     """调度中枢集成测试"""
 
     async def test_single_task_flow(self):
-        """单任务流程：简单消息 -> 单 Agent 执行"""
+        """单任务流程：简单消息 -> DAG 执行"""
         orchestrator = Orchestrator()
+        orchestrator.initialize_memory = AsyncMock()
+        orchestrator.memory_bridge.enhance_context = AsyncMock(return_value="")
+        orchestrator.memory_bridge.store_execution_result = AsyncMock()
+        orchestrator.dag_orchestrator = _FakeDAGOrchestrator(result_content="你好！")
 
         mock_settings = _make_mock_settings(api_key="")
-        mock_agent = _make_mock_agent("general")
-        mock_agent.execute = AsyncMock(
-            return_value=Result(
-                task_id="test", success=True, content="你好！"
-            )
-        )
 
-        with (
-            patch("symbio.core.orchestrator.get_settings", return_value=mock_settings),
-            patch.object(
-                orchestrator.registry, "find_best", return_value=mock_agent
-            ),
-            patch.object(
-                orchestrator.registry, "get", return_value=mock_agent
-            ),
-        ):
+        with patch("symbio.core.orchestrator.get_settings", return_value=mock_settings):
             message = Message(
                 source=MessageSource.CLI,
                 user_id="test-user",
@@ -925,6 +933,7 @@ class TestOrchestratorIntegration:
 
         assert result.success is True
         assert result.content == "你好！"
+        orchestrator.dag_orchestrator.execute.assert_awaited_once()
 
     async def test_multi_subtask_flow(self):
         """多子任务流程：mock decomposer 返回多个子任务，SubAgentManager 执行"""
@@ -1051,6 +1060,10 @@ class TestOrchestratorIntegration:
     async def test_orchestrator_with_llm_intent_parsing(self):
         """Orchestrator 使用 LLM 解析意图的完整流程"""
         orchestrator = Orchestrator()
+        orchestrator.initialize_memory = AsyncMock()
+        orchestrator.memory_bridge.enhance_context = AsyncMock(return_value="")
+        orchestrator.memory_bridge.store_execution_result = AsyncMock()
+        orchestrator.dag_orchestrator = _FakeDAGOrchestrator(result_content="代码审查完成")
 
         mock_settings = _make_mock_settings(api_key="test-key")
 
@@ -1070,22 +1083,9 @@ class TestOrchestratorIntegration:
         })
         mock_client = _make_mock_httpx_client(intent_response)
 
-        mock_agent = _make_mock_agent("code_reviewer")
-        mock_agent.execute = AsyncMock(
-            return_value=Result(
-                task_id="test", success=True, content="代码审查完成"
-            )
-        )
-
         with (
             patch("symbio.core.orchestrator.get_settings", return_value=mock_settings),
             patch("httpx.AsyncClient", return_value=mock_client),
-            patch.object(
-                orchestrator.registry, "find_best", return_value=mock_agent
-            ),
-            patch.object(
-                orchestrator.registry, "get", return_value=mock_agent
-            ),
         ):
             message = Message(
                 source=MessageSource.CLI,
@@ -1097,28 +1097,21 @@ class TestOrchestratorIntegration:
 
         assert result.success is True
         assert "代码审查完成" in result.content
+        captured_task = orchestrator.dag_orchestrator.tasks[0]
+        assert captured_task.intent.action == "code_review"
+        assert captured_task.intent.parameters["language"] == "python"
 
     async def test_orchestrator_fallback_intent(self):
         """Orchestrator 意图解析回退：LLM 不可用时降级到 chat"""
         orchestrator = Orchestrator()
+        orchestrator.initialize_memory = AsyncMock()
+        orchestrator.memory_bridge.enhance_context = AsyncMock(return_value="")
+        orchestrator.memory_bridge.store_execution_result = AsyncMock()
+        orchestrator.dag_orchestrator = _FakeDAGOrchestrator(result_content="默认回复")
 
         mock_settings = _make_mock_settings(api_key="")
-        mock_agent = _make_mock_agent("general")
-        mock_agent.execute = AsyncMock(
-            return_value=Result(
-                task_id="test", success=True, content="默认回复"
-            )
-        )
 
-        with (
-            patch("symbio.core.orchestrator.get_settings", return_value=mock_settings),
-            patch.object(
-                orchestrator.registry, "find_best", return_value=mock_agent
-            ),
-            patch.object(
-                orchestrator.registry, "get", return_value=mock_agent
-            ),
-        ):
+        with patch("symbio.core.orchestrator.get_settings", return_value=mock_settings):
             message = Message(
                 source=MessageSource.CLI,
                 user_id="test-user",
@@ -1128,22 +1121,22 @@ class TestOrchestratorIntegration:
             result = await orchestrator.process(message)
 
         assert result.success is True
+        assert orchestrator.dag_orchestrator.tasks[0].intent.action == "chat"
 
-    async def test_orchestrator_no_agent_available(self):
-        """Orchestrator 没有可用 Agent 时应返回失败"""
+    async def test_orchestrator_returns_dag_failure(self):
+        """Orchestrator 返回 DAG 执行失败结果"""
         orchestrator = Orchestrator()
+        orchestrator.initialize_memory = AsyncMock()
+        orchestrator.memory_bridge.enhance_context = AsyncMock(return_value="")
+        orchestrator.memory_bridge.store_execution_result = AsyncMock()
+        orchestrator.dag_orchestrator = _FakeDAGOrchestrator(
+            result_content="DAG execution failed",
+            success=False,
+        )
 
         mock_settings = _make_mock_settings(api_key="")
 
-        with (
-            patch("symbio.core.orchestrator.get_settings", return_value=mock_settings),
-            patch.object(
-                orchestrator.registry, "find_best", return_value=None
-            ),
-            patch.object(
-                orchestrator.registry, "get", return_value=None
-            ),
-        ):
+        with patch("symbio.core.orchestrator.get_settings", return_value=mock_settings):
             message = Message(
                 source=MessageSource.CLI,
                 user_id="test-user",
@@ -1153,7 +1146,7 @@ class TestOrchestratorIntegration:
             result = await orchestrator.process(message)
 
         assert result.success is False
-        assert "没有可用的 Agent" in result.content
+        assert result.content == "DAG execution failed"
 
     async def test_end_to_end_decompose_and_execute(self):
         """端到端：分解任务 -> 拓扑排序 -> SubAgentManager 执行"""
@@ -1234,3 +1227,228 @@ class TestOrchestratorIntegration:
         assert aggregated.total_subtasks == 3
         assert aggregated.completed_subtasks == 3
         assert mock_agent.execute.call_count == 3
+
+
+class TestOrchestratorHITL:
+    async def test_medium_risk_task_waits_for_approval_then_resumes(self):
+        orchestrator = Orchestrator()
+        orchestrator.initialize_memory = AsyncMock()
+        orchestrator.memory_bridge.enhance_context = AsyncMock(return_value="")
+        orchestrator.memory_bridge.store_execution_result = AsyncMock()
+        orchestrator.dag_orchestrator = _FakeDAGOrchestrator(
+            result_content="resumed after approval"
+        )
+
+        message = Message(
+            source=MessageSource.CLI,
+            user_id="test-user",
+            content="Run a risky operation",
+            session_id="test-session",
+            metadata={"risk_level": "medium"},
+        )
+
+        with patch("symbio.core.orchestrator.get_settings", return_value=_make_mock_settings(api_key="")):
+            result = await orchestrator.process(message)
+
+        assert result.success is True
+        assert result.data["hitl_pending"] is True
+        request_id = result.data["hitl_request_id"]
+        assert request_id in orchestrator._pending_hitl_tasks
+        orchestrator.dag_orchestrator.execute.assert_not_called()
+
+        request = await orchestrator.hitl_gateway.get_request(request_id)
+        assert request is not None
+        assert request.status.value == "pending"
+        assert request.risk_level.value == "medium"
+
+        await orchestrator.hitl_gateway.approve(request_id, approver_id="alice")
+        resumed = await orchestrator.resume_after_approval(request_id)
+
+        assert resumed is not None
+        assert resumed.content == "resumed after approval"
+        assert resumed.data["hitl_approved"] is True
+        assert resumed.data["hitl_request_id"] == request_id
+        orchestrator.dag_orchestrator.execute.assert_awaited_once()
+
+    async def test_resume_after_approval_uses_normal_execution_scaffolding(self):
+        orchestrator = Orchestrator()
+        orchestrator.initialize_memory = AsyncMock()
+        orchestrator.memory_bridge.enhance_context = AsyncMock(return_value="")
+        orchestrator.memory_bridge.store_execution_result = AsyncMock()
+        tool_schema = MagicMock()
+        tool_schema.name = "shell"
+        orchestrator.tool_loader.load_for_node = MagicMock(
+            return_value=[tool_schema]
+        )
+        orchestrator.tool_loader.unload_node_tools = MagicMock(return_value=["shell"])
+        orchestrator.dag_orchestrator = _FakeDAGOrchestrator(
+            result_content="resumed with tools"
+        )
+
+        message = Message(
+            source=MessageSource.CLI,
+            user_id="test-user",
+            content="Run a risky shell operation",
+            session_id="test-session",
+            metadata={"risk_level": "medium"},
+        )
+
+        with patch("symbio.core.orchestrator.get_settings", return_value=_make_mock_settings(api_key="")):
+            result = await orchestrator.process(message)
+
+        request_id = result.data["hitl_request_id"]
+        task = orchestrator._pending_hitl_tasks[request_id]
+        task.intent.requires_tools = ["shell"]
+        await orchestrator.hitl_gateway.attach_task_context(
+            request_id,
+            task.model_dump(mode="json"),
+        )
+        await orchestrator.hitl_gateway.approve(request_id, approver_id="alice")
+
+        resumed = await orchestrator.resume_after_approval(request_id)
+
+        assert resumed is not None
+        resumed_task = orchestrator.dag_orchestrator.tasks[0]
+        assert resumed_task.metadata["available_tools"] == ["shell"]
+        orchestrator.memory_bridge.store_execution_result.assert_called_once()
+        orchestrator.tool_loader.unload_node_tools.assert_called()
+        assert len(orchestrator.guardrail._tickets) == 0
+
+
+class TestOrchestratorWorkflowPolicy:
+    async def test_workflow_policy_injected_into_task_metadata(self):
+        orchestrator = Orchestrator()
+        orchestrator.initialize_memory = AsyncMock()
+        orchestrator.memory_bridge.enhance_context = AsyncMock(return_value="")
+        orchestrator.memory_bridge.store_execution_result = AsyncMock()
+        orchestrator.dag_orchestrator = _FakeDAGOrchestrator(result_content="done")
+
+        message = Message(
+            source=MessageSource.CLI,
+            user_id="test-user",
+            content="Implement a new API endpoint",
+            session_id="test-session",
+        )
+
+        with patch("symbio.core.orchestrator.get_settings", return_value=_make_mock_settings(api_key="")):
+            result = await orchestrator.process(message)
+
+        assert result.success is True
+        captured_task = orchestrator.dag_orchestrator.tasks[0]
+        policy = captured_task.metadata["workflow_policy"]
+        assert policy["require_plan"] is True
+        assert policy["require_tdd"] is True
+        assert policy["require_verification_before_completion"] is True
+        assert "TDD" in captured_task.metadata["workflow_guidance"]
+
+
+class TestDAGFirstOrchestratorIntegration:
+    async def test_orchestrator_delegates_execution_to_dag_orchestrator(self):
+        orchestrator = Orchestrator()
+        orchestrator.initialize_memory = AsyncMock()
+        orchestrator.memory_bridge.enhance_context = AsyncMock(return_value="")
+        orchestrator.memory_bridge.store_execution_result = AsyncMock()
+
+        captured_task = None
+
+        class FakeDAGOrchestrator:
+            async def execute(self, task):
+                nonlocal captured_task
+                captured_task = task
+                return Result(
+                    task_id=task.task_id,
+                    success=True,
+                    content="dag result",
+                    data={"execution_id": "exec-1"},
+                )
+
+        orchestrator.dag_orchestrator = FakeDAGOrchestrator()
+
+        message = Message(
+            source=MessageSource.CLI,
+            user_id="test-user",
+            content="Implement a new API endpoint",
+            session_id="test-session",
+        )
+
+        with patch("symbio.core.orchestrator.get_settings", return_value=_make_mock_settings(api_key="")):
+            result = await orchestrator.process(message)
+
+        assert result.success is True
+        assert result.content == "dag result"
+        assert result.data["execution_id"] == "exec-1"
+        assert captured_task is not None
+        policy = captured_task.metadata["workflow_policy"]
+        assert policy["require_plan"] is True
+        assert policy["require_tdd"] is True
+
+    async def test_orchestrator_with_real_dag_pipeline_uses_registry_agent(self, tmp_path):
+        orchestrator = Orchestrator()
+        orchestrator.initialize_memory = AsyncMock()
+        orchestrator.memory_bridge.enhance_context = AsyncMock(
+            return_value="=== 相关记忆 ===\n1. Python 优化"
+        )
+        orchestrator.memory_bridge.store_execution_result = AsyncMock()
+
+        registry = AgentRegistry()
+        agent = _make_mock_agent(
+            "general",
+            execute_result=Result(
+                task_id="runtime-task",
+                success=True,
+                content="real dag result",
+            ),
+        )
+        registry.register_instance(agent)
+
+        orchestrator.registry = registry
+        orchestrator.dag_orchestrator = DAGOrchestrator(
+            registry=registry,
+            store=ExecutionStateStore(str(tmp_path / "orchestrator-executions.db")),
+        )
+
+        message = Message(
+            source=MessageSource.CLI,
+            user_id="test-user",
+            content="Implement a new API endpoint",
+            session_id="test-session",
+        )
+
+        with patch("symbio.core.orchestrator.get_settings", return_value=_make_mock_settings(api_key="")):
+            result = await orchestrator.process(message)
+
+        assert agent.execute.await_count == 1
+        assert result.data["status"] == "needs_verification"
+        runtime_task = agent.execute.await_args.args[0]
+        assert runtime_task.metadata["workflow_policy"]["require_plan"] is True
+        assert runtime_task.metadata["memory_context"].startswith("=== 相关记忆 ===")
+        assert runtime_task.metadata["dag_runtime"]["execution_id"] != ""
+
+    async def test_orchestrator_releases_ticket_when_dag_execution_raises(self):
+        orchestrator = Orchestrator()
+        orchestrator.initialize_memory = AsyncMock()
+        orchestrator.memory_bridge.enhance_context = AsyncMock(return_value="")
+        orchestrator.memory_bridge.store_execution_result = AsyncMock()
+        orchestrator.tool_loader.unload_node_tools = MagicMock(return_value=["shell"])
+
+        class FailingDAGOrchestrator:
+            async def execute(self, task):
+                raise RuntimeError("dag failed")
+
+        orchestrator.dag_orchestrator = FailingDAGOrchestrator()
+
+        message = Message(
+            source=MessageSource.CLI,
+            user_id="test-user",
+            content="Implement a new API endpoint",
+            session_id="test-session",
+        )
+
+        with (
+            patch("symbio.core.orchestrator.get_settings", return_value=_make_mock_settings(api_key="")),
+            pytest.raises(RuntimeError, match="dag failed"),
+        ):
+            await orchestrator.process(message)
+
+        assert len(orchestrator.guardrail._tickets) == 0
+        orchestrator.tool_loader.unload_node_tools.assert_called_once()

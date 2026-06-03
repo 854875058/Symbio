@@ -55,7 +55,10 @@ class ExecutionPlanner:
             executor=task.metadata.get("suggested_agent", "general"),
             workflow_policy=workflow_policy,
             verification_required=self._verification_required(task),
-            metadata={"parameters": task.intent.parameters},
+            metadata={
+                "parameters": task.intent.parameters,
+                "task_metadata": self._task_metadata(task),
+            },
         )
         return ExecutionPlan(
             task_id=task.task_id,
@@ -84,6 +87,7 @@ class ExecutionPlanner:
                 verification_required=verification_required,
                 metadata={
                     "parameters": subtask.parameters,
+                    "task_metadata": self._task_metadata(task),
                     "estimated_complexity": self._json_value(
                         subtask.estimated_complexity
                     ),
@@ -158,7 +162,23 @@ class ExecutionPlanner:
 
     @staticmethod
     def _json_value(value: Any) -> Any:
+        if hasattr(value, "model_dump"):
+            return value.model_dump(mode="json")
+        if isinstance(value, dict):
+            return {
+                str(key): ExecutionPlanner._json_value(item)
+                for key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [ExecutionPlanner._json_value(item) for item in value]
         return value.value if hasattr(value, "value") else value
+
+    @staticmethod
+    def _task_metadata(task: Task) -> dict[str, Any]:
+        return {
+            str(key): ExecutionPlanner._json_value(value)
+            for key, value in task.metadata.items()
+        }
 
     @staticmethod
     def _decomposition_rejection_reason(

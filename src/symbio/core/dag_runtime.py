@@ -157,6 +157,17 @@ class DAGRuntime:
     def _node_to_task(self, execution_id: str, node: ExecutionNode) -> Task:
         parameters = dict(node.metadata.get("parameters", {}))
         parameters.update(node.input_refs)
+        task_metadata = dict(node.metadata.get("task_metadata", {}))
+        runtime_metadata = {
+            "execution_id": execution_id,
+            "node_id": node.node_id,
+            "workflow_policy": node.workflow_policy,
+            "node_metadata": node.metadata,
+        }
+        if any(key in task_metadata for key in runtime_metadata):
+            task_metadata["dag_runtime"] = runtime_metadata
+        else:
+            task_metadata.update(runtime_metadata)
         return Task(
             task_id=node.node_id,
             intent=Intent(
@@ -164,12 +175,7 @@ class DAGRuntime:
                 action=node.action,
                 parameters=parameters,
             ),
-            metadata={
-                "execution_id": execution_id,
-                "node_id": node.node_id,
-                "workflow_policy": node.workflow_policy,
-                "node_metadata": node.metadata,
-            },
+            metadata=task_metadata,
         )
 
     @staticmethod
