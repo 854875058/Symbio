@@ -1,0 +1,239 @@
+"""Tests for DAG execution runtime."""
+
+from __future__ import annotations
+
+import pytest
+
+from symbio.agents.registry import AgentRegistry
+from symbio.core.dag_runtime import DAGRuntime
+from symbio.core.execution_models import (
+    ExecutionNode,
+    ExecutionNodeStatus,
+    ExecutionPlan,
+    ExecutionStatus,
+)
+from symbio.core.execution_planner import ExecutionPlanner
+from symbio.core.execution_state_store import ExecutionStateStore
+from symbio.utils.types import Intent, Result, Task
+
+
+class RecordingAgent:
+    name = "worker"
+
+    def __init__(self, result: Result | None = None, *, error: Exception | None = None):
+        self.result = result
+        self.error = error
+        self.tasks = []
+
+    async def execute(self, task):
+        self.tasks.append(task)
+        if self.error is not None:
+            raise self.error
+        return self.result or Result(
+            task_id=task.task_id,
+            success=True,
+            content="done",
+            data={"value": 42},
+        )
+
+
+def make_plan(*nodes: ExecutionNode, execution_id: str = "exec-1") -> ExecutionPlan:
+    edges = [
+        {"source": dependency, "target": node.node_id}
+        for node in nodes
+        for dependency in node.dependencies
+    ]
+    root_node_id = next(node.node_id for node in nodes if not node.dependencies)
+    return ExecutionPlan(
+        execution_id=execution_id,
+        task_id="task-1",
+        root_node_id=root_node_id,
+        nodes=list(nodes),
+        edges=edges,
+    )
+
+
+async def create_store(tmp_path, plan: ExecutionPlan) -> ExecutionStateStore:
+    store = ExecutionStateStore(str(tmp_path / "executions.db"))
+    await store.create_execution(plan, "user intent")
+    return store
+
+
+async def test_missing_agent_marks_node_and_execution_failed(tmp_path):
+    node = ExecutionNode(node_id="node-1", name="Missing", executor="missing")
+    store = await create_store(tmp_path, make_plan(node))
+
+    await DAGRuntime(store, AgentRegistry()).run("exec-1")
+
+    record = await store.get_execution("exec-1")
+    nodes = await store.list_nodes("exec-1")
+    events = await store.list_events("exec-1")
+
+    assert record.status == ExecutionStatus.FAILED
+    assert nodes[0].status == ExecutionNodeStatus.FAILED
+    failed_events = [event for event in events if event.event_type == "node_failed"]
+    assert failed_events[0].node_id == "node-1"
+    assert failed_events[0].payload["reason"] == "agent_not_found"
+
+    await store.close()
+
+
+async def test_failed_agent_result_records_node_failed_event_and_no_node_result_artifact(
+    tmp_path,
+):
+    node = ExecutionNode(node_id="node-1", name="Fails", executor="worker")
+    store = await create_store(tmp_path, make_plan(node))
+    registry = AgentRegistry()
+    registry.register_instance(
+        RecordingAgent(
+            Result(
+                task_id="ignored",
+                success=False,
+                content="could not finish",
+                data={"error": "bad input"},
+            )
+        )
+    )
+
+    await DAGRuntime(store, registry).run("exec-1")
+
+    record = await store.get_execution("exec-1")
+    nodes = await store.list_nodes("exec-1")
+    events = await store.list_events("exec-1")
+    artifacts = await store.list_artifacts("exec-1")
+
+    assert record.status == ExecutionStatus.FAILED
+    assert nodes[0].status == ExecutionNodeStatus.FAILED
+    assert [artifact.artifact_type for artifact in artifacts] == []
+    failed_events = [event for event in events if event.event_type == "node_failed"]
+    assert failed_events[0].payload["reason"] == "agent_result_failed"
+    assert failed_events[0].payload["content"] == "could not finish"
+
+    await store.close()
+
+
+async def test_agent_receives_task_with_node_action_parameters_policy_and_metadata(
+    tmp_path,
+):
+    node = ExecutionNode(
+        node_id="node-1",
+        name="Search",
+        description="Search docs",
+        action="search",
+        executor="worker",
+        workflow_policy={"max_rounds": 2},
+        metadata={"parameters": {"query": "symbio", "limit": 3}},
+    )
+    store = await create_store(tmp_path, make_plan(node))
+    registry = AgentRegistry()
+    agent = RecordingAgent()
+    registry.register_instance(agent)
+
+    await DAGRuntime(store, registry).run("exec-1")
+
+    task = agent.tasks[0]
+    assert task.task_id == "node-1"
+    assert task.intent.raw_text == "Search docs"
+    assert task.intent.action == "search"
+    assert task.intent.parameters == {"query": "symbio", "limit": 3}
+    assert task.metadata["execution_id"] == "exec-1"
+    assert task.metadata["node_id"] == "node-1"
+    assert task.metadata["workflow_policy"] == {"max_rounds": 2}
+
+    await store.close()
+
+
+async def test_runtime_preserves_parameters_from_single_node_planner(tmp_path):
+    task = Task(
+        task_id="task-params",
+        intent=Intent(
+            raw_text="search docs",
+            action="search",
+            parameters={"query": "symbio", "limit": 5},
+        ),
+        metadata={"suggested_agent": "worker"},
+    )
+    plan = await ExecutionPlanner().plan(task, force_single_node=True)
+    store = await create_store(tmp_path, plan)
+    registry = AgentRegistry()
+    agent = RecordingAgent()
+    registry.register_instance(agent)
+
+    await DAGRuntime(store, registry).run(plan.execution_id)
+
+    assert agent.tasks[0].intent.parameters == {"query": "symbio", "limit": 5}
+
+    await store.close()
+
+
+async def test_runtime_marks_execution_needs_verification_when_required(tmp_path):
+    node = ExecutionNode(
+        node_id="node-1",
+        name="Write",
+        executor="worker",
+        verification_required=True,
+    )
+    store = await create_store(tmp_path, make_plan(node))
+    registry = AgentRegistry()
+    registry.register_instance(RecordingAgent())
+
+    await DAGRuntime(store, registry).run("exec-1")
+
+    record = await store.get_execution("exec-1")
+    events = await store.list_events("exec-1")
+
+    assert record.status == ExecutionStatus.NEEDS_VERIFICATION
+    assert events[-1].event_type == "execution_needs_verification"
+    assert events[-1].payload["missing_verification"] == ["node-1"]
+
+    await store.close()
+
+
+async def test_runtime_executes_ready_nodes_in_dependency_order(tmp_path):
+    first = ExecutionNode(node_id="first", name="First", executor="worker")
+    second = ExecutionNode(
+        node_id="second",
+        name="Second",
+        executor="worker",
+        dependencies=["first"],
+    )
+    store = await create_store(tmp_path, make_plan(first, second))
+    registry = AgentRegistry()
+    registry.register_instance(RecordingAgent())
+
+    await DAGRuntime(store, registry).run("exec-1")
+
+    record = await store.get_execution("exec-1")
+    nodes = await store.list_nodes("exec-1")
+    events = await store.list_events("exec-1")
+    started = [event.node_id for event in events if event.event_type == "node_started"]
+
+    assert record.status == ExecutionStatus.COMPLETED
+    assert [node.status for node in nodes] == [
+        ExecutionNodeStatus.COMPLETED,
+        ExecutionNodeStatus.COMPLETED,
+    ]
+    assert started == ["first", "second"]
+
+    await store.close()
+
+
+async def test_agent_exception_marks_node_and_execution_failed(tmp_path):
+    node = ExecutionNode(node_id="node-1", name="Raises", executor="worker")
+    store = await create_store(tmp_path, make_plan(node))
+    registry = AgentRegistry()
+    registry.register_instance(RecordingAgent(error=RuntimeError("boom")))
+
+    await DAGRuntime(store, registry).run("exec-1")
+
+    record = await store.get_execution("exec-1")
+    nodes = await store.list_nodes("exec-1")
+    events = await store.list_events("exec-1")
+
+    assert record.status == ExecutionStatus.FAILED
+    assert nodes[0].status == ExecutionNodeStatus.FAILED
+    failed_events = [event for event in events if event.event_type == "node_failed"]
+    assert failed_events[0].payload["reason"] == "agent_exception"
+    assert failed_events[0].payload["error"] == "boom"
+
+    await store.close()

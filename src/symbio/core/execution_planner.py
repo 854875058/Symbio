@@ -55,6 +55,7 @@ class ExecutionPlanner:
             executor=task.metadata.get("suggested_agent", "general"),
             workflow_policy=workflow_policy,
             verification_required=self._verification_required(task),
+            metadata={"parameters": task.intent.parameters},
         )
         return ExecutionPlan(
             task_id=task.task_id,
