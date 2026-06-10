@@ -43,6 +43,9 @@ env/
 data/lancedb/
 
 # SQLite
+data/*.db
+data/*.db-shm
+data/*.db-wal
 data/symbio.db
 data/symbio.db-shm
 data/symbio.db-wal
@@ -50,6 +53,14 @@ data/symbio.db-wal
 # Logs
 *.log
 logs/
+data/*.log
+
+# Runtime local state
+data/external_agents.json
+data/skill_marketplace/
+
+# Uploaded/generated root-level images should be moved into assets/ with a stable name.
+/*.png
 
 # OS
 .DS_Store
