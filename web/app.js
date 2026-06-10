@@ -3583,6 +3583,19 @@ async function saveConfig() {
   const modelLow = document.getElementById('config-model-low')?.value || '';
   const modelMedium = document.getElementById('config-model-medium')?.value || '';
   const modelHigh = document.getElementById('config-model-high')?.value || '';
+  const hitlTargetsRaw = document.getElementById('config-hitl-targets')?.value?.trim() || '[]';
+  let hitlTargets = [];
+
+  try {
+    hitlTargets = JSON.parse(hitlTargetsRaw || '[]');
+    if (!Array.isArray(hitlTargets)) {
+      toast('error', '审批配置错误', '通知目标必须是 JSON 数组');
+      return;
+    }
+  } catch (e) {
+    toast('error', '审批配置错误', `通知目标 JSON 无法解析：${e.message}`);
+    return;
+  }
 
   try {
     const res = await fetch(`${API}/config`, {
@@ -3596,6 +3609,15 @@ async function saveConfig() {
         model_low: modelLow,
         model_medium: modelMedium,
         model_high: modelHigh,
+        hitl: {
+          enabled: document.getElementById('config-hitl-enabled')?.checked || false,
+          high_risk_auto_suspend: document.getElementById('config-hitl-high-risk')?.checked || false,
+          approval_timeout: Number(document.getElementById('config-hitl-approval-timeout')?.value || 300),
+          callback_base_url: document.getElementById('config-hitl-callback-base-url')?.value?.trim() || '',
+          im_webhook_token: document.getElementById('config-hitl-im-token')?.value?.trim() || '',
+          notify_timeout: Number(document.getElementById('config-hitl-notify-timeout')?.value || 5),
+          notify_targets: hitlTargets,
+        },
       }),
     });
 
@@ -3620,6 +3642,8 @@ async function saveConfig() {
 function renderConfig() {
   if (!dom.configSection) return;
   const c = state.config;
+  const h = c.hitl || {};
+  const hitlTargetsJson = JSON.stringify(h.notify_targets || [], null, 2);
 
   // Build model options from state.models
   const modelOptions = state.models.map(m =>
@@ -3666,7 +3690,7 @@ function renderConfig() {
     <div class="config-card">
       <div class="config-card-header">
         <h3>LLM 配置</h3>
-        <button class="btn-primary" id="btn-save-config">
+        <button class="btn-primary" id="btn-save-config" data-save-config>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
           保存配置
         </button>
@@ -3704,10 +3728,60 @@ function renderConfig() {
         </div>
       </div>
     </div>
+    <div class="config-card">
+      <div class="config-card-header">
+        <h3>外部审批配置</h3>
+        <button class="btn-primary" data-save-config>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          保存审批配置
+        </button>
+      </div>
+      <div class="config-card-body">
+        <div class="config-row">
+          <div class="config-group">
+            <div class="config-section-title">审批策略</div>
+            <label class="config-switch-row">
+              <input type="checkbox" id="config-hitl-enabled" ${h.enabled !== false ? 'checked' : ''}>
+              <span>启用人类审批</span>
+            </label>
+            <label class="config-switch-row">
+              <input type="checkbox" id="config-hitl-high-risk" ${h.high_risk_auto_suspend !== false ? 'checked' : ''}>
+              <span>高风险任务自动暂停等待审批</span>
+            </label>
+            <div class="form-group">
+              <label>审批超时（秒）</label>
+              <input type="number" id="config-hitl-approval-timeout" min="30" value="${esc(String(h.approval_timeout || 300))}">
+            </div>
+          </div>
+          <div class="config-group">
+            <div class="config-section-title">回调与安全</div>
+            <div class="form-group">
+              <label>公网回调地址</label>
+              <input type="text" id="config-hitl-callback-base-url" value="${esc(h.callback_base_url || '')}" placeholder="https://symbio.example.com">
+              <div class="config-help">飞书、企业微信卡片按钮会调用这个地址下的 /api/hitl/action。</div>
+            </div>
+            <div class="form-group">
+              <label>IM 回调共享 Token</label>
+              <input type="password" id="config-hitl-im-token" value="${esc(h.im_webhook_token || '')}" placeholder="用于 QQ、微信桥接回调校验">
+            </div>
+            <div class="form-group">
+              <label>通知超时（秒）</label>
+              <input type="number" id="config-hitl-notify-timeout" min="1" step="0.5" value="${esc(String(h.notify_timeout || 5))}">
+            </div>
+          </div>
+        </div>
+        <div class="config-section-title">通知目标</div>
+        <div class="form-group">
+          <label>目标 JSON</label>
+          <textarea id="config-hitl-targets" class="config-targets-textarea" spellcheck="false" placeholder='[{"platform":"feishu","endpoint":"https://...","chat_id":"ops","enabled":true}]'>${esc(hitlTargetsJson)}</textarea>
+          <div class="config-help">支持 platform: feishu/lark、wechat/wecom、qq/onebot、wechaty。配置 callback_base_url 后，飞书和企业微信会收到同意/拒绝按钮卡片。</div>
+        </div>
+      </div>
+    </div>
   `;
 
   // Attach save handler
-  document.getElementById('btn-save-config')?.addEventListener('click', saveConfig);
+  document.querySelectorAll('[data-save-config]').forEach(btn => btn.addEventListener('click', saveConfig));
 }
 
 // ============ Sessions Sync ============

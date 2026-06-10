@@ -5,7 +5,7 @@ from __future__ import annotations
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import yaml
 from pydantic import Field
@@ -122,7 +122,7 @@ class HITLConfig(BaseSettings):
     notify_chat_type: str = Field(default="group", description="Chat type (group/private)")
     notify_access_token: str = Field(default="", description="Notification bridge access token")
     notify_secret: str = Field(default="", description="Notification platform signing secret")
-    notify_targets: list[dict[str, str]] = Field(default_factory=list, description="Notification targets")
+    notify_targets: list[dict[str, Any]] = Field(default_factory=list, description="Notification targets")
     notify_timeout: float = Field(default=5.0, description="Notification HTTP timeout (seconds)")
     callback_base_url: str = Field(default="", description="Public API base URL for approval links")
     im_webhook_token: str = Field(default="", description="Shared token for IM approval callbacks")

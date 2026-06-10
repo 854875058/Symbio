@@ -127,6 +127,29 @@ def test_wecom_payload_uses_group_robot_webhook_shape():
     assert "to" not in payload
 
 
+def test_wecom_payload_uses_button_card_when_callback_url_is_configured():
+    request = ApprovalRequest(task_id="task-wecom", action="Deploy", risk_level=RiskLevel.HIGH)
+    target = HITLNotificationTarget(
+        platform="wechat",
+        endpoint="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc",
+        chat_id="ops-room",
+    )
+    notifier = HITLNotifier([target], callback_base_url="https://symbio.example.com")
+
+    payload = notifier._payload_for("wechat", target, request, notifier.render_message(request))
+
+    assert payload["msgtype"] == "template_card"
+    card = payload["template_card"]
+    assert card["card_type"] == "button_interaction"
+    buttons = card["button_list"]
+    assert buttons[0]["text"] == "同意"
+    assert buttons[1]["text"] == "拒绝"
+    assert "/api/hitl/action" in buttons[0]["url"]
+    assert "action=approve" in buttons[0]["url"]
+    assert "action=reject" in buttons[1]["url"]
+    assert "token=" in buttons[0]["url"]
+
+
 def test_feishu_payload_uses_signed_custom_bot_shape():
     request = ApprovalRequest(task_id="task-feishu", action="Deploy", risk_level=RiskLevel.HIGH)
     target = HITLNotificationTarget(
@@ -148,6 +171,30 @@ def test_feishu_payload_uses_signed_custom_bot_shape():
     assert payload["sign"] == expected_sign
     assert payload["msg_type"] == "text"
     assert payload["content"]["text"] == message
+
+
+def test_feishu_payload_uses_interactive_card_when_callback_url_is_configured():
+    request = ApprovalRequest(task_id="task-feishu", action="Deploy", risk_level=RiskLevel.HIGH)
+    target = HITLNotificationTarget(
+        platform="feishu",
+        endpoint="https://open.feishu.cn/open-apis/bot/v2/hook/abc",
+        chat_id="ops-room",
+        secret="secret-1",
+    )
+    notifier = HITLNotifier([target], callback_base_url="https://symbio.example.com")
+
+    payload = notifier._payload_for("feishu", target, request, notifier.render_message(request))
+
+    assert payload["msg_type"] == "interactive"
+    card = payload["card"]
+    assert card["config"]["wide_screen_mode"] is True
+    actions = card["elements"][-1]["actions"]
+    assert actions[0]["text"]["content"] == "同意"
+    assert actions[1]["text"]["content"] == "拒绝"
+    assert "/api/hitl/action" in actions[0]["url"]
+    assert "action=approve" in actions[0]["url"]
+    assert "action=reject" in actions[1]["url"]
+    assert "token=" in actions[0]["url"]
 
 
 def test_platform_response_success_checks_connector_body():

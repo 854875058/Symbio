@@ -288,6 +288,27 @@ class ConfigUpdate(BaseModel):
     model_low: Optional[str] = None
     model_medium: Optional[str] = None
     model_high: Optional[str] = None
+    hitl: Optional["HITLConfigUpdate"] = None
+
+
+class HITLNotifyTargetUpdate(BaseModel):
+    platform: str = ""
+    endpoint: str = ""
+    chat_id: str = ""
+    chat_type: str = "group"
+    access_token: str = ""
+    secret: str = ""
+    enabled: bool = True
+
+
+class HITLConfigUpdate(BaseModel):
+    enabled: Optional[bool] = None
+    high_risk_auto_suspend: Optional[bool] = None
+    approval_timeout: Optional[int] = None
+    callback_base_url: Optional[str] = None
+    im_webhook_token: Optional[str] = None
+    notify_timeout: Optional[float] = None
+    notify_targets: Optional[list[HITLNotifyTargetUpdate]] = None
 
 
 class DirImportRequest(BaseModel):
@@ -706,7 +727,7 @@ def _manifest_keywords(manifest: Optional[dict]) -> list:
 
 async def _load_llm_settings():
     """加载 LLM 配置（从 symbio.yaml）"""
-    from symbio.config.settings import Settings
+    from symbio.config.settings import HITLConfig, Settings
     config_path = Path("symbio.yaml")
     if config_path.exists():
         return Settings.from_yaml(config_path)
@@ -2128,6 +2149,8 @@ async def update_skill_file(skill_id: str, req: FileUpdateRequest):
 async def get_config():
     """获取 LLM 配置"""
     settings = await _load_llm_settings()
+    from symbio.config.settings import HITLConfig
+    hitl = getattr(settings, "hitl", None) or HITLConfig()
     return {
         "anthropic_api_key": settings.model.anthropic_api_key,
         "anthropic_base_url": settings.model.anthropic_base_url,
@@ -2136,6 +2159,15 @@ async def get_config():
         "model_low": settings.model.model_low,
         "model_medium": settings.model.model_medium,
         "model_high": settings.model.model_high,
+        "hitl": {
+            "enabled": hitl.enabled,
+            "high_risk_auto_suspend": hitl.high_risk_auto_suspend,
+            "approval_timeout": hitl.approval_timeout,
+            "callback_base_url": hitl.callback_base_url,
+            "im_webhook_token": hitl.im_webhook_token,
+            "notify_timeout": hitl.notify_timeout,
+            "notify_targets": hitl.notify_targets,
+        },
     }
 
 
@@ -2164,12 +2196,35 @@ async def update_config(update: ConfigUpdate):
         settings.model.model_medium = update.model_medium
     if update.model_high is not None:
         settings.model.model_high = update.model_high
+    if update.hitl is not None:
+        if getattr(settings, "hitl", None) is None:
+            settings.hitl = HITLConfig()
+        hitl_update = update.hitl
+        if hitl_update.enabled is not None:
+            settings.hitl.enabled = hitl_update.enabled
+        if hitl_update.high_risk_auto_suspend is not None:
+            settings.hitl.high_risk_auto_suspend = hitl_update.high_risk_auto_suspend
+        if hitl_update.approval_timeout is not None:
+            settings.hitl.approval_timeout = hitl_update.approval_timeout
+        if hitl_update.callback_base_url is not None:
+            settings.hitl.callback_base_url = hitl_update.callback_base_url.strip().rstrip("/")
+        if hitl_update.im_webhook_token is not None:
+            settings.hitl.im_webhook_token = hitl_update.im_webhook_token
+        if hitl_update.notify_timeout is not None:
+            settings.hitl.notify_timeout = hitl_update.notify_timeout
+        if hitl_update.notify_targets is not None:
+            settings.hitl.notify_targets = [
+                target.model_dump()
+                for target in hitl_update.notify_targets
+                if target.platform.strip()
+            ]
 
     settings.to_yaml(config_path)
 
     # 同时清除缓存的 settings 实例
     from symbio.config.settings import get_settings
     get_settings.cache_clear()
+    app.state.hitl_notifier = HITLNotifier.from_settings(settings)
 
     return {"success": True}
 
@@ -2393,6 +2448,41 @@ async def hitl_webhook(payload: WebhookPayload):
         raise HTTPException(status_code=404, detail="审批请求不存在或已处理")
 
     raise HTTPException(status_code=400, detail="Webhook 只支持 approved/rejected")
+
+
+@app.get("/api/hitl/action")
+async def hitl_action(
+    request_id: str,
+    action: str,
+    token: str,
+    approver_id: str = "im-card",
+    comment: str = "",
+):
+    """Approve or reject a request from an external approval card button."""
+    token_request_id = verify_approval_token(token)
+    if token_request_id is None:
+        raise HTTPException(status_code=401, detail="Invalid approval token")
+
+    resolved_request_id = await _resolve_hitl_request_id(request_id)
+    if token_request_id != resolved_request_id:
+        raise HTTPException(status_code=401, detail="Approval token does not match request")
+
+    gateway = _get_hitl_gateway()
+    normalized_action = action.lower().strip()
+    try:
+        if normalized_action in {"approve", "approved", "yes", "ok"}:
+            result = await gateway.approve(resolved_request_id, approver_id=approver_id, comment=comment)
+            resumed_result = None
+            if result.status == ApprovalStatus.APPROVED:
+                resumed_result = await _try_resume_hitl_task(resolved_request_id)
+            return {"request": _hitl_request_payload(result), "resumed_result": resumed_result}
+        if normalized_action in {"reject", "rejected", "no"}:
+            result = await gateway.reject(resolved_request_id, approver_id=approver_id, comment=comment)
+            return {"request": _hitl_request_payload(result), "resumed_result": None}
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Approval request is missing or already handled")
+
+    raise HTTPException(status_code=400, detail="Unknown approval action")
 
 
 @app.get("/api/hitl/channels")

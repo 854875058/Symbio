@@ -2652,6 +2652,8 @@ textarea::placeholder { color:var(--text-tertiary); }
 /* ============ LLM Config Section ============ */
 .llm-config-section {
   padding: 24px 24px 0 24px;
+  display: grid;
+  gap: 16px;
 }
 .llm-config-section:empty {
   display: none;
@@ -2737,9 +2739,45 @@ textarea::placeholder { color:var(--text-tertiary); }
   font-size: 0.7rem;
 }
 .config-card-body .form-group input,
-.config-card-body .form-group select {
+.config-card-body .form-group select,
+.config-card-body .form-group textarea {
   font-size: 0.8rem;
   padding: 8px 12px;
+}
+
+.config-card-body .form-group textarea {
+  line-height: 1.55;
+  min-height: 180px;
+}
+
+.config-switch-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  margin-bottom: 10px;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.config-switch-row input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  flex: 0 0 auto;
+}
+
+.config-help {
+  margin-top: 6px;
+  color: var(--text-tertiary);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
+.config-targets-textarea {
+  font-family: var(--font-mono);
+  white-space: pre;
 }
 
 /* ============ Responsive ============ */

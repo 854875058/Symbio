@@ -14,12 +14,13 @@ import re
 import time
 from datetime import datetime
 from typing import Any, Callable, Optional
+from urllib.parse import urlencode
 
 import httpx
 from pydantic import BaseModel, Field
 
-from symbio.config.settings import get_settings
-from symbio.core.hitl_gateway import ApprovalRequest
+from symbio.config.settings import HITLConfig, get_settings
+from symbio.core.hitl_gateway import ApprovalRequest, generate_approval_token
 from symbio.utils.logger import get_logger
 
 logger = get_logger("hitl_notifier")
@@ -83,9 +84,9 @@ class HITLNotifier:
         self._clock = clock
 
     @classmethod
-    def from_settings(cls) -> HITLNotifier:
-        settings = get_settings()
-        hitl = settings.hitl
+    def from_settings(cls, settings: Any = None) -> HITLNotifier:
+        settings = settings or get_settings()
+        hitl = getattr(settings, "hitl", None) or HITLConfig()
         targets: list[HITLNotificationTarget] = []
 
         for raw in getattr(hitl, "notify_targets", []) or []:
@@ -120,6 +121,19 @@ class HITLNotifier:
         if not self.callback_base_url:
             return "/api/hitl/im-callback"
         return f"{self.callback_base_url}/api/hitl/im-callback"
+
+    def action_url(self, request: ApprovalRequest, action: str, comment: str = "") -> str:
+        token = generate_approval_token(request.request_id)
+        base = self.callback_base_url or ""
+        params = {
+            "request_id": request.request_id,
+            "action": action,
+            "token": token,
+            "approver_id": "im-card",
+        }
+        if comment:
+            params["comment"] = comment
+        return f"{base}/api/hitl/action?{urlencode(params)}"
 
     async def prepare_notifications(self, request: ApprovalRequest) -> list[dict[str, Any]]:
         """Build outbound notification payloads for audit and connector delivery."""
@@ -287,8 +301,17 @@ class HITLNotifier:
         if platform in {"wechaty"}:
             return {"to": target.chat_id, "text": message, "type": "text"}
         if platform in {"wechat", "weixin", "wx", "wecom", "work_wechat", "enterprise_wechat"}:
+            if self.callback_base_url:
+                return self._wecom_card_payload(request)
             return {"msgtype": "text", "text": {"content": message}}
         if platform in {"feishu", "lark"}:
+            if self.callback_base_url:
+                payload = self._feishu_card_payload(request)
+                if target.secret:
+                    timestamp = str(int(self._clock()))
+                    payload["timestamp"] = timestamp
+                    payload["sign"] = self._feishu_sign(timestamp, target.secret)
+                return payload
             payload = {"msg_type": "text", "content": {"text": message}}
             if target.secret:
                 timestamp = str(int(self._clock()))
@@ -300,6 +323,80 @@ class HITLNotifier:
             "chat_id": target.chat_id,
             "message": message,
             "request": request.model_dump(mode="json"),
+        }
+
+    def _feishu_card_payload(self, request: ApprovalRequest) -> dict[str, Any]:
+        return {
+            "msg_type": "interactive",
+            "card": {
+                "config": {"wide_screen_mode": True},
+                "header": {
+                    "template": "red" if request.risk_level.value in {"high", "critical"} else "orange",
+                    "title": {"tag": "plain_text", "content": "Symbio 审批请求"},
+                },
+                "elements": [
+                    {
+                        "tag": "div",
+                        "text": {
+                            "tag": "lark_md",
+                            "content": (
+                                f"**任务**: {request.task_id}\n"
+                                f"**风险**: {request.risk_level.value}\n"
+                                f"**动作**: {request.action or '-'}\n"
+                                f"**影响**: {request.impact_scope or '-'}\n"
+                                f"**原因**: {request.reason or '-'}"
+                            ),
+                        },
+                    },
+                    {
+                        "tag": "action",
+                        "actions": [
+                            {
+                                "tag": "button",
+                                "text": {"tag": "plain_text", "content": "同意"},
+                                "type": "primary",
+                                "url": self.action_url(request, "approve"),
+                            },
+                            {
+                                "tag": "button",
+                                "text": {"tag": "plain_text", "content": "拒绝"},
+                                "type": "danger",
+                                "url": self.action_url(request, "reject", "Rejected from card"),
+                            },
+                        ],
+                    },
+                ],
+            },
+        }
+
+    def _wecom_card_payload(self, request: ApprovalRequest) -> dict[str, Any]:
+        return {
+            "msgtype": "template_card",
+            "template_card": {
+                "card_type": "button_interaction",
+                "main_title": {
+                    "title": "Symbio 审批请求",
+                    "desc": request.action or request.reason or "需要人工确认",
+                },
+                "quote_area": {
+                    "type": 0,
+                    "title": f"风险: {request.risk_level.value}",
+                    "quote_text": f"任务: {request.task_id}\n影响: {request.impact_scope or '-'}",
+                },
+                "sub_title_text": request.reason or "请确认是否允许继续执行。",
+                "button_list": [
+                    {
+                        "text": "同意",
+                        "style": 1,
+                        "url": self.action_url(request, "approve"),
+                    },
+                    {
+                        "text": "拒绝",
+                        "style": 2,
+                        "url": self.action_url(request, "reject", "Rejected from card"),
+                    },
+                ],
+            },
         }
 
     def _feishu_sign(self, timestamp: str, secret: str) -> str:
