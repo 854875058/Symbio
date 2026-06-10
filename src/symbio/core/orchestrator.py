@@ -26,6 +26,10 @@ from symbio.core.evaluator import ComplexityEvaluator
 from symbio.core.event_bus import Event, EventBus, EventType
 from symbio.core.guardrail import Guardrail
 from symbio.core.memory_bridge import MemoryBridge
+from symbio.core.planner_reviewer import (
+    PlannerReviewerLoop,
+    PlannerReviewerStatus,
+)
 from symbio.core.rate_limiter import RateLimiter
 from symbio.core.router import ModelRouter
 from symbio.core.state_manager import InstructionGenerator, StateManager, TaskPhase
@@ -79,6 +83,7 @@ class Orchestrator:
         self.subagent_manager = SubAgentManager(self.registry, self.event_bus, self.rate_limiter)
         self.debate_engine = DebateEngine(use_llm=True)
         self.memory_bridge = MemoryBridge()
+        self.planner_reviewer = PlannerReviewerLoop()
         self.state_manager = StateManager(persist_path=DEFAULT_STATE_DB_PATH)
         self.instruction_generator = InstructionGenerator()
         self.hitl_gateway = ApprovalGateway(persist_path=DEFAULT_HITL_DB_PATH)
@@ -96,6 +101,93 @@ class Orchestrator:
         """Close ephemeral persistence handles opened during task execution."""
         await self.state_manager.close()
         await self.hitl_gateway.close()
+
+    async def _record_workflow_checkpoint(
+        self,
+        name: str,
+        details: Optional[dict[str, Any]] = None,
+    ) -> None:
+        """Persist a workflow policy checkpoint without blocking execution."""
+        try:
+            await self.state_manager.record_workflow_checkpoint(name, details)
+        except Exception as exc:
+            logger.debug(
+                f"工作流检查点写入失败（不影响主流程）: name={name}, error={exc}"
+            )
+
+    async def _run_planner_reviewer_gate(self, task: Task) -> Optional[Result]:
+        """Run planner/reviewer gate and stop execution on blocking findings."""
+        planner_result = self.planner_reviewer.run(
+            task=task,
+            workflow_policy=task.metadata.get("workflow_policy"),
+            complexity=task.intent.estimated_complexity,
+        )
+        payload = planner_result.model_dump(mode="json")
+        task.metadata["planner_reviewer"] = payload
+
+        try:
+            await self.state_manager.update(
+                lambda s: s.model_copy(update={
+                    "metadata": {
+                        **s.metadata,
+                        "planner_reviewer": payload,
+                    },
+                })
+            )
+        except Exception as exc:
+            logger.warning(f"planner/reviewer 状态写入失败（不影响主流程）: {exc}")
+
+        await self._record_workflow_checkpoint(
+            "planner_reviewer_completed",
+            {
+                "status": payload["status"],
+                "approved": payload["approved"],
+                "blocking_findings": payload.get("blocking_findings", []),
+            },
+        )
+
+        try:
+            await self.state_manager.record_agent_handoff(
+                from_agent="planner_reviewer",
+                to_agent="orchestrator",
+                artifact_type="planner_reviewer",
+                summary=f"Planner/reviewer gate {payload['status']}",
+                payload=payload,
+            )
+        except Exception as exc:
+            logger.warning(f"planner/reviewer handoff 写入失败（不影响主流程）: {exc}")
+
+        if planner_result.status != PlannerReviewerStatus.BLOCKED:
+            return None
+
+        blocking_messages = [
+            finding.message
+            for finding in planner_result.blocking_findings
+            if finding.message
+        ]
+        content = "Planner/reviewer blocked execution."
+        if blocking_messages:
+            content = f"{content} " + "; ".join(blocking_messages)
+
+        try:
+            await self.state_manager.update(
+                lambda s: s.model_copy(update={
+                    "status": "blocked",
+                    "metadata": {
+                        **s.metadata,
+                        "planner_reviewer": payload,
+                    },
+                })
+            )
+        except Exception as exc:
+            logger.warning(f"planner/reviewer blocked 状态更新失败（不影响返回结果）: {exc}")
+
+        return Result(
+            task_id=task.task_id,
+            success=False,
+            content=content,
+            data={"planner_reviewer": payload},
+        )
 
     async def process(self, message: Message) -> Result:
         """处理用户消息
@@ -186,6 +278,13 @@ class Orchestrator:
                     },
                 })
             )
+            await self._record_workflow_checkpoint(
+                "workflow_policy_attached",
+                {
+                    "phase": TaskPhase.PLANNING.value,
+                    "workflow_policy": task.metadata.get("workflow_policy"),
+                },
+            )
             logger.debug(f"全局状态初始化完成: task_id={task.task_id}")
         except Exception as exc:
             logger.warning(f"状态初始化失败（不影响主流程）: {exc}")
@@ -199,11 +298,22 @@ class Orchestrator:
             )
             if memory_context:
                 task.metadata["memory_context"] = memory_context
+                await self._record_workflow_checkpoint(
+                    "memory_context_injected",
+                    {
+                        "memory_context": True,
+                        "length": len(memory_context),
+                    },
+                )
                 logger.debug(f"记忆上下文已注入: {len(memory_context)} 字符")
         except Exception as exc:
             logger.debug(f"记忆上下文注入失败（不影响主流程）: {exc}")
 
         # 5. 签发资源支票
+        blocked_result = await self._run_planner_reviewer_gate(task)
+        if blocked_result is not None:
+            return blocked_result
+
         ticket = self.guardrail.issue_ticket(task.task_id)
 
         # 6. 触发任务创建事件
@@ -239,6 +349,13 @@ class Orchestrator:
                 )
             except Exception as exc:
                 logger.warning(f"HITL 状态更新失败（不影响审批等待）: {exc}")
+            await self._record_workflow_checkpoint(
+                "hitl_suspended",
+                {
+                    "request_id": hitl_request_id,
+                    "risk_level": task.metadata.get("risk_level", "low"),
+                },
+            )
 
             self.guardrail.release_ticket(task.task_id)
             return Result(
@@ -724,7 +841,7 @@ class Orchestrator:
         )
         request_id = await self.hitl_gateway.submit_request(request)
         if request.status == ApprovalStatus.PENDING:
-            await self.hitl_notifier.notify(request)
+            await self._notify_and_persist_hitl_request(request)
 
         # 暂存任务，等待审批后恢复
         self._pending_hitl_tasks[request_id] = task
@@ -738,6 +855,24 @@ class Orchestrator:
             f"task_id={task.task_id}, risk_level={risk_level.value}"
         )
         return request_id
+
+    async def _notify_and_persist_hitl_request(self, request: ApprovalRequest) -> None:
+        """Send HITL notifications and persist their audit payloads."""
+        results = await self.hitl_notifier.notify(request)
+        notifications = [
+            result.payload
+            for result in results
+            if result.payload
+        ]
+        request.metadata["notifications"] = notifications
+        if notifications:
+            request.metadata["notification_status"] = notifications[-1].get(
+                "delivery_status",
+                "prepared",
+            )
+        else:
+            request.metadata["notification_status"] = "not_configured"
+        await self.hitl_gateway.update_request(request)
 
     async def resume_after_approval(self, request_id: str) -> Optional[Result]:
         """在人工审批通过后继续执行任务
@@ -773,6 +908,12 @@ class Orchestrator:
             await self.state_manager.restore(task.task_id)
         except Exception as exc:
             logger.warning(f"HITL 状态恢复失败（不影响恢复执行）: {exc}")
+        await self._record_workflow_checkpoint(
+            "hitl_approved",
+            {
+                "request_id": request_id,
+            },
+        )
         result = await self._execute_via_dag(task, release_ticket=False)
         await self.hitl_gateway.clear_task_context(request_id)
 
@@ -821,6 +962,13 @@ class Orchestrator:
                 await self.state_manager.update(
                     lambda s: s.model_copy(update={"phase": TaskPhase.EXECUTING})
                 )
+                await self._record_workflow_checkpoint(
+                    "execution_started",
+                    {
+                        "phase": TaskPhase.EXECUTING.value,
+                        "model": task.model,
+                    },
+                )
             except Exception as exc:
                 logger.warning(f"状态更新失败（不影响主流程）: {exc}")
 
@@ -840,6 +988,14 @@ class Orchestrator:
                             "model": task.model,
                         },
                     })
+                )
+                await self._record_workflow_checkpoint(
+                    "execution_completed" if result.success else "execution_failed",
+                    {
+                        "phase": final_phase.value,
+                        "success": result.success,
+                        "execution_id": result.data.get("execution_id"),
+                    },
                 )
                 logger.debug(f"状态更新为 {final_phase.value}: success={result.success}")
             except Exception as exc:

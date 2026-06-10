@@ -303,3 +303,125 @@ async def test_agent_exception_marks_node_and_execution_failed(tmp_path):
     assert failed_events[0].payload["error"] == "boom"
 
     await store.close()
+
+
+async def test_runtime_retries_transient_failure_and_completes(tmp_path):
+    class FlakyAgent:
+        name = "worker"
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def execute(self, task):
+            self.calls += 1
+            if self.calls == 1:
+                return Result(
+                    task_id=task.task_id,
+                    success=False,
+                    content="temporary outage",
+                    data={"failure_type": "tool_transient_error"},
+                )
+            return Result(
+                task_id=task.task_id,
+                success=True,
+                content="recovered",
+                data={"value": 7},
+            )
+
+    node = ExecutionNode(
+        node_id="node-1",
+        name="Flaky",
+        executor="worker",
+        max_retries=2,
+    )
+    store = await create_store(tmp_path, make_plan(node))
+    registry = AgentRegistry()
+    agent = FlakyAgent()
+    registry.register_instance(agent)
+
+    await DAGRuntime(store, registry).run("exec-1")
+
+    record = await store.get_execution("exec-1")
+    nodes = await store.list_nodes("exec-1")
+    events = await store.list_events("exec-1")
+    graph_versions = await store.list_graph_versions("exec-1")
+
+    assert record.status == ExecutionStatus.COMPLETED
+    assert agent.calls == 2
+    assert nodes[0].status == ExecutionNodeStatus.COMPLETED
+    assert nodes[0].retry_count == 1
+    node_events = [event.event_type for event in events if event.node_id == "node-1"]
+    assert node_events.count("node_started") == 2
+    assert node_events.count("node_failed") == 1
+    assert node_events.count("node_completed") == 1
+    replan_event = next(event for event in events if event.event_type == "node_replanned")
+    assert replan_event.payload["decision"] == "retry"
+    assert replan_event.payload["retry_count"] == 1
+    mutation_event = next(event for event in events if event.event_type == "graph_mutated")
+    assert mutation_event.payload["mutations"] == [
+        {"action": "retry_node", "node_id": "node-1", "retry_count": 1}
+    ]
+    assert len(graph_versions) == 2
+    assert graph_versions[-1].graph_version == 2
+    assert graph_versions[-1].nodes[0]["retry_count"] == 1
+
+    await store.close()
+
+
+async def test_runtime_applies_local_patch_as_follow_up_node_and_replans_graph(tmp_path):
+    class VerificationFailingAgent:
+        name = "worker"
+
+        async def execute(self, task):
+            return Result(
+                task_id=task.task_id,
+                success=False,
+                content="tests failed",
+                data={"failure_type": "verification_failure"},
+            )
+
+    class RepairAgent:
+        name = "general"
+
+        def __init__(self) -> None:
+            self.calls = []
+
+        async def execute(self, task):
+            self.calls.append(task.task_id)
+            return Result(
+                task_id=task.task_id,
+                success=True,
+                content="patched",
+                data={"patched": True},
+            )
+
+    node = ExecutionNode(node_id="node-1", name="Verify", executor="worker")
+    store = await create_store(tmp_path, make_plan(node))
+    registry = AgentRegistry()
+    registry.register_instance(VerificationFailingAgent())
+    repair_agent = RepairAgent()
+    registry.register_instance(repair_agent)
+
+    await DAGRuntime(store, registry).run("exec-1")
+
+    record = await store.get_execution("exec-1")
+    nodes = await store.list_nodes("exec-1")
+    events = await store.list_events("exec-1")
+    graph_versions = await store.list_graph_versions("exec-1")
+
+    assert record.status == ExecutionStatus.COMPLETED
+    assert [node.node_id for node in nodes] == ["node-1", "node-1:repair"]
+    assert nodes[0].status == ExecutionNodeStatus.FAILED
+    assert nodes[1].status == ExecutionNodeStatus.COMPLETED
+    assert nodes[1].dependencies == ["node-1"]
+    assert repair_agent.calls == ["node-1:repair"]
+    replan_event = next(event for event in events if event.event_type == "node_replanned")
+    assert replan_event.payload["decision"] == "local_patch"
+    assert replan_event.payload["mutation_count"] == 1
+    mutation_event = next(event for event in events if event.event_type == "graph_mutated")
+    assert mutation_event.payload["graph_version"] == 2
+    assert mutation_event.payload["mutations"][0]["action"] == "add_node"
+    assert len(graph_versions) == 2
+    assert graph_versions[-1].nodes[-1]["node_id"] == "node-1:repair"
+
+    await store.close()

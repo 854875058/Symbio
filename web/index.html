@@ -54,6 +54,10 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
           <span>记忆</span>
         </button>
+        <button class="nav-tab" data-page="ontology">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><path d="M10.4 7.5 6.6 16.5"/><path d="M13.6 7.5 17.4 16.5"/><path d="M8 19h8"/></svg>
+          <span>本体图谱</span>
+        </button>
         <button class="nav-tab" data-page="skills">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
           <span>Skills</span>
@@ -61,6 +65,22 @@
         <button class="nav-tab" data-page="dashboard">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
           <span>仪表盘</span>
+        </button>
+        <button class="nav-tab" data-page="capabilities">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><path d="M21 12a9 9 0 11-9-9"/><path d="M21 3v6h-6"/></svg>
+          <span>能力账本</span>
+        </button>
+        <button class="nav-tab" data-page="evolution">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-7"/><circle cx="7" cy="15" r="1"/><circle cx="11" cy="11" r="1"/><circle cx="14" cy="14" r="1"/><circle cx="19" cy="7" r="1"/></svg>
+          <span>数据飞轮</span>
+        </button>
+        <button class="nav-tab" data-page="sandbox">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 8l3 4-3 4"/><path d="M13 16h4"/></svg>
+          <span>Sandbox</span>
+        </button>
+        <button class="nav-tab" data-page="external-agents">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 20h8"/><path d="M12 18v2"/><path d="M8 9l3 3-3 3"/><path d="M14 15h3"/></svg>
+          <span>Agents</span>
         </button>
         <button class="nav-tab" data-page="hitl">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><polyline points="17 11 19 13 23 9"/></svg>
@@ -138,7 +158,12 @@
             </div>
             <div class="input-hint">
               <span>Ctrl+Enter 发送 · Shift+Enter 换行</span>
-              <span>模型: claude-sonnet-4</span>
+              <label class="chat-model-picker">
+                <span>模型</span>
+                <select id="chat-model-select">
+                  <option value="">默认模型</option>
+                </select>
+              </label>
             </div>
           </div>
         </main>
@@ -240,6 +265,42 @@
         </div>
       </div>
 
+      <!-- Ontology Page -->
+      <div class="page" id="page-ontology">
+        <div class="page-header">
+          <h2>本体图谱</h2>
+          <div class="page-header-bar">
+            <div class="search-box">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" placeholder="搜索概念、个体、属性..." id="ontology-search">
+            </div>
+            <select class="select-input" id="ontology-category-filter">
+              <option value="all">全部节点</option>
+              <option value="concept">概念</option>
+              <option value="individual">个体</option>
+            </select>
+            <button class="btn-outline" id="btn-refresh-ontology">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/><polyline points="21 3 21 9 15 9"/></svg>
+              刷新
+            </button>
+          </div>
+        </div>
+        <div class="ontology-workbench">
+          <div class="ontology-summary" id="ontology-summary"></div>
+          <div class="ontology-graph-shell">
+            <svg class="ontology-graph" id="ontology-graph" role="img" aria-label="本体图谱"></svg>
+            <div class="ontology-empty" id="ontology-empty" style="display:none;">
+              <p>暂无可展示的本体节点</p>
+              <span>对话、记忆或工具执行产生结构化实体后会在这里形成图谱</span>
+            </div>
+          </div>
+          <div class="ontology-detail" id="ontology-detail">
+            <div class="ontology-detail-title">选择一个节点查看详情</div>
+            <div class="ontology-detail-body">节点的概念归属、父概念、属性和连接关系会显示在这里。</div>
+          </div>
+        </div>
+      </div>
+
       <!-- Dashboard Page -->
       <div class="page" id="page-dashboard">
         <div class="page-header">
@@ -294,6 +355,300 @@
             <h3 class="dash-section-title">Token 使用趋势</h3>
             <div class="bar-chart" id="token-bar-chart"></div>
           </div>
+          <div class="dashboard-chart-section observability-section">
+            <h3 class="dash-section-title">Observability</h3>
+            <div class="observability-grid" id="observability-grid">
+              <div class="observability-item">
+                <span>Tracer</span>
+                <strong id="obs-tracer-status">offline</strong>
+              </div>
+              <div class="observability-item">
+                <span>Spans</span>
+                <strong id="obs-span-count">0</strong>
+              </div>
+              <div class="observability-item">
+                <span>Metrics</span>
+                <strong id="obs-metric-count">0</strong>
+              </div>
+              <div class="observability-item">
+                <span>Token entries</span>
+                <strong id="obs-token-entry-count">0</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Capabilities Page -->
+      <div class="page" id="page-capabilities">
+        <div class="page-header">
+          <h2>能力账本</h2>
+          <div class="page-header-bar">
+            <select class="select-input" id="capability-filter">
+              <option value="all">全部</option>
+              <option value="implemented">已实现</option>
+              <option value="partial">部分实现</option>
+              <option value="missing">未实现</option>
+            </select>
+            <button class="btn-outline" id="btn-refresh-capabilities">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/><polyline points="21 3 21 9 15 9"/></svg>
+              刷新
+            </button>
+          </div>
+        </div>
+        <div class="capability-content">
+          <div class="capability-summary" id="capability-summary"></div>
+          <div class="capability-grid" id="capability-grid">
+            <div class="empty-state-lg">
+              <p>加载能力账本...</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Evolution Page -->
+      <div class="page" id="page-evolution">
+        <div class="page-header">
+          <h2>数据飞轮</h2>
+          <div class="page-header-bar">
+            <button class="btn-outline" id="btn-refresh-evolution">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/><polyline points="21 3 21 9 15 9"/></svg>
+              刷新
+            </button>
+          </div>
+        </div>
+        <div class="evolution-content">
+          <section class="evolution-panel">
+            <div class="evolution-panel-head">
+              <div>
+                <h3>Dataset Export</h3>
+                <p>Conversation samples for ShareGPT, Alpaca, OpenAI, and raw JSONL.</p>
+              </div>
+              <div class="evolution-actions">
+                <select class="select-input" id="export-format">
+                  <option value="sharegpt">ShareGPT</option>
+                  <option value="alpaca">Alpaca</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="raw">Raw</option>
+                </select>
+                <button class="btn-outline" id="btn-export-preview">Preview</button>
+                <button class="btn-primary" id="btn-export-write">Write JSONL</button>
+              </div>
+            </div>
+            <div class="evolution-export-meta" id="evolution-export-meta"></div>
+            <pre class="evolution-preview" id="evolution-export-preview">No export preview loaded.</pre>
+          </section>
+
+          <section class="evolution-panel">
+            <div class="evolution-panel-head">
+              <div>
+                <h3>Evaluation Suites</h3>
+                <p>Local JSON suites parsed by EvalPipeline.</p>
+              </div>
+              <div class="evolution-actions">
+                <input class="text-input" id="eval-suite-path" value="data/eval_suites">
+                <button class="btn-outline" id="btn-load-eval-suites">Load suites</button>
+              </div>
+            </div>
+            <div class="evolution-suite-grid" id="evolution-suite-grid">
+              <div class="empty-state-lg"><p>No suites loaded.</p></div>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <!-- Sandbox Page -->
+      <div class="page" id="page-sandbox">
+        <div class="page-header">
+          <h2>Sandbox Execution</h2>
+          <div class="page-header-bar">
+            <button class="btn-outline" id="btn-refresh-sandbox">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/><polyline points="21 3 21 9 15 9"/></svg>
+              Refresh
+            </button>
+          </div>
+        </div>
+        <div class="sandbox-content">
+          <section class="sandbox-panel sandbox-runner">
+            <div class="sandbox-panel-head">
+              <div>
+                <h3>Code Runner</h3>
+                <p>Workspace-bounded command execution with approval and audit controls.</p>
+              </div>
+              <div class="sandbox-policy-badges" id="sandbox-policy"></div>
+            </div>
+            <div class="sandbox-form-grid">
+              <label class="sandbox-field sandbox-field-wide">
+                <span>Command</span>
+                <textarea id="sandbox-command" spellcheck="false">python -c "print('hello from sandbox')"</textarea>
+              </label>
+              <label class="sandbox-field">
+                <span>Permission</span>
+                <select id="sandbox-permission">
+                  <option value="read_only">read_only</option>
+                  <option value="write">write</option>
+                  <option value="execute">execute</option>
+                </select>
+              </label>
+              <label class="sandbox-field">
+                <span>Approval</span>
+                <select id="sandbox-approval-policy">
+                  <option value="on-request">on-request</option>
+                  <option value="on-failure">on-failure</option>
+                  <option value="never">never</option>
+                  <option value="always">always</option>
+                </select>
+              </label>
+              <label class="sandbox-field">
+                <span>Access</span>
+                <select id="sandbox-access-mode">
+                  <option value="workspace-write">workspace-write</option>
+                  <option value="read-only">read-only</option>
+                  <option value="danger-full-access">danger-full-access</option>
+                </select>
+              </label>
+              <label class="sandbox-field">
+                <span>Timeout</span>
+                <input id="sandbox-timeout" type="number" min="1" max="300" value="30">
+              </label>
+              <label class="sandbox-field sandbox-field-wide">
+                <span>Working directory</span>
+                <input id="sandbox-working-dir" type="text" placeholder="Default workspace root">
+              </label>
+              <label class="sandbox-check">
+                <input id="sandbox-approved" type="checkbox">
+                <span>Approved for write/execute</span>
+              </label>
+              <label class="sandbox-check">
+                <input id="sandbox-shell" type="checkbox">
+                <span>Run through shell</span>
+              </label>
+            </div>
+            <div class="sandbox-actions">
+              <button class="btn-primary" id="btn-run-sandbox">Run</button>
+              <button class="btn-outline" id="btn-run-sandbox-approved">Run approved</button>
+            </div>
+            <div class="sandbox-result" id="sandbox-result">
+              <div class="empty-state-lg"><p>No command has been run yet.</p></div>
+            </div>
+          </section>
+
+          <section class="sandbox-panel">
+            <div class="sandbox-panel-head">
+              <div>
+                <h3>Audit Trail</h3>
+                <p>Every blocked, approval-required, or executed command is recorded.</p>
+              </div>
+            </div>
+            <div class="sandbox-audit-list" id="sandbox-audit-list">
+              <div class="empty-state-lg"><p>No sandbox audit records.</p></div>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <!-- External Agents Page -->
+      <div class="page" id="page-external-agents">
+        <div class="page-header">
+          <h2>External Agent Control</h2>
+          <div class="page-header-bar">
+            <button class="btn-outline" id="btn-refresh-external-agents">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/><polyline points="21 3 21 9 15 9"/></svg>
+              Refresh
+            </button>
+          </div>
+        </div>
+        <div class="sandbox-content external-agent-content">
+          <section class="sandbox-panel external-agent-runner">
+            <div class="sandbox-panel-head">
+              <div>
+                <h3>Session Control</h3>
+                <p>Register existing Codex or Claude Code sessions, then send audited prompts.</p>
+              </div>
+              <div class="sandbox-policy-badges" id="external-agent-provider-badges"></div>
+            </div>
+            <div class="sandbox-form-grid">
+              <label class="sandbox-field">
+                <span>Provider</span>
+                <select id="external-agent-provider">
+                  <option value="codex">codex</option>
+                  <option value="claude-code">claude-code</option>
+                </select>
+              </label>
+              <label class="sandbox-field">
+                <span>Session label</span>
+                <input id="external-agent-label" type="text" placeholder="Frontend refactor agent">
+              </label>
+              <label class="sandbox-field sandbox-field-wide">
+                <span>Workspace</span>
+                <input id="external-agent-workspace" type="text" placeholder="Default project root">
+              </label>
+              <label class="sandbox-field">
+                <span>External session id</span>
+                <input id="external-agent-session-id" type="text" placeholder="Existing Codex/Claude session id">
+              </label>
+              <label class="sandbox-field">
+                <span>Model</span>
+                <input id="external-agent-model" type="text" placeholder="CLI default">
+              </label>
+              <label class="sandbox-field">
+                <span>Sandbox</span>
+                <select id="external-agent-sandbox-mode">
+                  <option value="workspace-write">workspace-write</option>
+                  <option value="read-only">read-only</option>
+                  <option value="danger-full-access">danger-full-access</option>
+                </select>
+              </label>
+              <label class="sandbox-field">
+                <span>Approval</span>
+                <select id="external-agent-approval-policy">
+                  <option value="on-request">on-request</option>
+                  <option value="on-failure">on-failure</option>
+                  <option value="never">never</option>
+                  <option value="always">always</option>
+                </select>
+              </label>
+              <label class="sandbox-field sandbox-field-wide">
+                <span>Prompt</span>
+                <textarea id="external-agent-prompt" spellcheck="false">查看当前项目状态并给出下一步建议</textarea>
+              </label>
+            </div>
+            <div class="sandbox-actions">
+              <button class="btn-outline" id="btn-create-external-agent">Register session</button>
+              <button class="btn-outline" id="btn-run-external-agent-dry">Preview command</button>
+              <button class="btn-primary" id="btn-run-external-agent">Run</button>
+            </div>
+            <div class="sandbox-result" id="external-agent-result">
+              <div class="empty-state-lg"><p>No external agent command has been sent.</p></div>
+            </div>
+            <div class="external-agent-session-list" id="external-agent-sessions">
+              <div class="empty-state-lg"><p>No sessions registered.</p></div>
+            </div>
+          </section>
+
+          <section class="sandbox-panel">
+            <div class="sandbox-panel-head">
+              <div>
+                <h3>可导入对话</h3>
+                <p>扫描本机 Codex / Claude Code 历史记录，一键导入到 Symbio 聊天。</p>
+              </div>
+            </div>
+            <div class="external-transcript-list" id="external-agent-transcripts">
+              <div class="empty-state-lg"><p>还没有扫描到可导入对话。</p></div>
+            </div>
+          </section>
+
+          <section class="sandbox-panel">
+            <div class="sandbox-panel-head">
+              <div>
+                <h3>Runtime Audit</h3>
+                <p>Command previews, real executions, exit codes, and CLI discovery are tracked here.</p>
+              </div>
+            </div>
+            <div class="sandbox-audit-list" id="external-agent-audit">
+              <div class="empty-state-lg"><p>No external agent audit records.</p></div>
+            </div>
+          </section>
         </div>
       </div>
 
@@ -329,6 +684,10 @@
         <div class="page-header">
           <h2>Skills 管理</h2>
           <div class="page-header-bar">
+            <div class="segmented-control skills-mode-tabs" id="skills-mode-tabs" role="tablist" aria-label="Skills mode">
+              <button class="segmented-btn active" type="button" data-skill-mode="local">Local</button>
+              <button class="segmented-btn" type="button" data-skill-mode="marketplace">Marketplace</button>
+            </div>
             <div class="search-box">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               <input type="text" placeholder="搜索 Skills..." id="skills-search">
@@ -354,6 +713,13 @@
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
             <p>暂无 Skills</p>
             <span class="empty-hint">点击"自动检测"发现已安装的 Skills，或手动导入</span>
+          </div>
+        </div>
+
+        <div class="marketplace-shell" id="marketplace-shell" style="display:none;">
+          <div class="marketplace-summary" id="marketplace-summary"></div>
+          <div class="marketplace-grid" id="marketplace-grid">
+            <div class="empty-state-lg"><p>Loading marketplace...</p></div>
           </div>
         </div>
 

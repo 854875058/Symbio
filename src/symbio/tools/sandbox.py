@@ -37,12 +37,13 @@ import os
 import platform
 import re
 import shlex
+import uuid
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from symbio.utils.logger import get_logger
 
@@ -76,6 +77,54 @@ class SandboxMode(str, Enum):
 
     LOCAL = "local"
     DOCKER = "docker"
+
+
+class SandboxAccessMode(str, Enum):
+    """Codex-style host access boundary for local command execution."""
+
+    READ_ONLY = "read-only"
+    WORKSPACE_WRITE = "workspace-write"
+    DANGER_FULL_ACCESS = "danger-full-access"
+    UNRESTRICTED = "danger-full-access"
+
+
+class ApprovalPolicy(str, Enum):
+    """When a sandboxed command must be approved before running."""
+
+    NEVER = "never"
+    ON_REQUEST = "on-request"
+    ON_FAILURE = "on-failure"
+    ALWAYS = "always"
+
+
+def normalize_sandbox_access_mode(value: str | SandboxAccessMode) -> SandboxAccessMode:
+    if isinstance(value, SandboxAccessMode):
+        return value
+    normalized = str(value).strip().lower().replace("_", "-")
+    aliases = {
+        "read-only": SandboxAccessMode.READ_ONLY,
+        "workspace-write": SandboxAccessMode.WORKSPACE_WRITE,
+        "unrestricted": SandboxAccessMode.DANGER_FULL_ACCESS,
+        "danger-full-access": SandboxAccessMode.DANGER_FULL_ACCESS,
+    }
+    if normalized not in aliases:
+        raise ValueError(f"Unsupported sandbox access mode: {value}")
+    return aliases[normalized]
+
+
+def normalize_approval_policy(value: str | ApprovalPolicy) -> ApprovalPolicy:
+    if isinstance(value, ApprovalPolicy):
+        return value
+    normalized = str(value).strip().lower().replace("_", "-")
+    aliases = {
+        "never": ApprovalPolicy.NEVER,
+        "on-request": ApprovalPolicy.ON_REQUEST,
+        "on-failure": ApprovalPolicy.ON_FAILURE,
+        "always": ApprovalPolicy.ALWAYS,
+    }
+    if normalized not in aliases:
+        raise ValueError(f"Unsupported approval policy: {value}")
+    return aliases[normalized]
 
 
 # ---------------------------------------------------------------------------
@@ -147,6 +196,16 @@ WRITE_ALLOWED_COMMANDS: set[str] = {
     "git", "docker", "pip", "npm", "yarn",
     "apt", "apt-get", "yum", "dnf", "brew", "choco",
 }
+
+NETWORK_COMMANDS: set[str] = {
+    "curl", "wget", "http", "httpie", "ping", "tracert", "traceroute",
+    "ssh", "scp", "sftp", "ftp", "telnet", "nc", "ncat", "netcat",
+}
+
+NETWORK_ARGUMENT_PATTERNS: list[re.Pattern] = [
+    re.compile(r"https?://", re.IGNORECASE),
+    re.compile(r"\b[a-z0-9.-]+\.(com|cn|net|org|io|dev|ai)\b", re.IGNORECASE),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -224,6 +283,53 @@ class SandboxResult(BaseModel):
     working_dir: str = ""
     error_message: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class SandboxPolicy(BaseModel):
+    """Runtime policy for local code execution.
+
+    The shape follows the same practical split used by Codex-like agents:
+    choose a filesystem access mode, list workspace/writable roots, and decide
+    whether write/execute operations need human approval.
+    """
+
+    access_mode: SandboxAccessMode = SandboxAccessMode.READ_ONLY
+    approval_policy: ApprovalPolicy = ApprovalPolicy.ON_REQUEST
+    workspace_roots: list[str] = Field(default_factory=list)
+    writable_roots: list[str] = Field(default_factory=list)
+    allow_network: bool = False
+    audit_enabled: bool = True
+
+    @field_validator("access_mode", mode="before")
+    @classmethod
+    def _normalize_access_mode(cls, value):
+        return normalize_sandbox_access_mode(value)
+
+    @field_validator("approval_policy", mode="before")
+    @classmethod
+    def _normalize_approval_policy(cls, value):
+        return normalize_approval_policy(value)
+
+
+class SandboxAuditRecord(BaseModel):
+    """One auditable sandbox execution decision/result."""
+
+    record_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    created_at: datetime = Field(default_factory=datetime.now)
+    command: str
+    working_dir: str
+    permission_level: PermissionLevel
+    access_mode: SandboxAccessMode
+    approval_policy: ApprovalPolicy
+    approved: bool = False
+    allowed: bool = False
+    approval_required: bool = False
+    exit_code: int = -1
+    timed_out: bool = False
+    duration_ms: float = 0.0
+    reason: str = ""
+    stdout_preview: str = ""
+    stderr_preview: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -427,6 +533,7 @@ class SandboxExecutor:
         self._default_permission = default_permission
         self._default_working_dir = default_working_dir
         self._validator = CommandValidator()
+        self.audit_records: list[SandboxAuditRecord] = []
 
         logger.info(
             f"SandboxExecutor initialized: "
@@ -636,6 +743,143 @@ class SandboxExecutor:
 
         return result
 
+    async def execute_with_policy(
+        self,
+        command: str,
+        policy: SandboxPolicy,
+        permission_level: Optional[PermissionLevel] = None,
+        timeout: Optional[int] = None,
+        working_dir: Optional[str] = None,
+        env: Optional[dict[str, str]] = None,
+        resource_limits: Optional[ResourceLimits] = None,
+        shell: bool = False,
+        approved: bool = False,
+    ) -> SandboxResult:
+        """Execute a command after applying workspace and approval policy."""
+
+        perm_level = permission_level or self._default_permission
+        work_dir = str(Path(working_dir or self._default_working_dir).resolve())
+        policy_meta = self._policy_metadata(policy)
+
+        allowed, reason = self._check_workspace_boundary(work_dir, policy, perm_level)
+        if not allowed:
+            approval_required = self._boundary_can_request_approval(policy)
+            if approval_required and not approved:
+                result = SandboxResult(
+                    command=command,
+                    exit_code=-1,
+                    error_message=f"APPROVAL_REQUIRED: {reason}",
+                    permission_level=perm_level,
+                    working_dir=work_dir,
+                    metadata={
+                        "policy": policy_meta,
+                        "approval_required": True,
+                        "approved": False,
+                        "sandbox_violation": True,
+                    },
+                )
+                self._record_audit(command, result, policy, approved, True, False, reason)
+                return result
+            if approval_required and approved:
+                logger.warning(f"Sandbox boundary bypass approved for command: {command}")
+            else:
+                result = SandboxResult(
+                    command=command,
+                    exit_code=-1,
+                    error_message=f"WORKSPACE_VIOLATION: {reason}",
+                    permission_level=perm_level,
+                    working_dir=work_dir,
+                    metadata={
+                        "policy": policy_meta,
+                        "approval_required": False,
+                        "sandbox_violation": True,
+                    },
+                )
+                self._record_audit(command, result, policy, approved, False, False, reason)
+                return result
+
+        approval_required = self._requires_approval(policy, perm_level)
+        if approval_required and not approved:
+            reason = f"{perm_level.value} command requires approval under {policy.approval_policy.value}"
+            result = SandboxResult(
+                command=command,
+                exit_code=-1,
+                error_message=f"APPROVAL_REQUIRED: {reason}",
+                permission_level=perm_level,
+                working_dir=work_dir,
+                metadata={
+                    "policy": policy_meta,
+                    "approval_required": True,
+                    "approved": False,
+                },
+            )
+            self._record_audit(command, result, policy, approved, True, False, reason)
+            return result
+
+        if not policy.allow_network and self._uses_network(command):
+            reason = "network access is disabled by sandbox policy"
+            network_approval_required = self._boundary_can_request_approval(policy)
+            if network_approval_required and not approved:
+                result = SandboxResult(
+                    command=command,
+                    exit_code=-1,
+                    error_message=f"APPROVAL_REQUIRED: {reason}",
+                    permission_level=perm_level,
+                    working_dir=work_dir,
+                    metadata={
+                        "policy": policy_meta,
+                        "approval_required": True,
+                        "approved": False,
+                        "network_violation": True,
+                    },
+                )
+                self._record_audit(command, result, policy, approved, True, False, reason)
+                return result
+            if network_approval_required and approved:
+                logger.warning(f"Network boundary bypass approved for command: {command}")
+            else:
+                result = SandboxResult(
+                    command=command,
+                    exit_code=-1,
+                    error_message=f"NETWORK_BLOCKED: {reason}",
+                    permission_level=perm_level,
+                    working_dir=work_dir,
+                    metadata={
+                        "policy": policy_meta,
+                        "approval_required": False,
+                        "approved": approved,
+                        "network_violation": True,
+                    },
+                )
+                self._record_audit(command, result, policy, approved, False, False, reason)
+                return result
+
+        result = await self.execute(
+            command=command,
+            permission_level=perm_level,
+            timeout=timeout,
+            working_dir=work_dir,
+            env=env,
+            resource_limits=resource_limits,
+            shell=shell,
+        )
+        result.metadata.update({
+            "policy": policy_meta,
+            "approval_required": approval_required,
+            "approved": approved,
+            "escalated": approved and (approval_required or not allowed),
+        })
+        self._record_audit(
+            command=command,
+            result=result,
+            policy=policy,
+            approved=approved,
+            approval_required=approval_required,
+            allowed=result.exit_code != -1 or not result.error_message.startswith(("BLOCKED", "PERMISSION_DENIED")),
+            reason=result.error_message,
+        )
+        return result
+
     async def execute_with_config(
         self,
         command: str,
@@ -669,6 +913,113 @@ class SandboxExecutor:
                 resource_limits=config.resource_limits,
                 shell=config.shell,
             )
+
+    def _policy_metadata(self, policy: SandboxPolicy) -> dict[str, Any]:
+        return {
+            "access_mode": policy.access_mode.value,
+            "approval_policy": policy.approval_policy.value,
+            "workspace_roots": [str(Path(path).resolve()) for path in policy.workspace_roots],
+            "writable_roots": [str(Path(path).resolve()) for path in policy.writable_roots],
+            "allow_network": policy.allow_network,
+        }
+
+    def _check_workspace_boundary(
+        self,
+        working_dir: str,
+        policy: SandboxPolicy,
+        permission_level: PermissionLevel,
+    ) -> tuple[bool, str]:
+        if policy.access_mode == SandboxAccessMode.DANGER_FULL_ACCESS:
+            return True, ""
+
+        work_path = Path(working_dir).resolve()
+        workspace_roots = [Path(path).resolve() for path in policy.workspace_roots]
+        if not workspace_roots:
+            workspace_roots = [Path(self._default_working_dir).resolve()]
+
+        if not any(self._is_relative_to(work_path, root) for root in workspace_roots):
+            return False, f"working_dir {work_path} is outside workspace roots"
+
+        if policy.access_mode == SandboxAccessMode.READ_ONLY and permission_level != PermissionLevel.READ_ONLY:
+            return False, "read_only sandbox only allows READ_ONLY commands"
+
+        if permission_level in {PermissionLevel.WRITE, PermissionLevel.EXECUTE}:
+            writable_roots = [Path(path).resolve() for path in policy.writable_roots]
+            if not writable_roots:
+                writable_roots = workspace_roots if policy.access_mode == SandboxAccessMode.WORKSPACE_WRITE else []
+            if not any(self._is_relative_to(work_path, root) for root in writable_roots):
+                return False, f"working_dir {work_path} is outside writable roots"
+
+        return True, ""
+
+    def _requires_approval(self, policy: SandboxPolicy, permission_level: PermissionLevel) -> bool:
+        if policy.approval_policy == ApprovalPolicy.ALWAYS:
+            return True
+        if policy.approval_policy == ApprovalPolicy.NEVER:
+            return False
+        if policy.approval_policy == ApprovalPolicy.ON_FAILURE:
+            return False
+        if policy.access_mode == SandboxAccessMode.DANGER_FULL_ACCESS:
+            return True
+        return permission_level in {PermissionLevel.WRITE, PermissionLevel.EXECUTE}
+
+    def _boundary_can_request_approval(self, policy: SandboxPolicy) -> bool:
+        return policy.approval_policy in {
+            ApprovalPolicy.ALWAYS,
+            ApprovalPolicy.ON_REQUEST,
+            ApprovalPolicy.ON_FAILURE,
+        }
+
+    def _uses_network(self, command: str) -> bool:
+        try:
+            parts = shlex.split(command)
+        except ValueError:
+            parts = command.split()
+        if not parts:
+            return False
+        cmd_name = Path(parts[0]).name.lower()
+        if cmd_name in NETWORK_COMMANDS:
+            return True
+        return any(pattern.search(command) for pattern in NETWORK_ARGUMENT_PATTERNS)
+
+    @staticmethod
+    def _is_relative_to(path: Path, root: Path) -> bool:
+        try:
+            path.relative_to(root)
+            return True
+        except ValueError:
+            return False
+
+    def _record_audit(
+        self,
+        command: str,
+        result: SandboxResult,
+        policy: SandboxPolicy,
+        approved: bool,
+        approval_required: bool,
+        allowed: bool,
+        reason: str,
+    ) -> None:
+        if not policy.audit_enabled:
+            return
+        self.audit_records.append(
+            SandboxAuditRecord(
+                command=command,
+                working_dir=result.working_dir,
+                permission_level=result.permission_level,
+                access_mode=policy.access_mode,
+                approval_policy=policy.approval_policy,
+                approved=approved,
+                allowed=allowed,
+                approval_required=approval_required,
+                exit_code=result.exit_code,
+                timed_out=result.timed_out,
+                duration_ms=result.duration_ms,
+                reason=reason,
+                stdout_preview=result.stdout[:500],
+                stderr_preview=result.stderr[:500],
+            )
+        )
 
     # ------------------------------------------------------------------
     # 内部方法

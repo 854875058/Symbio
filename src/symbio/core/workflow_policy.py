@@ -87,7 +87,7 @@ def workflow_policy_for_intent(intent: Intent) -> WorkflowPolicy:
         require_clarification_on_ambiguity=True,
         require_tdd=is_feature_work or is_bug_work,
         require_root_cause_before_fix=is_bug_work,
-        require_verification_before_completion=True,
+        require_verification_before_completion=is_feature_work or is_bug_work,
         require_spec_review=is_feature_work,
         allow_assumptions=not (is_feature_work or is_bug_work),
         checklist=checklist,

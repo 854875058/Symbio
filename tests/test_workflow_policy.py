@@ -35,5 +35,5 @@ def test_simple_chat_keeps_policy_lightweight():
 
     assert policy.require_plan is False
     assert policy.require_tdd is False
-    assert policy.require_verification_before_completion is True
+    assert policy.require_verification_before_completion is False
     assert policy.allow_assumptions is True

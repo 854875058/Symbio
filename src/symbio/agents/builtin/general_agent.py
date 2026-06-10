@@ -88,6 +88,8 @@ class GeneralAgent(BaseAgent):
 
         # 构建消息
         user_content = task.intent.raw_text
+        if task.metadata.get("workflow_guidance"):
+            user_content = f"{task.metadata['workflow_guidance']}\n\nUser task:\n{user_content}"
         if task.metadata.get("memory_context"):
             user_content = f"相关背景知识:\n{task.metadata['memory_context']}\n\n用户问题:\n{user_content}"
         messages = [

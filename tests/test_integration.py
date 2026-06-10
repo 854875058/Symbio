@@ -21,11 +21,26 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from symbio.interfaces import database as db_module
 from symbio.interfaces.database import Database
 from symbio.interfaces.api import app
+from symbio.core.execution_models import (
+    ExecutionArtifact,
+    ExecutionEvent,
+    ExecutionNode,
+    ExecutionPlan,
+)
+from symbio.core.execution_state_store import ExecutionStateStore
+from symbio.core.hitl_gateway import ApprovalGateway
+from symbio.core.hitl_notifier import HITLNotifier
+from symbio.memory.ontology import (
+    Concept,
+    Individual,
+    OntologyEngine,
+    RelationDefinition,
+    RelationInstance,
+    RelationType,
+)
 
 # 测试数据库路径（绝对路径，避免工作目录问题）
 TEST_DB_PATH = str(PROJECT_ROOT / "data" / "test_symbio.db")
-
-
 # ================================================================
 # Fixtures
 # ================================================================
@@ -102,10 +117,182 @@ class TestRootEndpoints:
         assert resp.status_code == 200
         assert resp.json() == {"status": "ok"}
 
+    async def test_api_health_alias(self, client):
+        """GET /api/health returns the same payload used by the web UI."""
+        resp = await client.get("/api/health")
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ok"}
+
+
+class TestHITLAPI:
+    async def test_hitl_submit_records_outbound_notification_payload_summary(self, client):
+        app.state.hitl_gateway = ApprovalGateway()
+        app.state.hitl_notifier = HITLNotifier(
+            targets=[
+                {
+                    "platform": "qq",
+                    "chat_id": "ops-group",
+                    "chat_type": "group",
+                }
+            ],
+            callback_base_url="https://symbio.example",
+        )
+        app.state.orchestrator = None
+
+        submit_resp = await client.post(
+            "/api/hitl/submit",
+            json={
+                "task_id": "task-hitl-notify-api",
+                "action": "Rotate service token",
+                "impact_scope": "service credentials",
+                "reason": "Needs mobile approval",
+                "risk_level": "medium",
+            },
+        )
+
+        assert submit_resp.status_code == 200
+        submitted = submit_resp.json()
+        request_id = submitted["request_id"]
+        request_payload = submitted["request"]
+        assert request_payload["notification_status"] == "prepared"
+        assert request_payload["notification_count"] == 1
+        assert request_payload["latest_notification"]["platform"] == "qq"
+        assert request_payload["latest_notification"]["recipient"] == "ops-group"
+        assert request_payload["latest_notification"]["short_code"] == request_payload["code"]
+        assert request_payload["latest_notification"]["api_path"] == "/api/hitl/im-callback"
+        assert request_payload["latest_notification"]["callback_url"] == (
+            "https://symbio.example/api/hitl/im-callback"
+        )
+        assert "approve " + request_payload["code"] in request_payload["latest_notification"]["approve_command"]
+        assert "reject " + request_payload["code"] in request_payload["latest_notification"]["reject_command"]
+        assert submitted["notifications"][0]["payload"]["request_id"] == request_id
+
+        detail_resp = await client.get(f"/api/hitl/{request_id}")
+        assert detail_resp.status_code == 200
+        detail_payload = detail_resp.json()["request"]
+        assert detail_payload["notification_status"] == "prepared"
+        assert detail_payload["notification_count"] == 1
+        assert detail_payload["latest_notification"]["platform"] == "qq"
+
+    async def test_hitl_submit_list_and_approve_returns_ui_payload(self, client):
+        app.state.hitl_gateway = ApprovalGateway()
+        app.state.hitl_notifier = HITLNotifier([])
+        app.state.orchestrator = None
+
+        request_payload = {
+            "task_id": "task-hitl-001",
+            "action": "Delete generated files",
+            "impact_scope": "workspace",
+            "reason": "High impact operation needs review",
+            "risk_level": "medium",
+        }
+        submit_resp = await client.post("/api/hitl/submit", json=request_payload)
+        assert submit_resp.status_code == 200
+        submitted = submit_resp.json()
+        request_id = submitted["request_id"]
+        assert submitted["request"]["id"] == request_id
+        assert submitted["request"]["title"] == "Delete generated files"
+        assert submitted["request"]["risk"] == "medium"
+        assert submitted["request"]["status"] == "pending"
+
+        pending_resp = await client.get("/api/hitl/pending")
+        assert pending_resp.status_code == 200
+        pending = pending_resp.json()["requests"]
+        assert any(item["id"] == request_id for item in pending)
+
+        all_resp = await client.get("/api/hitl")
+        assert all_resp.status_code == 200
+        all_items = all_resp.json()["requests"]
+        assert any(item["id"] == request_id and item["title"] == "Delete generated files" for item in all_items)
+
+        approve_resp = await client.post(f"/api/hitl/{request_id}/approve")
+        assert approve_resp.status_code == 200
+        approved = approve_resp.json()
+        assert approved["request"]["id"] == request_id
+        assert approved["request"]["status"] == "approved"
+        assert approved["resumed_result"] is None
+
+        history_resp = await client.get("/api/hitl/history")
+        assert history_resp.status_code == 200
+        history = history_resp.json()["history"]
+        assert any(item["id"] == request_id and item["status"] == "approved" for item in history)
+
+    async def test_hitl_im_callback_approves_request_from_qq_command(self, client):
+        app.state.hitl_gateway = ApprovalGateway()
+        app.state.hitl_notifier = HITLNotifier([])
+        app.state.orchestrator = None
+
+        submit_resp = await client.post(
+            "/api/hitl/submit",
+            json={
+                "task_id": "task-hitl-im",
+                "action": "Run risky task",
+                "impact_scope": "workspace",
+                "reason": "Needs mobile approval",
+                "risk_level": "medium",
+            },
+        )
+        assert submit_resp.status_code == 200
+        submitted = submit_resp.json()
+        request_id = submitted["request_id"]
+        code = submitted["request"]["code"]
+
+        callback_resp = await client.post(
+            "/api/hitl/im-callback",
+            json={
+                "platform": "qq",
+                "sender_id": "qq-user-1",
+                "text": f"同意 {request_id} 手机确认",
+            },
+        )
+        assert callback_resp.status_code == 200
+        data = callback_resp.json()
+        assert data["request"]["id"] == request_id
+        assert data["request"]["status"] == "approved"
+        assert data["request"]["approvals"][0]["approver_id"] == "qq-user-1"
+
 
 # ================================================================
 # 2. 会话 API 测试
 # ================================================================
+
+
+class TestHITLShortCodeAPI:
+    async def test_hitl_im_callback_accepts_short_code(self, client):
+        app.state.hitl_gateway = ApprovalGateway()
+        app.state.hitl_notifier = HITLNotifier([])
+        app.state.orchestrator = None
+
+        submit_resp = await client.post(
+            "/api/hitl/submit",
+            json={
+                "task_id": "task-hitl-short",
+                "action": "Restart service",
+                "impact_scope": "service",
+                "reason": "Needs mobile approval",
+                "risk_level": "medium",
+            },
+        )
+        assert submit_resp.status_code == 200
+        submitted = submit_resp.json()
+        request_id = submitted["request_id"]
+        code = submitted["request"]["code"]
+        assert len(code) == 8
+
+        callback_resp = await client.post(
+            "/api/hitl/im-callback",
+            json={
+                "platform": "wechat",
+                "sender_id": "wx-user-1",
+                "text": f"approve {code} mobile confirmed",
+            },
+        )
+
+        assert callback_resp.status_code == 200
+        data = callback_resp.json()
+        assert data["request"]["id"] == request_id
+        assert data["request"]["code"] == code
+        assert data["request"]["status"] == "approved"
 
 
 class TestSessionAPI:
@@ -278,6 +465,17 @@ class TestTaskAPI:
         for step in task["steps"]:
             assert step["status"] == "completed"
 
+    async def test_get_task_dag(self, client):
+        """GET /api/tasks/t-001/dag returns graph data for visualization."""
+        resp = await client.get("/api/tasks/t-001/dag")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["task_id"] == "t-001"
+        assert data["total_nodes"] == 4
+        assert data["total_edges"] == 3
+        assert data["nodes"][0]["type"] == "task"
+        assert all(edge["type"] == "sequence" for edge in data["edges"])
+
     async def test_get_task_nonexistent(self, client):
         """GET /api/tasks/nonexistent 返回 404"""
         resp = await client.get("/api/tasks/nonexistent")
@@ -288,6 +486,82 @@ class TestTaskAPI:
 # ================================================================
 # 5. 模型 API 测试
 # ================================================================
+
+
+class TestExecutionAPI:
+    async def test_execution_detail_events_and_artifacts_endpoints(self, client, tmp_path):
+        store = ExecutionStateStore(str(tmp_path / "executions.db"))
+        node = ExecutionNode(
+            node_id="node-root",
+            name="Root node",
+            description="Run execution detail flow",
+            executor="general_agent",
+            metadata={"skill": "planner"},
+        )
+        plan = ExecutionPlan(
+            execution_id="exec-001",
+            task_id="t-001",
+            root_node_id=node.node_id,
+            nodes=[node],
+            edges=[],
+            metadata={"source": "integration-test"},
+        )
+        await store.create_execution(plan, "Inspect execution evidence")
+        await store.append_event(
+            ExecutionEvent(
+                execution_id=plan.execution_id,
+                node_id=node.node_id,
+                event_type="node_started",
+                payload={"message": "node running"},
+            )
+        )
+        await store.append_artifact(
+            ExecutionArtifact(
+                execution_id=plan.execution_id,
+                node_id=node.node_id,
+                artifact_type="report",
+                content={"summary": "artifact ready"},
+                path_ref="artifacts/report.md",
+                metadata={"source": "integration-test"},
+            )
+        )
+
+        previous_store = getattr(app.state, "execution_store", None)
+        app.state.execution_store = store
+        try:
+            detail_resp = await client.get(f"/api/executions/{plan.execution_id}")
+            assert detail_resp.status_code == 200
+            detail = detail_resp.json()
+            assert detail["execution"]["execution_id"] == plan.execution_id
+            assert detail["execution"]["task_id"] == "t-001"
+            assert len(detail["nodes"]) == 1
+            assert detail["nodes"][0]["node_id"] == node.node_id
+            assert len(detail["graph_versions"]) == 1
+
+            events_resp = await client.get(f"/api/executions/{plan.execution_id}/events")
+            assert events_resp.status_code == 200
+            events_payload = events_resp.json()
+            assert events_payload["total"] >= 2
+            assert any(item["event_type"] == "node_started" for item in events_payload["events"])
+
+            artifacts_resp = await client.get(f"/api/executions/{plan.execution_id}/artifacts")
+            assert artifacts_resp.status_code == 200
+            artifacts_payload = artifacts_resp.json()
+            assert artifacts_payload["total"] == 1
+            assert artifacts_payload["artifacts"][0]["artifact_type"] == "report"
+            assert artifacts_payload["artifacts"][0]["path_ref"] == "artifacts/report.md"
+
+            cancel_resp = await client.post(f"/api/executions/{plan.execution_id}/cancel")
+            assert cancel_resp.status_code == 200
+            cancelled = cancel_resp.json()
+            assert cancelled["execution"]["execution_id"] == plan.execution_id
+            assert cancelled["execution"]["status"] == "cancelled"
+        finally:
+            if previous_store is None:
+                delattr(app.state, "execution_store")
+            else:
+                app.state.execution_store = previous_store
+            await store.close()
 
 
 class TestModelAPI:
@@ -303,6 +577,8 @@ class TestModelAPI:
         assert "claude-3-5-haiku-20241022" in model_ids
         assert "claude-sonnet-4-20250514" in model_ids
         assert "claude-opus-4-20250514" in model_ids
+        assert all("api_key" not in model for model in data["models"])
+        assert all("has_api_key" in model for model in data["models"])
 
     async def test_create_model(self, client):
         """POST /api/models 创建新模型"""
@@ -319,6 +595,8 @@ class TestModelAPI:
         assert model["model_id"] == "gpt-4o-test"
         assert model["provider"] == "openai"
         assert model["display_name"] == "GPT-4o Test"
+        assert "api_key" not in model
+        assert model["has_api_key"] is False
 
         # 验证确实添加到了数据库
         list_resp = await client.get("/api/models")
@@ -352,6 +630,37 @@ class TestModelAPI:
 # ================================================================
 # 6. 记忆 API 测试
 # ================================================================
+
+
+    async def test_test_model_uses_current_config_credentials(self, client, test_database):
+        """POST /api/models/{id}/test should prefer current config credentials over stale stored model keys."""
+        model = await test_database.create_model(
+            model_id="mimo-v2.5-pro",
+            provider="anthropic",
+            display_name="mimo-v2.5-pro",
+            api_key="stale-model-key",
+            base_url="https://stale.example/anthropic",
+        )
+        mock_settings = _make_mock_settings(api_key="fresh-config-key")
+        mock_settings.model.anthropic_base_url = "https://fresh.example/anthropic"
+        mock_settings.model.model_low = "mimo-v2.5-pro"
+        mock_settings.model.model_medium = "mimo-v2.5-pro"
+        mock_settings.model.model_high = "mimo-v2.5-pro"
+        mock_client, _ = _make_mock_anthropic_client("OK")
+
+        with (
+            patch("anthropic.AsyncAnthropic", return_value=mock_client) as mock_ctor,
+            patch("symbio.interfaces.api._load_llm_settings", return_value=mock_settings),
+        ):
+            resp = await client.post(f"/api/models/{model['id']}/test")
+
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["success"] is True
+        mock_ctor.assert_called_once_with(
+            api_key="fresh-config-key",
+            base_url="https://fresh.example/anthropic",
+        )
 
 
 class TestMemoryAPI:
@@ -393,6 +702,110 @@ class TestMemoryAPI:
         if len(results) > 1:
             relevances = [m["relevance"] for m in results]
             assert relevances == sorted(relevances, reverse=True)
+
+    async def test_get_ontology_graph_snapshot(self, client):
+        """GET /api/ontology returns a frontend-ready ontology graph payload."""
+        ontology = OntologyEngine.create_default()
+        tool_concept_id = ontology.add_concept(
+            Concept(name="Tool", description="Executable integration")
+        )
+        connector_concept_id = ontology.add_concept(
+            Concept(
+                name="Connector",
+                description="External messaging connector",
+                parent_concepts=[tool_concept_id],
+            )
+        )
+        qq_bot_id = ontology.add_individual(
+            Individual(
+                name="QQ Bot",
+                concept_ids=[connector_concept_id],
+                properties={"platform": "qq", "status": "active"},
+            )
+        )
+        wx_bot_id = ontology.add_individual(
+            Individual(
+                name="WX Bot",
+                concept_ids=[connector_concept_id],
+                properties={"platform": "wx", "status": "active"},
+            )
+        )
+        relation_id = ontology.add_relation_definition(
+            RelationDefinition(
+                name="syncs_with",
+                relation_type=RelationType.RELATED_TO,
+                domain_concept="Connector",
+                range_concept="Connector",
+            )
+        )
+        ontology.add_relation_instance(
+            RelationInstance(
+                relation_id=relation_id,
+                source_id=qq_bot_id,
+                target_id=wx_bot_id,
+                weight=0.9,
+            )
+        )
+
+        previous_orchestrator = getattr(app.state, "orchestrator", None)
+        try:
+            app.state.orchestrator = MagicMock()
+            app.state.orchestrator.memory_bridge = MagicMock()
+            app.state.orchestrator.memory_bridge.ontology = ontology
+
+            resp = await client.get("/api/ontology")
+
+            assert resp.status_code == 200
+            data = resp.json()
+            assert "stats" in data
+            assert "nodes" in data
+            assert "edges" in data
+            assert data["stats"]["tbox"]["concepts"] == 2
+            assert data["stats"]["abox"]["individuals"] == 2
+
+            categories = {node["category"] for node in data["nodes"]}
+            assert "concept" in categories
+            assert "individual" in categories
+
+            labels = {node["label"] for node in data["nodes"]}
+            assert "Connector" in labels
+            assert "QQ Bot" in labels
+
+            connector_node = next(node for node in data["nodes"] if node["label"] == "Connector")
+            assert connector_node["parent_ids"] == [tool_concept_id]
+            assert connector_node["parent_labels"] == ["Tool"]
+
+            qq_node = next(node for node in data["nodes"] if node["label"] == "QQ Bot")
+            assert qq_node["concept_ids"] == [connector_concept_id]
+            assert qq_node["concept_labels"] == ["Connector"]
+            assert qq_node["properties"]["platform"] == "qq"
+
+            assert len(data["edges"]) == 1
+            assert data["edges"][0]["label"] == "syncs_with"
+            assert data["edges"][0]["source"] == qq_bot_id
+            assert data["edges"][0]["target"] == wx_bot_id
+        finally:
+            app.state.orchestrator = previous_orchestrator
+
+    async def test_get_ontology_bootstraps_from_existing_memories(self, client):
+        """GET /api/ontology populates an empty ontology from persisted memories."""
+        previous_orchestrator = getattr(app.state, "orchestrator", None)
+        ontology = OntologyEngine.create_default()
+        try:
+            app.state.orchestrator = MagicMock()
+            app.state.orchestrator.memory_bridge = MagicMock()
+            app.state.orchestrator.memory_bridge._initialized = True
+            app.state.orchestrator.memory_bridge.ontology = ontology
+
+            resp = await client.get("/api/ontology")
+
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["total_nodes"] > 0
+            labels = {node["label"] for node in data["nodes"]}
+            assert any(label in labels for label in {"DAG", "API", "Python", "Claude"})
+        finally:
+            app.state.orchestrator = previous_orchestrator
 
 
 # ================================================================

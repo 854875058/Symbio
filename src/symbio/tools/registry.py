@@ -1,4 +1,4 @@
-"""工具注册中心 - 管理所有工具的注册、发现、执行、权限与统计。
+﻿"""工具注册中心 - 管理所有工具的注册、发现、执行、权限与统计。
 
 内置工具: cc, shell, file, git, browser
 支持 LLM function calling schema 导出。
@@ -998,6 +998,52 @@ class BrowserTool(BaseTool):
 # 全局注册中心
 # ---------------------------------------------------------------------------
 
+class PlaywrightBrowserTool(BrowserTool):
+    """Browser tool with Playwright-backed screenshots."""
+
+    async def execute(self, **kwargs: Any) -> ToolResult:
+        action = kwargs.get("action", "fetch")
+        if action == "screenshot":
+            return await self._screenshot(**kwargs)
+        return await super().execute(**kwargs)
+
+    async def _screenshot(self, **kwargs: Any) -> ToolResult:
+        output_path = kwargs.get("output_path") or f"browser_screenshot_{int(time.time())}.png"
+        full_page = bool(kwargs.get("full_page", True))
+        viewport = kwargs.get("viewport") or {"width": 1280, "height": 720}
+
+        try:
+            from playwright.async_api import async_playwright
+        except ImportError:
+            return ToolResult(
+                call_id="",
+                tool_name=self.name,
+                success=False,
+                error="Playwright is required for screenshots. Install with: pip install playwright && playwright install chromium",
+            )
+
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True)
+                page = await browser.new_page(viewport=viewport)
+                await page.goto(kwargs.get("url", ""), wait_until="networkidle", timeout=30000)
+                await page.screenshot(path=output_path, full_page=full_page)
+                await browser.close()
+            return ToolResult(
+                call_id="",
+                tool_name=self.name,
+                success=True,
+                output=output_path,
+            )
+        except Exception as exc:
+            return ToolResult(
+                call_id="",
+                tool_name=self.name,
+                success=False,
+                error=str(exc),
+            )
+
+
 _registry: ToolRegistry | None = None
 
 
@@ -1019,7 +1065,7 @@ def _register_builtin_tools(registry: ToolRegistry) -> None:
         ShellTool(),
         FileTool(),
         GitTool(),
-        BrowserTool(),
+        PlaywrightBrowserTool(),
         SubmitTaskTool(),
     ]
     registry.register_many(builtins)

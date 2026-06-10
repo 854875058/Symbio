@@ -2,8 +2,8 @@
    Symbio — Neural Command Center
    ============================================ */
 
-const API = 'http://localhost:9090/api';
-const WS_URL = 'ws://localhost:9090/ws/chat';
+const API = `${window.location.origin}/api`;
+const WS_URL = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/chat`;
 
 // ============ State ============
 const state = {
@@ -12,11 +12,16 @@ const state = {
   currentSession: 'default',
   messages: [],
   models: [],
+  selectedChatModel: localStorage.getItem('symbio-chat-model') || '',
   tasks: [],
   taskFilter: 'all',
   memories: [],
+  ontologyGraph: { stats: {}, nodes: [], edges: [] },
+  ontologySelection: null,
   skills: [],
   skillDetail: null,
+  skillMode: 'local',
+  marketplace: { packages: [], stats: {}, installed: [], categories: [] },
   tokens: { input: 0, output: 0, total: 0 },
   cost: 0,
   connected: false,
@@ -29,14 +34,27 @@ const state = {
   config: {},
   hitlItems: [],
   hitlFilter: 'pending',
+  capabilities: { summary: {}, items: [] },
+  capabilityFilter: 'all',
+  evolution: { export: null, suites: [] },
+  sandbox: { policy: null, audit: [], lastResult: null },
+  externalAgents: { providers: [], sessions: [], transcripts: [], audit: [], activeSessionId: '', lastResult: null },
   theme: localStorage.getItem('symbio-theme') || 'dark',
   pagesLoaded: {},
   virtualScrollEnabled: false,
+  executionCache: {},
 };
 
 // ============ DOM ============
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
+const escapeSelectorValue = (value) => {
+  const text = String(value ?? '');
+  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+    return CSS.escape(text);
+  }
+  return text.replace(/["\\]/g, '\\$&');
+};
 
 const dom = {
   navTabs: $$('.nav-tab'),
@@ -45,6 +63,7 @@ const dom = {
   welcome: $('#welcome-screen'),
   messages: $('#messages-container'),
   input: $('#message-input'),
+  chatModelSelect: $('#chat-model-select'),
   sendBtn: $('#send-btn'),
   newChat: $('#btn-new-chat'),
   chips: $$('.chip'),
@@ -55,8 +74,18 @@ const dom = {
   tasksGrid: $('#tasks-grid'),
   memoryGrid: $('#memory-grid'),
   memorySearch: $('#memory-search'),
+  ontologySummary: $('#ontology-summary'),
+  ontologyGraph: $('#ontology-graph'),
+  ontologyEmpty: $('#ontology-empty'),
+  ontologyDetail: $('#ontology-detail'),
+  ontologySearch: $('#ontology-search'),
+  ontologyFilter: $('#ontology-category-filter'),
   skillsGrid: $('#skills-grid'),
   skillsSearch: $('#skills-search'),
+  skillsModeTabs: $('#skills-mode-tabs'),
+  marketplaceShell: $('#marketplace-shell'),
+  marketplaceSummary: $('#marketplace-summary'),
+  marketplaceGrid: $('#marketplace-grid'),
   btnImportSkill: $('#btn-import-skill'),
   configSection: $('#llm-config-section'),
   themeToggle: $('#theme-toggle'),
@@ -64,6 +93,38 @@ const dom = {
   tokenBarChart: $('#token-bar-chart'),
   hitlGrid: $('#hitl-grid'),
   hitlFilter: $('#hitl-filter'),
+  capabilitySummary: $('#capability-summary'),
+  capabilityGrid: $('#capability-grid'),
+  capabilityFilter: $('#capability-filter'),
+  exportFormat: $('#export-format'),
+  exportMeta: $('#evolution-export-meta'),
+  exportPreview: $('#evolution-export-preview'),
+  evalSuitePath: $('#eval-suite-path'),
+  evalSuiteGrid: $('#evolution-suite-grid'),
+  sandboxPolicy: $('#sandbox-policy'),
+  sandboxCommand: $('#sandbox-command'),
+  sandboxPermission: $('#sandbox-permission'),
+  sandboxApprovalPolicy: $('#sandbox-approval-policy'),
+  sandboxAccessMode: $('#sandbox-access-mode'),
+  sandboxTimeout: $('#sandbox-timeout'),
+  sandboxWorkingDir: $('#sandbox-working-dir'),
+  sandboxApproved: $('#sandbox-approved'),
+  sandboxShell: $('#sandbox-shell'),
+  sandboxResult: $('#sandbox-result'),
+  sandboxAuditList: $('#sandbox-audit-list'),
+  externalAgentProviderBadges: $('#external-agent-provider-badges'),
+  externalAgentProvider: $('#external-agent-provider'),
+  externalAgentLabel: $('#external-agent-label'),
+  externalAgentWorkspace: $('#external-agent-workspace'),
+  externalAgentSessionId: $('#external-agent-session-id'),
+  externalAgentModel: $('#external-agent-model'),
+  externalAgentSandboxMode: $('#external-agent-sandbox-mode'),
+  externalAgentApprovalPolicy: $('#external-agent-approval-policy'),
+  externalAgentPrompt: $('#external-agent-prompt'),
+  externalAgentResult: $('#external-agent-result'),
+  externalAgentSessions: $('#external-agent-sessions'),
+  externalAgentTranscripts: $('#external-agent-transcripts'),
+  externalAgentAudit: $('#external-agent-audit'),
 };
 
 // ============ Navigation ============
@@ -77,8 +138,15 @@ async function switchPage(name) {
   else if (name === 'models') { await loadModels(); }
   if (name === 'tasks' && !state.pagesLoaded.tasks) { state.pagesLoaded.tasks = true; await loadTasks(); }
   if (name === 'memory' && !state.pagesLoaded.memory) { state.pagesLoaded.memory = true; await loadMemories(); }
+  if (name === 'ontology' && !state.pagesLoaded.ontology) { state.pagesLoaded.ontology = true; await loadOntology(); }
+  else if (name === 'ontology') { await loadOntology(); }
   if (name === 'skills' && !state.pagesLoaded.skills) { state.pagesLoaded.skills = true; await loadSkills(); }
+  else if (name === 'skills' && state.skillMode === 'marketplace') { await loadMarketplace(dom.skillsSearch?.value.trim() || undefined); }
   if (name === 'dashboard') await loadDashboard();
+  if (name === 'capabilities') await loadCapabilities();
+  if (name === 'evolution') await loadEvolution();
+  if (name === 'sandbox') await loadSandbox();
+  if (name === 'external-agents') await loadExternalAgents();
   if (name === 'hitl') await loadHitl();
 }
 
@@ -179,7 +247,7 @@ function createStreamingEl() {
   div.innerHTML = `
     <div class="message-avatar">S</div>
     <div class="message-content">
-      <div class="message-bubble"><span class="cursor-blink"></span></div>
+      <div class="message-bubble"></div>
       <div class="message-meta"><span></span></div>
     </div>
   `;
@@ -191,9 +259,7 @@ function updateStreamingEl(text) {
   const el = document.getElementById('streaming-msg');
   if (!el) return;
   const bubble = el.querySelector('.message-bubble');
-  bubble.innerHTML = formatContent(text) + '<span class="cursor-blink"></span>';
-  // Add subtle glow during streaming
-  el.classList.add('streaming-glow');
+  bubble.innerHTML = formatContent(text);
   // Smooth scroll to bottom
   requestAnimationFrame(() => {
     dom.messages.scrollTop = dom.messages.scrollHeight;
@@ -411,6 +477,7 @@ function sendViaWebSocket(content) {
   state.ws.send(JSON.stringify({
     content: content,
     session_id: state.currentSession,
+    model: selectedChatModel(),
   }));
   return true;
 }
@@ -463,7 +530,11 @@ async function sendMessage() {
     const res = await fetch(`${API}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: content, session_id: state.currentSession }),
+      body: JSON.stringify({
+        message: content,
+        session_id: state.currentSession,
+        model: selectedChatModel(),
+      }),
     });
     const data = await res.json();
 
@@ -531,6 +602,11 @@ dom.input?.addEventListener('keydown', (e) => {
 });
 
 dom.sendBtn?.addEventListener('click', sendMessage);
+
+dom.chatModelSelect?.addEventListener('change', () => {
+  state.selectedChatModel = dom.chatModelSelect.value;
+  localStorage.setItem('symbio-chat-model', state.selectedChatModel);
+});
 
 // Chips
 dom.chips.forEach(chip => {
@@ -604,11 +680,45 @@ async function loadModels() {
     const res = await fetch(`${API}/models`);
     const data = await res.json();
     state.models = data.models || [];
+    loadChatModelOptions();
     renderModels();
   } catch (e) {
     toast('error', '加载模型失败', e.message);
     dom.modelsGrid.innerHTML = `<div class="empty-state-lg"><p>加载失败，请重试</p></div>`;
   }
+}
+
+function selectedChatModel() {
+  return dom.chatModelSelect?.value || state.selectedChatModel || '';
+}
+
+function loadChatModelOptions() {
+  if (!dom.chatModelSelect) return;
+  const configuredDefault = state.config?.model_medium || '';
+  const selected = state.selectedChatModel || dom.chatModelSelect.value || configuredDefault;
+  const options = [
+    { value: '', label: configuredDefault ? `默认模型 (${configuredDefault})` : '默认模型' },
+  ];
+  const seen = new Set(['']);
+
+  for (const model of state.models || []) {
+    const value = model.model_id || model.id || '';
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    options.push({
+      value,
+      label: `${model.display_name || value}${model.enabled === false ? '（已停用）' : ''}`,
+    });
+  }
+
+  if (selected && !seen.has(selected)) {
+    options.push({ value: selected, label: selected });
+  }
+
+  dom.chatModelSelect.innerHTML = options.map(option => `
+    <option value="${esc(option.value)}" ${option.value === selected ? 'selected' : ''}>${esc(option.label)}</option>
+  `).join('');
+  state.selectedChatModel = dom.chatModelSelect.value;
 }
 
 function renderModels() {
@@ -882,11 +992,18 @@ function renderTasks() {
           </div>
         ` : ''}
         ${t.result ? `<div class="task-result">${esc(t.result)}</div>` : ''}
+        <div class="task-evidence-stack">
+          ${renderPlannerReviewerControls(t, 'compact')}
+          ${renderWorkflowPolicyPanel(t, 'compact')}
+          ${renderVerificationEvidencePanel(t, 'compact')}
+          ${renderApprovalContextPanel(t, 'compact')}
+        </div>
       </div>
     `).join('')}
   `;
 
   attachFilterListeners();
+  attachReviewControlsInteractions(dom.tasksGrid);
 
   // Task detail click
   dom.tasksGrid.querySelectorAll('.task-card').forEach(card => {
@@ -913,6 +1030,15 @@ function stepIcon(status) {
   return map[status] || '?';
 }
 
+function statusTone(status) {
+  const normalized = String(status || '').toLowerCase();
+  if (normalized === 'completed') return 'completed';
+  if (normalized === 'cancelled') return 'cancelled';
+  if (['failed', 'failed_policy', 'needs_verification', 'blocked', 'blocking', 'rejected'].includes(normalized)) return 'failed';
+  if (['running', 'verifying', 'replanning'].includes(normalized)) return 'running';
+  return 'pending';
+}
+
 function formatTime(isoStr) {
   if (!isoStr) return '';
   try {
@@ -923,9 +1049,1003 @@ function formatTime(isoStr) {
   }
 }
 
+function compactId(value, head = 8, tail = 6) {
+  const text = String(value || '');
+  if (!text || text.length <= head + tail + 1) return text;
+  return `${text.slice(0, head)}...${text.slice(-tail)}`;
+}
+
+function asObj(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function firstValue(...values) {
+  return values.find(v => v !== undefined && v !== null && v !== '');
+}
+
+function stringifyEvidence(value) {
+  if (value === undefined || value === null || value === '') return '';
+  if (Array.isArray(value)) {
+    return value.map(stringifyEvidence).filter(Boolean).join('\n');
+  }
+  if (typeof value === 'object') {
+    const label = firstValue(value.command, value.name, value.title, value.type, value.path, value.id, 'evidence');
+    const status = firstValue(value.status, value.result, value.outcome, '');
+    const detail = firstValue(value.summary, value.output, value.message, value.detail, value.reason, value.error, '');
+    return [label, status, detail].filter(Boolean).join(' - ');
+  }
+  return String(value);
+}
+
+function collectWorkflowPolicy(item) {
+  const meta = asObj(item.metadata);
+  return asObj(firstValue(
+    item.workflow_policy,
+    item.workflowPolicy,
+    item.policy,
+    meta.workflow_policy,
+    meta.workflowPolicy,
+    meta.policy,
+  ));
+}
+
+function renderWorkflowPolicyPanel(item, mode = 'card') {
+  const policy = collectWorkflowPolicy(item);
+  const checklist = Array.isArray(policy.checklist) ? policy.checklist.filter(Boolean) : [];
+  const flags = [
+    ['Plan', policy.require_plan],
+    ['TDD', policy.require_tdd],
+    ['Root cause', policy.require_root_cause_before_fix],
+    ['Verification', policy.require_verification_before_completion],
+    ['Spec review', policy.require_spec_review],
+    ['Clarify', policy.require_clarification_on_ambiguity],
+  ].filter(([, value]) => value === true);
+
+  if (!Object.keys(policy).length) {
+    return `
+      <div class="evidence-panel evidence-muted">
+        <div class="evidence-panel-title">Workflow policy</div>
+        <div class="evidence-empty">No workflow policy recorded for this item.</div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="evidence-panel">
+      <div class="evidence-panel-title">Workflow policy</div>
+      ${flags.length ? `<div class="evidence-chips">${flags.map(([label]) => `<span class="evidence-chip">${esc(label)}</span>`).join('')}</div>` : '<div class="evidence-empty">Policy flags are present but none are enabled.</div>'}
+      ${checklist.length ? `
+        <ul class="evidence-list ${mode === 'compact' ? 'evidence-list-compact' : ''}">
+          ${checklist.slice(0, mode === 'compact' ? 3 : 8).map(item => `<li>${esc(item)}</li>`).join('')}
+        </ul>
+      ` : ''}
+    </div>
+  `;
+}
+
+function collectVerificationEvidence(item) {
+  const meta = asObj(item.metadata);
+  const candidates = firstValue(
+    item.verification_evidence,
+    item.verificationEvidence,
+    item.verification,
+    item.evidence,
+    meta.verification_evidence,
+    meta.verificationEvidence,
+    meta.verification,
+    meta.evidence,
+  );
+  const direct = Array.isArray(candidates) ? candidates : (candidates ? [candidates] : []);
+  const stepEvidence = (item.steps || [])
+    .filter(step => /test|verify|verification|check|lint|audit|scan|测试|验证|检查|审查/i.test(`${step.name || ''} ${step.status || ''}`))
+    .map(step => ({
+      name: step.name,
+      status: step.status,
+      duration: step.duration,
+    }));
+  return [...direct, ...stepEvidence].map(stringifyEvidence).filter(Boolean);
+}
+
+function renderVerificationEvidencePanel(item, mode = 'card') {
+  const evidence = collectVerificationEvidence(item);
+  if (!evidence.length) {
+    return `
+      <div class="evidence-panel evidence-muted">
+        <div class="evidence-panel-title">Verification evidence</div>
+        <div class="evidence-empty">No verification evidence recorded yet.</div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="evidence-panel">
+      <div class="evidence-panel-title">Verification evidence</div>
+      <ul class="evidence-list ${mode === 'compact' ? 'evidence-list-compact' : ''}">
+        ${evidence.slice(0, mode === 'compact' ? 3 : 10).map(item => `<li>${esc(item)}</li>`).join('')}
+      </ul>
+    </div>
+  `;
+}
+
+function collectApprovalContext(item) {
+  const meta = asObj(item.metadata);
+  const hitl = asObj(firstValue(item.hitl, item.approval, meta.hitl, meta.approval));
+  const approvals = firstValue(item.approvals, hitl.approvals, meta.approvals, []);
+  const alternatives = firstValue(item.alternatives, hitl.alternatives, meta.alternatives, []);
+  return {
+    requestId: firstValue(item.hitl_request_id, item.request_id, hitl.request_id, hitl.id, meta.hitl_request_id, meta.approval_request_id),
+    code: firstValue(item.code, hitl.code, meta.approval_code),
+    risk: firstValue(item.risk, item.risk_level, hitl.risk, hitl.risk_level, meta.risk_level),
+    action: firstValue(item.action, hitl.action, meta.action),
+    impact: firstValue(item.impact_scope, hitl.impact_scope, meta.impact_scope),
+    reason: firstValue(item.reason, item.blocked_reason, hitl.reason, hitl.blocked_reason, meta.blocked_reason),
+    blocked: firstValue(item.blocked_context, item.blocked, hitl.blocked_context, meta.blocked_context),
+    status: firstValue(item.status, hitl.status),
+    requiredApprovers: firstValue(item.required_approvers, hitl.required_approvers, meta.required_approvers),
+    approvals: Array.isArray(approvals) ? approvals : [],
+    alternatives: Array.isArray(alternatives) ? alternatives : [],
+  };
+}
+
+function renderApprovalContextPanel(item, mode = 'card') {
+  const ctx = collectApprovalContext(item);
+  const rows = [
+    ['Risk', ctx.risk],
+    ['Action', ctx.action],
+    ['Impact', ctx.impact],
+    ['Reason', ctx.reason],
+    ['Blocked', stringifyEvidence(ctx.blocked)],
+    ['Request', ctx.requestId],
+    ['Code', ctx.code],
+    ['Required', ctx.requiredApprovers],
+  ].filter(([, value]) => value !== undefined && value !== null && value !== '');
+
+  const approvalLines = ctx.approvals.map(a => {
+    const decision = firstValue(a.decision, a.status, 'approval');
+    const approver = firstValue(a.approver_id, a.approver, a.user, 'unknown');
+    const comment = firstValue(a.comment, '');
+    return `${decision} by ${approver}${comment ? ` - ${comment}` : ''}`;
+  });
+
+  if (!rows.length && !approvalLines.length && !ctx.alternatives.length) {
+    return `
+      <div class="evidence-panel evidence-muted">
+        <div class="evidence-panel-title">Approval / blocked context</div>
+        <div class="evidence-empty">No approval or blocked context recorded.</div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="evidence-panel">
+      <div class="evidence-panel-title">Approval / blocked context</div>
+      ${rows.length ? `
+        <div class="evidence-kv">
+          ${rows.slice(0, mode === 'compact' ? 5 : 10).map(([label, value]) => `
+            <div class="evidence-kv-row">
+              <span>${esc(label)}</span>
+              <strong>${esc(String(value))}</strong>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+      ${ctx.alternatives.length ? `
+        <ul class="evidence-list ${mode === 'compact' ? 'evidence-list-compact' : ''}">
+          ${ctx.alternatives.slice(0, mode === 'compact' ? 2 : 6).map(item => `<li>Alternative: ${esc(item)}</li>`).join('')}
+        </ul>
+      ` : ''}
+      ${approvalLines.length ? `
+        <ul class="evidence-list ${mode === 'compact' ? 'evidence-list-compact' : ''}">
+          ${approvalLines.slice(0, mode === 'compact' ? 2 : 8).map(item => `<li>${esc(item)}</li>`).join('')}
+        </ul>
+      ` : ''}
+    </div>
+  `;
+}
+
+function normalizeReviewSection(value) {
+  if (value === undefined || value === null || value === '') return '';
+  if (Array.isArray(value)) return value.map(stringifyEvidence).filter(Boolean).join('\n');
+  return typeof value === 'object' ? safeExecutionJson(value) : String(value);
+}
+
+function normalizeReviewFindings(value) {
+  if (value === undefined || value === null || value === '') return [];
+  const list = Array.isArray(value) ? value : [value];
+  return list.map((finding, index) => {
+    if (finding && typeof finding === 'object') {
+      const severity = firstValue(finding.severity, finding.level, finding.status, finding.type, 'blocking');
+      const title = firstValue(finding.title, finding.summary, finding.reason, finding.message, finding.code, `Finding ${index + 1}`);
+      const detail = firstValue(finding.detail, finding.description, finding.evidence, finding.context, finding.path, finding.node_id, '');
+      return { severity: String(severity), title: String(title), detail: normalizeReviewSection(detail) };
+    }
+    return { severity: 'blocking', title: String(finding), detail: '' };
+  }).filter(finding => finding.title || finding.detail);
+}
+
+function collectPlannerReviewer(item) {
+  const meta = asObj(item.metadata);
+  const reviewer = asObj(firstValue(
+    item.planner_reviewer,
+    item.plannerReviewer,
+    item.planner_review,
+    item.review,
+    meta.planner_reviewer,
+    meta.plannerReviewer,
+    meta.planner_review,
+    meta.review,
+  ));
+  const result = asObj(firstValue(reviewer.result, reviewer.output, reviewer.data, reviewer.review));
+  const sectionsSource = asObj(firstValue(reviewer.sections, result.sections));
+  const blocking = firstValue(
+    reviewer.blocking_findings,
+    reviewer.blockingFindings,
+    reviewer.blockers,
+    result.blocking_findings,
+    result.blockers,
+    sectionsSource.blocking_findings,
+    [],
+  );
+  const findings = normalizeReviewFindings(blocking);
+  const extraFindings = normalizeReviewFindings(firstValue(reviewer.findings, result.findings, []))
+    .filter(finding => !findings.some(blocker => blocker.title === finding.title && blocker.detail === finding.detail));
+
+  return {
+    hasData: Object.keys(reviewer).length > 0 || Object.keys(result).length > 0,
+    status: firstValue(reviewer.status, reviewer.outcome, result.status, result.outcome, item.review_status, ''),
+    summary: firstValue(reviewer.summary, result.summary, reviewer.message, result.message, ''),
+    reviewer: firstValue(reviewer.reviewer, reviewer.agent, result.reviewer, result.agent, 'planner_reviewer'),
+    updatedAt: firstValue(reviewer.updated_at, reviewer.created_at, result.updated_at, result.created_at, ''),
+    findings,
+    extraFindings,
+    sections: [
+      ['plan', 'Plan', firstValue(reviewer.plan, result.plan, sectionsSource.plan, sectionsSource.planning, '')],
+      ['spec_review', 'Spec review', firstValue(reviewer.spec_review, reviewer.specReview, result.spec_review, result.specReview, sectionsSource.spec_review, '')],
+      ['quality_review', 'Quality review', firstValue(reviewer.quality_review, reviewer.qualityReview, result.quality_review, result.qualityReview, sectionsSource.quality_review, '')],
+    ].map(([key, label, value]) => ({ key, label, body: normalizeReviewSection(value) })).filter(section => section.body),
+  };
+}
+
+function renderPlannerReviewerControls(item, mode = 'card') {
+  const review = collectPlannerReviewer(item);
+  if (!review.hasData) {
+    return `
+      <div class="review-panel review-muted">
+        <div class="review-panel-title">Planner reviewer</div>
+        <div class="evidence-empty">No planner_reviewer result recorded.</div>
+      </div>
+    `;
+  }
+
+  const tone = statusTone(review.status || (review.findings.length ? 'failed' : 'completed'));
+  const compact = mode === 'compact';
+  const sections = review.sections.slice(0, compact ? 2 : review.sections.length);
+  return `
+    <div class="review-panel" data-review-panel>
+      <div class="review-panel-header">
+        <div>
+          <div class="review-panel-title">Planner reviewer</div>
+          <div class="review-panel-subtitle">${esc(review.reviewer)}${review.updatedAt ? ` / ${esc(formatTime(review.updatedAt))}` : ''}</div>
+        </div>
+        <span class="task-status task-status-${tone}">${esc(statusLabel(review.status || tone))}</span>
+      </div>
+      <div class="review-summary">
+        <span class="review-chip">${review.findings.length} blocking</span>
+        <span class="review-chip">${review.extraFindings.length} findings</span>
+        <span class="review-chip">${review.sections.length} sections</span>
+      </div>
+      ${review.summary ? `<div class="review-status-summary">${esc(String(review.summary))}</div>` : ''}
+      ${review.findings.length ? `
+        <div class="review-quick-actions">
+          <button type="button" class="review-action-btn" data-review-jump="blocking">Blocked reason</button>
+          <button type="button" class="review-action-btn" data-review-expand="all">Expand all</button>
+          <button type="button" class="review-action-btn" data-review-expand="none">Collapse</button>
+        </div>
+        <div class="review-findings" data-review-section="blocking">
+          ${review.findings.slice(0, compact ? 2 : 12).map((finding, index) => `
+            <div class="review-finding" data-review-finding>
+              <div class="review-finding-title">
+                <span class="task-status task-status-${statusTone(finding.severity)}">${esc(statusLabel(finding.severity))}</span>
+                <strong>${esc(finding.title)}</strong>
+              </div>
+              ${finding.detail ? `<div class="review-finding-detail">${esc(finding.detail)}</div>` : ''}
+              ${index === 0 ? '<span class="review-anchor-label">Primary blocked reason</span>' : ''}
+            </div>
+          `).join('')}
+          ${review.findings.length > (compact ? 2 : 12) ? `<div class="evidence-empty">Showing ${compact ? 2 : 12} of ${review.findings.length} blocking findings.</div>` : ''}
+        </div>
+      ` : '<div class="review-status-summary">No blocking findings recorded.</div>'}
+      ${sections.length ? `
+        <div class="review-section-list">
+          ${sections.map(section => `
+            <details class="review-section" data-review-section="${esc(section.key)}">
+              <summary>${esc(section.label)}</summary>
+              <pre>${esc(section.body)}</pre>
+            </details>
+          `).join('')}
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+
+function extractExecutionId(item) {
+  const meta = asObj(item?.metadata);
+  const data = asObj(item?.data);
+  const execution = asObj(item?.execution);
+  const dagRuntime = asObj(meta.dag_runtime || meta.dagRuntime);
+  return firstValue(
+    item?.execution_id,
+    item?.executionId,
+    data.execution_id,
+    data.executionId,
+    execution.execution_id,
+    dagRuntime.execution_id,
+    dagRuntime.executionId,
+    meta.execution_id,
+    meta.executionId,
+  );
+}
+
+async function loadExecutionEvidence(executionId) {
+  if (!executionId) return null;
+  if (state.executionCache[executionId]) {
+    return state.executionCache[executionId];
+  }
+
+  const urls = [
+    `${API}/executions/${executionId}`,
+    `${API}/executions/${executionId}/events`,
+    `${API}/executions/${executionId}/artifacts`,
+  ];
+
+  try {
+    const responses = await Promise.all(urls.map(url => fetch(url)));
+    if (responses.some(res => !res.ok)) {
+      throw new Error(`Execution API returned ${responses.map(res => res.status).join('/')}`);
+    }
+
+    const [detail, events, artifacts] = await Promise.all(responses.map(res => res.json()));
+    const bundle = { detail, events, artifacts };
+    state.executionCache[executionId] = bundle;
+    return bundle;
+  } catch (e) {
+    console.warn('Failed to load execution evidence:', executionId, e.message);
+    return {
+      error: e.message,
+      detail: { execution: { execution_id: executionId } },
+      events: { events: [], total: 0 },
+      artifacts: { artifacts: [], total: 0 },
+    };
+  }
+}
+
+function normalizeExecutionValue(value, fallback = 'unknown') {
+  const text = String(firstValue(value, fallback)).trim();
+  return text || fallback;
+}
+
+function getEventStatus(event) {
+  const payload = asObj(event?.payload);
+  return normalizeExecutionValue(firstValue(event?.status, payload.status, payload.outcome, payload.result, 'event'));
+}
+
+function safeExecutionJson(value) {
+  if (value === undefined || value === null || value === '') return '';
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return stringifyEvidence(value);
+  }
+}
+
+function summarizeExecutionStatus(items, statusGetter) {
+  return items.reduce((summary, item) => {
+    const tone = statusTone(statusGetter(item));
+    summary[tone] = (summary[tone] || 0) + 1;
+    return summary;
+  }, {});
+}
+
+function renderExecutionStatusSummary(items, statusGetter, emptyLabel) {
+  const summary = summarizeExecutionStatus(items, statusGetter);
+  const chips = ['completed', 'running', 'failed', 'cancelled', 'pending']
+    .filter(tone => summary[tone])
+    .map(tone => `<span class="execution-chip execution-status-chip task-status-${tone}">${esc(statusLabel(tone))}: ${summary[tone]}</span>`);
+  return chips.length ? chips.join('') : `<span class="execution-chip">${esc(emptyLabel)}</span>`;
+}
+
+function renderExecutionNodeStatusBreakdown(nodes) {
+  if (!nodes.length) return '';
+  const groups = new Map();
+  nodes.forEach(node => {
+    const tone = statusTone(node.status);
+    if (!groups.has(tone)) groups.set(tone, []);
+    groups.get(tone).push(node);
+  });
+
+  return `
+    <div class="execution-node-breakdown">
+      ${['failed', 'running', 'pending', 'cancelled', 'completed'].filter(tone => groups.has(tone)).map(tone => `
+        <div class="execution-node-breakdown-group">
+          <span class="task-status task-status-${tone}">${esc(statusLabel(tone))}</span>
+          <div class="execution-node-breakdown-items">
+            ${groups.get(tone).slice(0, 6).map(node => `
+              <button type="button" class="execution-node-pill" data-execution-node-jump="${esc(node.node_id || node.name || 'unassigned')}">${esc(compactId(node.name || node.node_id || 'node', 16, 6))}</button>
+            `).join('')}
+            ${groups.get(tone).length > 6 ? `<span class="execution-node-more">+${groups.get(tone).length - 6}</span>` : ''}
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderExecutionDetails(label, body, options = {}) {
+  if (!body) return '';
+  const detailClass = options.compact ? ' execution-details-compact' : '';
+  return `
+    <details class="execution-details${detailClass}">
+      <summary>${esc(label)}</summary>
+      <pre>${esc(body)}</pre>
+    </details>
+  `;
+}
+
+function renderExecutionNodeDetails(node) {
+  const detail = {
+    node_id: node.node_id,
+    executor: node.executor,
+    status: node.status,
+    depends_on: node.depends_on || node.dependencies,
+    inputs: node.inputs,
+    outputs: node.outputs,
+    payload: node.payload,
+    error: node.error,
+  };
+  const compactDetail = Object.fromEntries(Object.entries(detail).filter(([, value]) => value !== undefined && value !== null && value !== ''));
+  return renderExecutionDetails('Details', Object.keys(compactDetail).length ? safeExecutionJson(compactDetail) : '');
+}
+
+function getArtifactPreviewValue(artifact) {
+  return firstValue(
+    artifact.content,
+    artifact.preview,
+    artifact.summary,
+    artifact.text,
+    artifact.message,
+    artifact.metadata,
+    '',
+  );
+}
+
+function getArtifactPath(artifact) {
+  return firstValue(artifact.path_ref, artifact.path, artifact.uri, artifact.url, artifact.file, '');
+}
+
+function getArtifactType(artifact) {
+  return firstValue(artifact.artifact_type, artifact.type, artifact.content_type, artifact.mime_type, 'artifact');
+}
+
+function buildArtifactPreview(artifact) {
+  const content = getArtifactPreviewValue(artifact);
+  const contentType = String(firstValue(artifact.content_type, artifact.mime_type, '')).toLowerCase();
+  const size = firstValue(artifact.size_bytes, artifact.bytes, artifact.size, '');
+  const path = getArtifactPath(artifact);
+  const isBinary = /image|audio|video|application\/octet-stream|zip|gzip|tar|pdf/.test(contentType);
+
+  if ((content === '' || content === undefined || content === null) && path) {
+    return {
+      body: `Stored artifact reference:\n${path}`,
+      truncated: false,
+      reason: '',
+    };
+  }
+
+  if (isBinary && typeof content === 'string' && content.length > 300) {
+    return {
+      body: [
+        'Binary artifact content is not expanded inline.',
+        path ? `path: ${path}` : '',
+        contentType ? `type: ${contentType}` : '',
+        size ? `size: ${size}` : '',
+      ].filter(Boolean).join('\n'),
+      truncated: false,
+      reason: 'binary',
+    };
+  }
+
+  let preview = safeExecutionJson(content);
+  const maxPreviewLength = 2400;
+  const truncated = preview.length > maxPreviewLength;
+  if (truncated) preview = `${preview.slice(0, maxPreviewLength)}\n... truncated ...`;
+  return { body: preview, truncated, reason: truncated ? 'length' : '' };
+}
+
+function renderArtifactPreview(artifact) {
+  const content = getArtifactPreviewValue(artifact);
+  const path = getArtifactPath(artifact);
+  const type = getArtifactType(artifact);
+  const nodeId = normalizeExecutionValue(firstValue(artifact.node_id, artifact.nodeId, artifact.source_node_id, asObj(artifact.metadata).node_id, ''), '');
+  const preview = buildArtifactPreview(artifact);
+  const artifactMeta = [
+    firstValue(artifact.content_type, artifact.mime_type, ''),
+    firstValue(artifact.size_bytes, artifact.bytes, artifact.size, ''),
+    preview.truncated ? 'truncated' : '',
+    preview.reason === 'binary' ? 'binary' : '',
+  ].filter(Boolean);
+
+  return `
+    <div class="execution-row execution-artifact-row" ${nodeId ? `data-artifact-node-id="${esc(nodeId)}"` : ''}>
+      <div class="execution-row-main">
+        <div class="execution-row-title">${esc(type)}</div>
+        ${artifactMeta.length ? `<div class="execution-artifact-meta">${artifactMeta.map(item => `<span>${esc(String(item))}</span>`).join('')}</div>` : ''}
+        <div class="execution-row-subtitle">${esc(firstValue(path, stringifyEvidence(content), 'No artifact detail'))}</div>
+        ${preview.body ? renderExecutionDetails('Preview', preview.body, { compact: true }) : '<div class="execution-empty execution-empty-inline">No previewable artifact content.</div>'}
+      </div>
+      <span class="execution-row-time">${esc(formatTime(artifact.created_at) || '')}</span>
+    </div>
+  `;
+}
+
+function getEventNodeId(event) {
+  return normalizeExecutionValue(event.node_id, 'unassigned');
+}
+
+function getEventGroupLabel(event, groupMode) {
+  const nodeId = getEventNodeId(event);
+  const status = getEventStatus(event);
+  const tone = statusTone(status);
+  if (groupMode === 'node') {
+    return {
+      key: nodeId,
+      title: nodeId === 'unassigned' ? 'Unassigned node' : compactId(nodeId, 14, 8),
+      subtitle: 'node',
+      tone,
+    };
+  }
+  if (groupMode === 'status') {
+    return {
+      key: tone,
+      title: statusLabel(tone),
+      subtitle: 'status',
+      tone,
+    };
+  }
+  return {
+    key: `${nodeId}::${tone}`,
+    title: nodeId === 'unassigned' ? 'Unassigned node' : compactId(nodeId, 12, 8),
+    subtitle: statusLabel(status),
+    tone,
+  };
+}
+
+function renderExecutionEventGroups(events, groupMode = 'node-status') {
+  if (!events.length) return '<div class="execution-empty">No timeline events recorded.</div>';
+
+  const latestEvents = events.slice(-80).reverse();
+  const groups = new Map();
+  latestEvents.forEach(event => {
+    const nodeId = getEventNodeId(event);
+    const status = getEventStatus(event);
+    const tone = statusTone(status);
+    const group = getEventGroupLabel(event, groupMode);
+    if (!groups.has(group.key)) {
+      groups.set(group.key, { ...group, nodeId, status, events: [] });
+    }
+    groups.get(group.key).events.push(event);
+  });
+
+  return `
+    <div class="execution-event-list" data-execution-event-list data-execution-group-mode="${esc(groupMode)}">
+      ${Array.from(groups.values()).map(group => `
+        <div class="execution-event-group" data-group-key="${esc(group.key)}">
+          <div class="execution-event-group-title">
+            <span>${esc(group.title)}</span>
+            <span class="task-status task-status-${group.tone}">${esc(group.subtitle)}</span>
+            <span class="execution-row-time" data-execution-group-count>${group.events.length} events</span>
+          </div>
+          ${group.events.map(event => {
+            const payload = safeExecutionJson(event.payload);
+            const nodeId = getEventNodeId(event);
+            const tone = statusTone(getEventStatus(event));
+            return `
+              <div class="execution-row execution-event-row" data-node-id="${esc(nodeId)}" data-status="${esc(tone)}">
+                <div class="execution-row-main">
+                  <div class="execution-row-title">${esc(firstValue(event.event_type, event.type, 'event'))}</div>
+                  <div class="execution-row-subtitle">${esc(firstValue(stringifyEvidence(event.payload), nodeId, 'No payload detail'))}</div>
+                  ${renderExecutionDetails('Payload', payload, { compact: true })}
+                </div>
+                <span class="execution-row-time">${esc(formatTime(event.timestamp) || '')}</span>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `).join('')}
+      ${events.length > latestEvents.length ? `<div class="execution-empty">Showing latest ${latestEvents.length} of ${events.length} events.</div>` : ''}
+    </div>
+  `;
+}
+
+function renderExecutionPanel(task, executionBundle = null) {
+  const executionId = extractExecutionId(task) || executionBundle?.detail?.execution?.execution_id;
+  if (!executionId) {
+    return `
+      <div class="execution-panel execution-panel-muted">
+        <div class="evidence-panel-title">Execution / DAG</div>
+        <div class="execution-empty">No execution record is linked to this task yet.</div>
+      </div>
+    `;
+  }
+
+  const execution = asObj(executionBundle?.detail?.execution);
+  const nodes = Array.isArray(executionBundle?.detail?.nodes) ? executionBundle.detail.nodes : [];
+  const graphVersions = Array.isArray(executionBundle?.detail?.graph_versions) ? executionBundle.detail.graph_versions : [];
+  const events = Array.isArray(executionBundle?.events?.events) ? executionBundle.events.events : [];
+  const artifacts = Array.isArray(executionBundle?.artifacts?.artifacts) ? executionBundle.artifacts.artifacts : [];
+  const latestGraph = graphVersions.length ? graphVersions[graphVersions.length - 1] : null;
+  const status = execution.status || 'planned';
+  const eventNodeIds = Array.from(new Set(events.map(event => normalizeExecutionValue(event.node_id, 'unassigned')))).sort();
+  const eventStatuses = Array.from(new Set(events.map(event => statusTone(getEventStatus(event))))).sort();
+  const artifactNodeIds = Array.from(new Set(artifacts
+    .map(artifact => normalizeExecutionValue(firstValue(artifact.node_id, artifact.nodeId, artifact.source_node_id, asObj(artifact.metadata).node_id, ''), ''))
+    .filter(Boolean))).sort();
+  const rows = [
+    ['Task', execution.task_id || task.id],
+    ['Plan', execution.plan_version],
+    ['Replan', execution.replan_generation],
+    ['Created', formatTime(execution.created_at)],
+    ['Completed', formatTime(execution.completed_at)],
+    ['Graph', latestGraph ? `v${latestGraph.graph_version}` : 'v1'],
+  ].filter(([, value]) => value !== undefined && value !== null && value !== '');
+
+  return `
+    <div class="execution-panel">
+      <div class="execution-panel-header">
+        <div class="execution-panel-heading">
+          <div class="execution-panel-title">Execution / DAG</div>
+          <div class="execution-panel-id">${esc(executionId)}</div>
+        </div>
+        <span class="task-status task-status-${statusTone(status)}">${esc(statusLabel(status))}</span>
+      </div>
+
+      <div class="execution-chip-row">
+        <span class="execution-chip">${nodes.length} nodes</span>
+        <span class="execution-chip">${events.length} events</span>
+        <span class="execution-chip">${artifacts.length} artifacts</span>
+        <span class="execution-chip">${graphVersions.length || 1} graph versions</span>
+        ${executionBundle?.error ? `<span class="execution-chip execution-chip-warning">${esc(executionBundle.error)}</span>` : ''}
+      </div>
+
+      <div class="execution-view-tabs" role="tablist" aria-label="Execution views">
+        <button type="button" class="execution-view-tab active" data-execution-view-tab="graph">Graph</button>
+        <button type="button" class="execution-view-tab" data-execution-view-tab="timeline">Timeline</button>
+        <button type="button" class="execution-view-tab" data-execution-view-tab="artifacts">Artifacts</button>
+      </div>
+
+      <div class="execution-summary-grid">
+        <div class="execution-summary-card">
+          <div class="execution-meta-label">Node status</div>
+          <div class="execution-chip-row">${renderExecutionStatusSummary(nodes, node => node.status, 'No node statuses')}</div>
+          ${renderExecutionNodeStatusBreakdown(nodes)}
+        </div>
+        <div class="execution-summary-card">
+          <div class="execution-meta-label">Event status</div>
+          <div class="execution-chip-row">${renderExecutionStatusSummary(events, getEventStatus, 'No event statuses')}</div>
+        </div>
+      </div>
+
+      ${rows.length ? `
+        <div class="execution-meta-grid">
+          ${rows.map(([label, value]) => `
+            <div class="execution-meta-item">
+              <span class="execution-meta-label">${esc(label)}</span>
+              <strong class="execution-meta-value">${esc(String(value))}</strong>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+
+      <div class="execution-stack">
+        <div class="execution-section" data-execution-view="graph">
+          <div class="execution-section-header">
+            <div class="execution-section-title">Graph nodes</div>
+            <span class="execution-section-count">${nodes.length}</span>
+          </div>
+          ${nodes.length ? `
+            <div class="execution-node-list">
+              ${nodes.map(node => `
+                <div class="execution-row execution-node-row" data-execution-node-row="${esc(node.node_id || node.name || 'unassigned')}">
+                  <div class="execution-row-main">
+                    <div class="execution-row-title">${esc(node.name || node.node_id)}</div>
+                    <div class="execution-row-subtitle">${esc([node.executor, compactId(node.node_id)].filter(Boolean).join(' - '))}</div>
+                    ${renderExecutionNodeDetails(node)}
+                  </div>
+                  <div class="execution-row-actions">
+                    <span class="task-status task-status-${statusTone(node.status)}">${esc(statusLabel(node.status))}</span>
+                    <button type="button" class="execution-filter-btn execution-row-btn" data-execution-node-jump="${esc(node.node_id || node.name || 'unassigned')}">Events</button>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          ` : '<div class="execution-empty">No execution nodes recorded.</div>'}
+        </div>
+
+        <div class="execution-section" data-execution-view="timeline" hidden>
+          <div class="execution-section-header">
+            <div class="execution-section-title">Timeline</div>
+            <span class="execution-section-count" data-execution-visible-count>${events.length}</span>
+          </div>
+          ${events.length ? `
+            <div class="execution-filter-bar">
+              <label>
+                <span>Search</span>
+                <input class="execution-filter-select" data-execution-filter="text" placeholder="event text or payload">
+              </label>
+              <label>
+                <span>Node</span>
+                <select class="execution-filter-select" data-execution-filter="node">
+                  <option value="all">All nodes</option>
+                  ${eventNodeIds.map(nodeId => `<option value="${esc(nodeId)}">${esc(nodeId === 'unassigned' ? 'Unassigned' : compactId(nodeId, 18, 8))}</option>`).join('')}
+                </select>
+              </label>
+              <label>
+                <span>Status</span>
+                <select class="execution-filter-select" data-execution-filter="status">
+                  <option value="all">All statuses</option>
+                  ${eventStatuses.map(eventStatus => `<option value="${esc(eventStatus)}">${esc(statusLabel(eventStatus))}</option>`).join('')}
+                </select>
+              </label>
+              <label>
+                <span>Group by</span>
+                <select class="execution-filter-select" data-execution-filter="group">
+                  <option value="node-status">Node + status</option>
+                  <option value="node">Node</option>
+                  <option value="status">Status</option>
+                </select>
+              </label>
+              <div class="execution-filter-actions">
+                <button type="button" class="execution-filter-btn" data-execution-details="open">Expand payloads</button>
+                <button type="button" class="execution-filter-btn" data-execution-details="close">Collapse</button>
+                <button type="button" class="execution-filter-btn" data-execution-reset>Reset</button>
+              </div>
+            </div>
+            <div class="execution-filter-result" data-execution-filter-result></div>
+          ` : ''}
+          ${renderExecutionEventGroups(events)}
+        </div>
+
+        <div class="execution-section" data-execution-view="artifacts" hidden>
+          <div class="execution-section-header">
+            <div class="execution-section-title">Artifacts</div>
+            <span class="execution-section-count">${artifacts.length}</span>
+          </div>
+          ${artifactNodeIds.length ? `
+            <div class="execution-filter-bar execution-artifact-filter-bar">
+              <label>
+                <span>Node</span>
+                <select class="execution-filter-select" data-artifact-filter="node">
+                  <option value="all">All nodes</option>
+                  ${artifactNodeIds.map(nodeId => `<option value="${esc(nodeId)}">${esc(compactId(nodeId, 18, 8))}</option>`).join('')}
+                </select>
+              </label>
+              <div class="execution-filter-result" data-artifact-filter-result></div>
+            </div>
+          ` : ''}
+          ${artifacts.length ? `
+            <div class="execution-artifact-list">
+              ${artifacts.slice(-20).reverse().map(renderArtifactPreview).join('')}
+              ${artifacts.length > 20 ? `<div class="execution-empty">Showing latest 20 of ${artifacts.length} artifacts.</div>` : ''}
+            </div>
+          ` : '<div class="execution-empty">No artifacts recorded.</div>'}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function attachExecutionPanelInteractions(root) {
+  root.querySelectorAll('.execution-panel').forEach(panel => {
+    const nodeFilter = panel.querySelector('[data-execution-filter="node"]');
+    const statusFilter = panel.querySelector('[data-execution-filter="status"]');
+    const groupFilter = panel.querySelector('[data-execution-filter="group"]');
+    const textFilter = panel.querySelector('[data-execution-filter="text"]');
+    const eventList = panel.querySelector('[data-execution-event-list]');
+    const result = panel.querySelector('[data-execution-filter-result]');
+    const activateView = (view) => {
+      panel.querySelectorAll('[data-execution-view]').forEach(section => {
+        section.hidden = section.dataset.executionView !== view;
+      });
+      panel.querySelectorAll('[data-execution-view-tab]').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.executionViewTab === view);
+      });
+    };
+
+    panel.querySelectorAll('[data-execution-view-tab]').forEach(tab => {
+      tab.addEventListener('click', () => activateView(tab.dataset.executionViewTab || 'graph'));
+    });
+
+    const update = () => {
+      if (!eventList) return;
+      const rows = Array.from(panel.querySelectorAll('.execution-event-row'));
+      const groups = Array.from(panel.querySelectorAll('.execution-event-group'));
+      const selectedNode = nodeFilter?.value || 'all';
+      const selectedStatus = statusFilter?.value || 'all';
+      const query = String(textFilter?.value || '').trim().toLowerCase();
+      let visibleRows = 0;
+
+      rows.forEach(row => {
+        const nodeOk = selectedNode === 'all' || row.dataset.nodeId === selectedNode;
+        const statusOk = selectedStatus === 'all' || row.dataset.status === selectedStatus;
+        const textOk = !query || row.textContent.toLowerCase().includes(query);
+        const isVisible = nodeOk && statusOk && textOk;
+        row.hidden = !isVisible;
+        if (isVisible) visibleRows += 1;
+      });
+
+      groups.forEach(group => {
+        const groupRows = Array.from(group.querySelectorAll('.execution-event-row'));
+        const groupVisibleRows = groupRows.filter(row => !row.hidden);
+        group.hidden = !groupVisibleRows.length;
+        const groupCount = group.querySelector('[data-execution-group-count]');
+        if (groupCount) groupCount.textContent = `${groupVisibleRows.length} / ${groupRows.length} events`;
+      });
+
+      const counter = panel.querySelector('[data-execution-visible-count]');
+      if (counter) counter.textContent = String(visibleRows);
+      if (result) {
+        const parts = [];
+        if (query) parts.push(`text "${query}"`);
+        if (selectedNode !== 'all') parts.push(`node ${selectedNode === 'unassigned' ? 'Unassigned' : compactId(selectedNode, 18, 8)}`);
+        if (selectedStatus !== 'all') parts.push(statusLabel(selectedStatus));
+        result.textContent = parts.length ? `${visibleRows} matching events for ${parts.join(' / ')}` : `${visibleRows} timeline events shown`;
+      }
+    };
+
+    const regroupEvents = () => {
+      if (!eventList) return;
+      const groupMode = groupFilter.value || 'node-status';
+      const rows = Array.from(eventList.querySelectorAll('.execution-event-row')).map(row => ({
+        nodeId: row.dataset.nodeId || 'unassigned',
+        status: row.dataset.status || 'pending',
+        html: row.outerHTML,
+      }));
+      const groups = new Map();
+      rows.forEach(row => {
+        let key = `${row.nodeId}::${row.status}`;
+        let title = row.nodeId === 'unassigned' ? 'Unassigned node' : compactId(row.nodeId, 12, 8);
+        let subtitle = statusLabel(row.status);
+        if (groupMode === 'node') {
+          key = row.nodeId;
+          title = row.nodeId === 'unassigned' ? 'Unassigned node' : compactId(row.nodeId, 14, 8);
+          subtitle = 'node';
+        } else if (groupMode === 'status') {
+          key = row.status;
+          title = statusLabel(row.status);
+          subtitle = 'status';
+        }
+        if (!groups.has(key)) groups.set(key, { key, title, subtitle, tone: row.status, rows: [] });
+        groups.get(key).rows.push(row.html);
+      });
+      eventList.dataset.executionGroupMode = groupMode;
+      eventList.innerHTML = Array.from(groups.values()).map(group => `
+        <div class="execution-event-group" data-group-key="${esc(group.key)}">
+          <div class="execution-event-group-title">
+            <span>${esc(group.title)}</span>
+            <span class="task-status task-status-${group.tone}">${esc(group.subtitle)}</span>
+            <span class="execution-row-time" data-execution-group-count>${group.rows.length} events</span>
+          </div>
+          ${group.rows.join('')}
+        </div>
+      `).join('');
+      update();
+    };
+    groupFilter?.addEventListener('change', regroupEvents);
+
+    panel.querySelectorAll('[data-execution-details]').forEach(button => {
+      button.addEventListener('click', () => {
+        const open = button.dataset.executionDetails === 'open';
+        panel.querySelectorAll('.execution-event-row details').forEach(detail => {
+          if (!detail.closest('.execution-event-row')?.hidden) detail.open = open;
+        });
+      });
+    });
+
+    panel.querySelectorAll('[data-execution-node-jump]').forEach(button => {
+      button.addEventListener('click', () => {
+        const nodeId = button.dataset.executionNodeJump || 'unassigned';
+        activateView('timeline');
+        if (nodeFilter) nodeFilter.value = Array.from(nodeFilter.options).some(option => option.value === nodeId) ? nodeId : 'all';
+        update();
+        const target = panel.querySelector(`.execution-event-row[data-node-id="${escapeSelectorValue(nodeFilter?.value || nodeId)}"]:not([hidden])`);
+        if (target) {
+          target.classList.add('execution-row-highlight');
+          target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          setTimeout(() => target.classList.remove('execution-row-highlight'), 1800);
+        } else {
+          panel.querySelector('[data-execution-view="timeline"]')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+      });
+    });
+
+    panel.querySelector('[data-execution-reset]')?.addEventListener('click', () => {
+      if (nodeFilter) nodeFilter.value = 'all';
+      if (statusFilter) statusFilter.value = 'all';
+      if (groupFilter) groupFilter.value = 'node-status';
+      if (textFilter) textFilter.value = '';
+      if (groupFilter) {
+        regroupEvents();
+      } else {
+        update();
+      }
+    });
+
+    const artifactFilter = panel.querySelector('[data-artifact-filter="node"]');
+    const artifactResult = panel.querySelector('[data-artifact-filter-result]');
+    const updateArtifacts = () => {
+      const selectedNode = artifactFilter?.value || 'all';
+      const rows = Array.from(panel.querySelectorAll('.execution-artifact-row'));
+      let visibleRows = 0;
+      rows.forEach(row => {
+        const nodeId = row.dataset.artifactNodeId || '';
+        const isVisible = selectedNode === 'all' || nodeId === selectedNode;
+        row.hidden = !isVisible;
+        if (isVisible) visibleRows += 1;
+      });
+      if (artifactResult) artifactResult.textContent = selectedNode === 'all' ? `${visibleRows} artifacts shown` : `${visibleRows} artifacts for ${compactId(selectedNode, 18, 8)}`;
+    };
+
+    [nodeFilter, statusFilter].forEach(control => control?.addEventListener('change', update));
+    textFilter?.addEventListener('input', update);
+    artifactFilter?.addEventListener('change', updateArtifacts);
+    updateArtifacts();
+    update();
+  });
+}
+
+function attachReviewControlsInteractions(root) {
+  root.querySelectorAll('[data-review-panel]').forEach(panel => {
+    panel.addEventListener('click', (event) => {
+      if (event.target.closest('button, summary, details')) event.stopPropagation();
+    });
+
+    panel.querySelectorAll('[data-review-expand]').forEach(button => {
+      button.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const open = button.dataset.reviewExpand === 'all';
+        panel.querySelectorAll('.review-section').forEach(section => { section.open = open; });
+      });
+    });
+
+    panel.querySelectorAll('[data-review-jump]').forEach(button => {
+      button.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const section = panel.querySelector(`[data-review-section="${escapeSelectorValue(button.dataset.reviewJump)}"]`);
+        const target = section?.querySelector('[data-review-finding]') || section;
+        if (!target) return;
+        target.classList.add('review-finding-highlight');
+        target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        setTimeout(() => target.classList.remove('review-finding-highlight'), 1800);
+      });
+    });
+  });
+}
+
 async function showTaskDetail(taskId) {
-  const task = state.tasks.find(t => t.id === taskId);
+  const fallbackTask = state.tasks.find(t => t.id === taskId);
+  let task = fallbackTask;
+  try {
+    const res = await fetch(`${API}/tasks/${taskId}`);
+    if (res.ok) {
+      const data = await res.json();
+      task = data.task || fallbackTask;
+    }
+  } catch (e) {
+    console.warn('Failed to load task detail, using list payload:', e.message);
+  }
   if (!task) return;
+  const executionBundle = await loadExecutionEvidence(extractExecutionId(task));
 
   // Remove existing detail modal
   document.querySelector('.modal-overlay')?.remove();
@@ -982,6 +2102,19 @@ async function showTaskDetail(taskId) {
             <div class="detail-value detail-result">${esc(task.result)}</div>
           </div>
         ` : ''}
+        <div class="detail-section">
+          <div class="detail-label">Execution / DAG</div>
+          ${renderExecutionPanel(task, executionBundle)}
+        </div>
+        <div class="detail-section">
+          <div class="detail-label">Workflow / evidence</div>
+          <div class="detail-evidence-grid">
+            ${renderPlannerReviewerControls(task)}
+            ${renderWorkflowPolicyPanel(task)}
+            ${renderVerificationEvidencePanel(task)}
+            ${renderApprovalContextPanel(task)}
+          </div>
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn-outline modal-close-btn-bottom">关闭</button>
@@ -990,6 +2123,8 @@ async function showTaskDetail(taskId) {
   `;
 
   document.body.appendChild(overlay);
+  attachExecutionPanelInteractions(overlay);
+  attachReviewControlsInteractions(overlay);
   overlay.querySelector('.modal-close-btn').addEventListener('click', () => overlay.remove());
   overlay.querySelector('.modal-close-btn-bottom').addEventListener('click', () => overlay.remove());
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
@@ -1153,6 +2288,344 @@ dom.memorySearch?.addEventListener('input', () => {
   }, 300);
 });
 
+// ============ Ontology Page ============
+async function loadOntology() {
+  if (dom.ontologySummary) {
+    dom.ontologySummary.innerHTML = '';
+  }
+  if (dom.ontologyGraph) {
+    dom.ontologyGraph.innerHTML = '';
+  }
+  if (dom.ontologyEmpty) {
+    dom.ontologyEmpty.style.display = 'none';
+  }
+
+  try {
+    const res = await fetch(`${API}/ontology`);
+    const data = await res.json();
+    state.ontologyGraph = data || { stats: {}, nodes: [], edges: [] };
+    const nodeIds = new Set((state.ontologyGraph.nodes || []).map(node => node.id));
+    if (!nodeIds.has(state.ontologySelection)) {
+      state.ontologySelection = null;
+    }
+    renderOntology();
+  } catch (e) {
+    toast('error', '加载本体图谱失败', e.message);
+    if (dom.ontologySummary) {
+      dom.ontologySummary.innerHTML = '';
+    }
+    if (dom.ontologyGraph) {
+      dom.ontologyGraph.innerHTML = '';
+    }
+    if (dom.ontologyEmpty) {
+      dom.ontologyEmpty.style.display = 'flex';
+      dom.ontologyEmpty.innerHTML = '<p>加载失败</p><span>请稍后重试</span>';
+    }
+    if (dom.ontologyDetail) {
+      dom.ontologyDetail.innerHTML = `
+        <div class="ontology-detail-title">图谱不可用</div>
+        <div class="ontology-detail-body">${esc(e.message)}</div>
+      `;
+    }
+  }
+}
+
+function ontologyStructuralEdges(nodes) {
+  const edges = [];
+  for (const node of nodes) {
+    if (node.category === 'concept') {
+      for (const parentId of (node.parent_ids || [])) {
+        edges.push({
+          id: `parent:${parentId}:${node.id}`,
+          source: parentId,
+          target: node.id,
+          label: 'is_a',
+          relation_type: 'hierarchy',
+          structural: true,
+        });
+      }
+    }
+    if (node.category === 'individual') {
+      for (const conceptId of (node.concept_ids || [])) {
+        edges.push({
+          id: `instance:${node.id}:${conceptId}`,
+          source: node.id,
+          target: conceptId,
+          label: 'instance_of',
+          relation_type: 'instance_of',
+          structural: true,
+        });
+      }
+    }
+  }
+  return edges;
+}
+
+function getOntologyView() {
+  const sourceNodes = Array.isArray(state.ontologyGraph.nodes) ? state.ontologyGraph.nodes : [];
+  const query = (dom.ontologySearch?.value || '').trim().toLowerCase();
+  const category = dom.ontologyFilter?.value || 'all';
+
+  const nodes = sourceNodes
+    .filter((node) => category === 'all' || node.category === category)
+    .filter((node) => {
+      if (!query) return true;
+      const haystack = [
+        node.label,
+        node.description,
+        ...(node.parent_labels || []),
+        ...(node.concept_labels || []),
+        ...Object.keys(node.properties || {}),
+        ...Object.values(node.properties || {}).map(value => String(value)),
+      ].join(' ').toLowerCase();
+      return haystack.includes(query);
+    })
+    .sort((a, b) => {
+      if (a.category !== b.category) return a.category.localeCompare(b.category);
+      return a.label.localeCompare(b.label, 'zh-CN');
+    });
+
+  const visibleIds = new Set(nodes.map((node) => node.id));
+  const edges = [
+    ...ontologyStructuralEdges(sourceNodes),
+    ...((state.ontologyGraph.edges || []).map((edge) => ({ ...edge, structural: false }))),
+  ].filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target));
+
+  return { nodes, edges, query, category };
+}
+
+function renderOntology() {
+  const view = getOntologyView();
+  renderOntologySummary(view);
+  renderOntologyGraph(view);
+  renderOntologyDetail(view);
+}
+
+function renderOntologySummary(view) {
+  if (!dom.ontologySummary) return;
+  const stats = state.ontologyGraph.stats || {};
+  const tbox = stats.tbox || {};
+  const abox = stats.abox || {};
+  const visibleConcepts = view.nodes.filter((node) => node.category === 'concept').length;
+  const visibleIndividuals = view.nodes.filter((node) => node.category === 'individual').length;
+
+  dom.ontologySummary.innerHTML = `
+    <div class="ontology-stat-card">
+      <div class="ontology-stat-label">当前视图</div>
+      <div class="ontology-stat-value">${view.nodes.length}</div>
+      <div class="ontology-stat-meta">节点 / ${view.edges.length} 条连线</div>
+    </div>
+    <div class="ontology-stat-card">
+      <div class="ontology-stat-label">概念层</div>
+      <div class="ontology-stat-value">${tbox.concepts || 0}</div>
+      <div class="ontology-stat-meta">可见 ${visibleConcepts} / 属性 ${tbox.properties || 0}</div>
+    </div>
+    <div class="ontology-stat-card">
+      <div class="ontology-stat-label">实例层</div>
+      <div class="ontology-stat-value">${abox.individuals || 0}</div>
+      <div class="ontology-stat-meta">可见 ${visibleIndividuals} / 关系 ${abox.relation_instances || 0}</div>
+    </div>
+  `;
+}
+
+function chunkItems(items, size) {
+  const chunks = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
+
+function layoutOntologyNodes(nodes) {
+  const shellWidth = dom.ontologyGraph?.parentElement?.clientWidth || 1200;
+  const width = Math.max(960, shellWidth - 24);
+  const rowCapacity = Math.max(2, Math.floor((width - 120) / 190));
+  const grouped = {
+    concept: nodes.filter((node) => node.category === 'concept'),
+    individual: nodes.filter((node) => node.category === 'individual'),
+  };
+  const positions = {};
+  let y = 84;
+
+  for (const key of ['concept', 'individual']) {
+    const rows = chunkItems(grouped[key], rowCapacity);
+    if (rows.length === 0) continue;
+    for (const row of rows) {
+      const gap = width / (row.length + 1);
+      row.forEach((node, index) => {
+        positions[node.id] = { x: gap * (index + 1), y };
+      });
+      y += 138;
+    }
+    y += 42;
+  }
+
+  return { positions, width, height: Math.max(360, y) };
+}
+
+function edgeStrokeClass(edge) {
+  if (edge.structural) {
+    return edge.relation_type === 'instance_of' ? 'ontology-edge-instance' : 'ontology-edge-structural';
+  }
+  return 'ontology-edge-relation';
+}
+
+function compactOntologyLabel(text, limit = 16) {
+  const value = String(text || '');
+  if (value.length <= limit) return value;
+  return `${value.slice(0, limit - 3)}...`;
+}
+
+function renderOntologyGraph(view) {
+  if (!dom.ontologyGraph || !dom.ontologyEmpty) return;
+
+  if (view.nodes.length === 0) {
+    dom.ontologyGraph.innerHTML = '';
+    dom.ontologyGraph.removeAttribute('viewBox');
+    dom.ontologyEmpty.style.display = 'flex';
+    return;
+  }
+
+  dom.ontologyEmpty.style.display = 'none';
+
+  const { positions, width, height } = layoutOntologyNodes(view.nodes);
+  const selectedId = state.ontologySelection;
+  const visibleNodeIds = new Set(view.nodes.map((node) => node.id));
+  if (selectedId && !visibleNodeIds.has(selectedId)) {
+    state.ontologySelection = null;
+  }
+
+  const edgeMarkup = view.edges.map((edge) => {
+    const source = positions[edge.source];
+    const target = positions[edge.target];
+    if (!source || !target) return '';
+    const midX = (source.x + target.x) / 2;
+    const midY = (source.y + target.y) / 2;
+    return `
+      <g class="ontology-edge-group">
+        <line
+          x1="${source.x}"
+          y1="${source.y}"
+          x2="${target.x}"
+          y2="${target.y}"
+          class="ontology-edge-line ${edgeStrokeClass(edge)}"
+        ></line>
+        <text x="${midX}" y="${midY - 8}" class="ontology-edge-label">${esc(edge.label || edge.relation_type || '')}</text>
+      </g>
+    `;
+  }).join('');
+
+  const nodeMarkup = view.nodes.map((node) => {
+    const pos = positions[node.id];
+    const selected = node.id === state.ontologySelection;
+    const label = compactOntologyLabel(node.label);
+    return `
+      <g class="ontology-node-group ${selected ? 'selected' : ''}" data-node-id="${node.id}" transform="translate(${pos.x}, ${pos.y})">
+        <circle r="34" class="ontology-node-circle ontology-node-${node.category}"></circle>
+        <text class="ontology-node-type" y="-10">${node.category === 'concept' ? '概念' : '个体'}</text>
+        <text class="ontology-node-label" y="12">${esc(label)}</text>
+      </g>
+    `;
+  }).join('');
+
+  dom.ontologyGraph.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  dom.ontologyGraph.innerHTML = `
+    <g class="ontology-layer ontology-layer-edges">${edgeMarkup}</g>
+    <g class="ontology-layer ontology-layer-nodes">${nodeMarkup}</g>
+  `;
+
+  dom.ontologyGraph.querySelectorAll('.ontology-node-group').forEach((nodeEl) => {
+    nodeEl.addEventListener('click', () => {
+      state.ontologySelection = nodeEl.dataset.nodeId;
+      renderOntology();
+    });
+  });
+}
+
+function formatOntologyProperties(properties) {
+  const entries = Object.entries(properties || {});
+  if (entries.length === 0) {
+    return '<div class="ontology-inline-empty">无属性</div>';
+  }
+  return entries.map(([key, value]) => `
+    <div class="ontology-kv-row">
+      <span class="ontology-kv-key">${esc(key)}</span>
+      <span class="ontology-kv-value">${esc(typeof value === 'string' ? value : JSON.stringify(value))}</span>
+    </div>
+  `).join('');
+}
+
+function renderOntologyDetail(view) {
+  if (!dom.ontologyDetail) return;
+  const nodes = view.nodes || [];
+  const selected = nodes.find((node) => node.id === state.ontologySelection) || nodes[0] || null;
+  if (!selected) {
+    dom.ontologyDetail.innerHTML = `
+      <div class="ontology-detail-title">暂无节点详情</div>
+      <div class="ontology-detail-body">当前筛选条件下没有可查看的节点。</div>
+    `;
+    return;
+  }
+
+  if (!state.ontologySelection) {
+    state.ontologySelection = selected.id;
+  }
+
+  const relatedEdges = view.edges.filter((edge) => edge.source === selected.id || edge.target === selected.id);
+  const relatedMarkup = relatedEdges.length === 0
+    ? '<div class="ontology-inline-empty">无直接连接</div>'
+    : relatedEdges.map((edge) => {
+        const peer = edge.source === selected.id ? edge.target : edge.source;
+        const peerNode = nodes.find((node) => node.id === peer)
+          || (state.ontologyGraph.nodes || []).find((node) => node.id === peer);
+        return `
+          <div class="ontology-edge-chip ${edge.structural ? 'structural' : 'relation'}">
+            <span>${esc(edge.label || edge.relation_type || '')}</span>
+            <strong>${esc(peerNode?.label || peer)}</strong>
+          </div>
+        `;
+      }).join('');
+
+  dom.ontologyDetail.innerHTML = `
+    <div class="ontology-detail-head">
+      <div>
+        <div class="ontology-detail-title">${esc(selected.label)}</div>
+        <div class="ontology-detail-subtitle">${selected.category === 'concept' ? '概念节点' : '个体节点'}</div>
+      </div>
+      <div class="ontology-detail-badge">${relatedEdges.length} 连接</div>
+    </div>
+    ${selected.description ? `<div class="ontology-detail-body">${esc(selected.description)}</div>` : ''}
+    <div class="ontology-detail-grid">
+      <div class="ontology-detail-panel">
+        <div class="ontology-detail-panel-title">归属</div>
+        <div class="ontology-detail-panel-body">
+          ${selected.category === 'concept'
+            ? ((selected.parent_labels || []).length ? selected.parent_labels.map(label => `<span class="ontology-chip">${esc(label)}</span>`).join('') : '<div class="ontology-inline-empty">顶层概念</div>')
+            : ((selected.concept_labels || []).length ? selected.concept_labels.map(label => `<span class="ontology-chip">${esc(label)}</span>`).join('') : '<div class="ontology-inline-empty">未绑定概念</div>')}
+        </div>
+      </div>
+      <div class="ontology-detail-panel">
+        <div class="ontology-detail-panel-title">属性</div>
+        <div class="ontology-detail-panel-body ontology-properties">
+          ${formatOntologyProperties(selected.properties)}
+        </div>
+      </div>
+    </div>
+    <div class="ontology-detail-panel">
+      <div class="ontology-detail-panel-title">连接关系</div>
+      <div class="ontology-detail-panel-body ontology-edges-list">${relatedMarkup}</div>
+    </div>
+  `;
+}
+
+let ontologySearchTimer = null;
+dom.ontologySearch?.addEventListener('input', () => {
+  clearTimeout(ontologySearchTimer);
+  ontologySearchTimer = setTimeout(() => renderOntology(), 180);
+});
+dom.ontologyFilter?.addEventListener('change', () => renderOntology());
+$('#btn-refresh-ontology')?.addEventListener('click', loadOntology);
+
 // ============ Skills Page ============
 async function loadSkills(query) {
   showLoading(dom.skillsGrid, query ? '搜索 Skills...' : '加载 Skills...');
@@ -1188,21 +2661,22 @@ function renderSkills(query) {
             <span class="skill-icon-wrap">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
             </span>
-            ${esc(sk.name)}
+            <span class="skill-name-text" title="${esc(sk.name)}">${esc(sk.name)}</span>
           </div>
           <div class="skill-card-version">v${esc(sk.version)}</div>
         </div>
-        <span class="skill-source-badge skill-source-${sk.source}">${esc(sk.source)}</span>
+        <span class="skill-source-badge skill-source-${sk.source}" title="${esc(sk.source)}">${esc(sk.source)}</span>
       </div>
       <div class="skill-card-desc">${esc(sk.description || '暂无描述')}</div>
       <div class="skill-card-meta">
         <div class="skill-keywords">
-          ${(sk.trigger_keywords || []).slice(0, 3).map(k => `<span class="skill-keyword">${esc(k)}</span>`).join('')}
+          ${(sk.trigger_keywords || []).slice(0, 4).map(k => `<span class="skill-keyword">${esc(k)}</span>`).join('')}
+          ${(sk.trigger_keywords || []).length > 4 ? `<span class="skill-keyword skill-keyword-more">+${(sk.trigger_keywords || []).length - 4}</span>` : ''}
         </div>
         <span class="badge ${sk.enabled ? 'badge-green' : 'badge-gray'}">${sk.enabled ? '启用' : '禁用'}</span>
       </div>
       ${sk.relevance !== undefined ? `<div class="skill-relevance">匹配度 ${(sk.relevance * 100).toFixed(0)}%</div>` : ''}
-      <div class="skill-card-actions">
+      <div class="skill-card-actions" onclick="event.stopPropagation()">
         <button class="skill-action-btn" onclick="showSkillDetail('${sk.id}')" title="查看详情">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
         </button>
@@ -1217,14 +2691,174 @@ function renderSkills(query) {
   `).join('');
 }
 
+function setSkillsMode(mode) {
+  const nextMode = mode === 'marketplace' ? 'marketplace' : 'local';
+  state.skillMode = nextMode;
+
+  dom.skillsModeTabs?.querySelectorAll('[data-skill-mode]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.skillMode === nextMode);
+    btn.setAttribute('aria-selected', btn.dataset.skillMode === nextMode ? 'true' : 'false');
+  });
+
+  if (dom.skillsGrid) dom.skillsGrid.style.display = nextMode === 'local' ? '' : 'none';
+  if (dom.marketplaceShell) dom.marketplaceShell.style.display = nextMode === 'marketplace' ? 'flex' : 'none';
+  const detailPage = document.getElementById('skill-detail-page');
+  if (detailPage && nextMode === 'marketplace') detailPage.style.display = 'none';
+
+  ['btn-auto-detect', 'btn-import-dir', 'btn-create-skill'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.style.display = nextMode === 'local' ? '' : 'none';
+  });
+
+  const query = dom.skillsSearch?.value.trim() || undefined;
+  if (nextMode === 'marketplace') {
+    loadMarketplace(query);
+  } else {
+    loadSkills(query);
+  }
+}
+
+async function loadMarketplace(query) {
+  if (!dom.marketplaceGrid) return;
+  showLoading(dom.marketplaceGrid, query ? 'Searching marketplace...' : 'Loading marketplace...');
+  try {
+    const url = query ? `${API}/skills/marketplace?q=${encodeURIComponent(query)}` : `${API}/skills/marketplace`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    state.marketplace = {
+      packages: data.packages || [],
+      stats: data.stats || {},
+      installed: data.installed || [],
+      categories: data.categories || [],
+      popularTags: data.popular_tags || [],
+      total: data.total || 0,
+    };
+    renderMarketplace(query);
+  } catch (e) {
+    toast('error', 'Marketplace load failed', e.message);
+    dom.marketplaceGrid.innerHTML = `<div class="empty-state-lg"><p>Marketplace load failed</p><span class="empty-hint">${esc(e.message)}</span></div>`;
+  }
+}
+
+function renderMarketplace(query) {
+  const packages = state.marketplace.packages || [];
+  const installedIds = new Set((state.marketplace.installed || [])
+    .filter(record => record.status === 'installed')
+    .map(record => record.package_id));
+  const stats = state.marketplace.stats || {};
+
+  if (dom.marketplaceSummary) {
+    const categories = Object.keys(stats.packages_by_category || {}).slice(0, 4);
+    dom.marketplaceSummary.innerHTML = `
+      <div class="marketplace-stat">
+        <span class="marketplace-stat-value">${stats.total_packages ?? packages.length}</span>
+        <span class="marketplace-stat-label">Packages</span>
+      </div>
+      <div class="marketplace-stat">
+        <span class="marketplace-stat-value">${state.marketplace.installed?.length || 0}</span>
+        <span class="marketplace-stat-label">Installed</span>
+      </div>
+      <div class="marketplace-stat marketplace-stat-wide">
+        <span class="marketplace-stat-value">${categories.length ? categories.map(esc).join(' / ') : 'Seeded registry'}</span>
+        <span class="marketplace-stat-label">Categories</span>
+      </div>
+    `;
+  }
+
+  if (packages.length === 0) {
+    dom.marketplaceGrid.innerHTML = `
+      <div class="empty-state-lg">
+        <p>${query ? 'No marketplace packages matched' : 'No marketplace packages'}</p>
+        <span class="empty-hint">${query ? 'Try another search term' : 'Publish or seed packages to make them visible here'}</span>
+      </div>
+    `;
+    return;
+  }
+
+  dom.marketplaceGrid.innerHTML = packages.map(pkg => {
+    const installed = installedIds.has(pkg.package_id);
+    const tags = (pkg.tags || []).slice(0, 5);
+    const categories = (pkg.categories || []).slice(0, 3);
+    const title = pkg.display_name || pkg.name;
+    return `
+      <div class="marketplace-card" data-package-id="${esc(pkg.package_id)}">
+        <div class="marketplace-card-main">
+          <div class="marketplace-card-head">
+            <div class="marketplace-icon" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg>
+            </div>
+            <div class="marketplace-title-wrap">
+              <div class="marketplace-title" title="${esc(title)}">${esc(title)}</div>
+              <div class="marketplace-subtitle">v${esc(pkg.version || '1.0.0')} · ${esc(pkg.author || 'Symbio')}</div>
+            </div>
+            <span class="marketplace-status ${installed ? 'installed' : ''}">${installed ? 'Installed' : 'Available'}</span>
+          </div>
+          <div class="marketplace-description">${esc(pkg.description || 'No description')}</div>
+          <div class="marketplace-tags">
+            ${categories.map(tag => `<span class="marketplace-tag category">${esc(tag)}</span>`).join('')}
+            ${tags.map(tag => `<span class="marketplace-tag">${esc(tag)}</span>`).join('')}
+          </div>
+        </div>
+        <div class="marketplace-card-footer">
+          <div class="marketplace-metrics">
+            <span>${Number(pkg.downloads || 0).toLocaleString()} downloads</span>
+            <span>${Number(pkg.rating || 0).toFixed(1)} rating</span>
+          </div>
+          <button class="btn-primary marketplace-install-btn" type="button" data-package-install="${esc(pkg.package_id)}" ${installed ? 'disabled' : ''}>
+            ${installed ? 'Installed' : 'Install'}
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  dom.marketplaceGrid.querySelectorAll('[data-package-install]').forEach(btn => {
+    btn.addEventListener('click', () => installMarketplaceSkill(btn.dataset.packageInstall, btn));
+  });
+}
+
+async function installMarketplaceSkill(packageId, button) {
+  if (!packageId) return;
+  const previousText = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Installing...';
+  }
+  try {
+    const res = await fetch(`${API}/skills/marketplace/${encodeURIComponent(packageId)}/install`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.detail || data.record?.error || `HTTP ${res.status}`);
+    toast('success', 'Skill installed', `${data.record.package_name} is ready locally`);
+    await loadMarketplace(dom.skillsSearch?.value.trim() || undefined);
+    await loadSkills();
+  } catch (e) {
+    toast('error', 'Install failed', e.message);
+    if (button) {
+      button.disabled = false;
+      button.textContent = previousText || 'Install';
+    }
+  }
+}
+
 // Skills search
 let skillsSearchTimer = null;
 dom.skillsSearch?.addEventListener('input', () => {
   clearTimeout(skillsSearchTimer);
   skillsSearchTimer = setTimeout(() => {
     const q = dom.skillsSearch.value.trim();
-    loadSkills(q || undefined);
+    if (state.skillMode === 'marketplace') {
+      loadMarketplace(q || undefined);
+    } else {
+      loadSkills(q || undefined);
+    }
   }, 300);
+});
+
+dom.skillsModeTabs?.addEventListener('click', (event) => {
+  const btn = event.target.closest('[data-skill-mode]');
+  if (!btn) return;
+  setSkillsMode(btn.dataset.skillMode);
 });
 
 // Skills action buttons
@@ -1933,6 +3567,7 @@ async function loadConfig() {
     const res = await fetch(`${API}/config`);
     const data = await res.json();
     state.config = data;
+    loadChatModelOptions();
     renderConfig();
   } catch (e) {
     console.warn('加载 LLM 配置失败:', e.message);
@@ -2147,11 +3782,33 @@ async function loadDashboard() {
 
     // Render bar chart from session token data
     renderTokenChart(sessData.sessions || []);
+    await loadObservabilitySummary();
   } catch (e) {
     console.warn('加载仪表盘数据失败:', e.message);
     // Use local state as fallback
     document.getElementById('dash-total-tokens').textContent = formatNumber(state.tokens.total);
     document.getElementById('dash-active-sessions').textContent = state.sessions.length;
+    await loadObservabilitySummary();
+  }
+}
+
+async function loadObservabilitySummary() {
+  try {
+    const res = await fetch(`${API}/observability/summary`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const status = data.enabled && data.is_started ? 'online' : (data.enabled ? 'ready' : 'offline');
+    const setText = (id, value) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = value;
+    };
+    setText('obs-tracer-status', status);
+    setText('obs-span-count', formatNumber(data.spans?.captured || 0));
+    setText('obs-metric-count', formatNumber(data.metrics?.records || 0));
+    setText('obs-token-entry-count', formatNumber(data.tokens?.entries || 0));
+  } catch (e) {
+    const el = document.getElementById('obs-tracer-status');
+    if (el) el.textContent = 'error';
   }
 }
 
@@ -2191,12 +3848,685 @@ function formatNumber(n) {
 // Refresh dashboard button
 $('#btn-refresh-dashboard')?.addEventListener('click', loadDashboard);
 
+// ============ Evolution Page ============
+async function loadEvolution() {
+  await Promise.all([
+    previewConversationExport(),
+    loadEvaluationSuites(),
+  ]);
+}
+
+async function previewConversationExport() {
+  return runConversationExport(true);
+}
+
+async function writeConversationExport() {
+  return runConversationExport(false);
+}
+
+async function runConversationExport(preview = true) {
+  if (dom.exportPreview) {
+    dom.exportPreview.textContent = preview ? 'Loading preview...' : 'Writing JSONL...';
+  }
+  try {
+    const format = dom.exportFormat?.value || 'sharegpt';
+    const res = await fetch(`${API}/export/conversations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ format, preview }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    state.evolution.export = data;
+    renderConversationExport(data);
+    if (!preview && data.written) {
+      toast('success', 'Dataset exported', data.output_path || 'JSONL written');
+    }
+    return data;
+  } catch (e) {
+    toast('error', 'Export failed', e.message);
+    if (dom.exportPreview) dom.exportPreview.textContent = e.message;
+    return null;
+  }
+}
+
+function renderConversationExport(data) {
+  if (dom.exportMeta) {
+    dom.exportMeta.innerHTML = `
+      <span>Format: <strong>${esc(data.format || '')}</strong></span>
+      <span>Samples: <strong>${formatNumber(data.sample_count || 0)}</strong></span>
+      <span>Written: <strong>${data.written ? 'yes' : 'no'}</strong></span>
+      ${data.output_path ? `<span>Path: <strong>${esc(data.output_path)}</strong></span>` : ''}
+    `;
+  }
+  if (dom.exportPreview) {
+    const samples = data.samples || [];
+    dom.exportPreview.textContent = samples.length
+      ? JSON.stringify(samples, null, 2)
+      : 'No exportable sessions yet.';
+  }
+}
+
+async function loadEvaluationSuites() {
+  if (dom.evalSuiteGrid) {
+    showLoading(dom.evalSuiteGrid, 'Loading suites...');
+  }
+  try {
+    const path = dom.evalSuitePath?.value || 'data/eval_suites';
+    const res = await fetch(`${API}/evaluation/suites?path=${encodeURIComponent(path)}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    state.evolution.suites = data.suites || [];
+    renderEvaluationSuites(data);
+    return data;
+  } catch (e) {
+    toast('error', 'Failed to load suites', e.message);
+    if (dom.evalSuiteGrid) dom.evalSuiteGrid.innerHTML = `<div class="empty-state-lg"><p>${esc(e.message)}</p></div>`;
+    return null;
+  }
+}
+
+function renderEvaluationSuites(data) {
+  const suites = data.suites || [];
+  const errors = data.errors || [];
+  if (!dom.evalSuiteGrid) return;
+  if (!suites.length && !errors.length) {
+    dom.evalSuiteGrid.innerHTML = `<div class="empty-state-lg"><p>No evaluation suites found.</p></div>`;
+    return;
+  }
+  dom.evalSuiteGrid.innerHTML = [
+    ...suites.map(suite => `
+      <article class="evolution-suite-card">
+        <div class="evolution-suite-title">${esc(suite.name)}</div>
+        <div class="evolution-suite-desc">${esc(suite.description || 'No description')}</div>
+        <div class="evolution-suite-meta">
+          <span>v${esc(suite.version || '1.0.0')}</span>
+          <span>${formatNumber(suite.case_count || 0)} cases</span>
+        </div>
+        <div class="evolution-suite-path">${esc(suite.path || '')}</div>
+      </article>
+    `),
+    ...errors.map(error => `
+      <article class="evolution-suite-card error">
+        <div class="evolution-suite-title">Parse error</div>
+        <div class="evolution-suite-desc">${esc(error.error || '')}</div>
+        <div class="evolution-suite-path">${esc(error.path || '')}</div>
+      </article>
+    `),
+  ].join('');
+}
+
+$('#btn-refresh-evolution')?.addEventListener('click', loadEvolution);
+$('#btn-export-preview')?.addEventListener('click', previewConversationExport);
+$('#btn-export-write')?.addEventListener('click', writeConversationExport);
+$('#btn-load-eval-suites')?.addEventListener('click', loadEvaluationSuites);
+dom.exportFormat?.addEventListener('change', previewConversationExport);
+
+// ============ Sandbox Page ============
+async function loadSandbox() {
+  await Promise.all([loadSandboxPolicy(), loadSandboxAudit()]);
+}
+
+async function loadSandboxPolicy() {
+  try {
+    const res = await fetch(`${API}/sandbox/policy`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    state.sandbox.policy = data;
+    renderSandboxPolicy(data);
+    if (dom.sandboxWorkingDir && !dom.sandboxWorkingDir.value) {
+      dom.sandboxWorkingDir.placeholder = data.workspace_roots?.[0] || 'Default workspace root';
+    }
+    return data;
+  } catch (e) {
+    toast('error', 'Sandbox policy failed', e.message);
+    return null;
+  }
+}
+
+function renderSandboxPolicy(policy) {
+  if (!dom.sandboxPolicy) return;
+  const roots = policy.workspace_roots || [];
+  dom.sandboxPolicy.innerHTML = `
+    <span class="sandbox-badge">${esc(policy.access_mode || '')}</span>
+    <span class="sandbox-badge">${esc(policy.approval_policy || '')}</span>
+    <span class="sandbox-badge">${policy.allow_network ? 'network:on' : 'network:off'}</span>
+    ${roots[0] ? `<span class="sandbox-badge sandbox-root" title="${esc(roots[0])}">${esc(roots[0])}</span>` : ''}
+  `;
+}
+
+function sandboxPayload(forceApproved = false) {
+  return {
+    command: dom.sandboxCommand?.value || '',
+    permission_level: dom.sandboxPermission?.value || 'read_only',
+    access_mode: dom.sandboxAccessMode?.value || 'workspace-write',
+    approval_policy: dom.sandboxApprovalPolicy?.value || 'on-request',
+    approved: forceApproved || !!dom.sandboxApproved?.checked,
+    shell: !!dom.sandboxShell?.checked,
+    timeout: Number(dom.sandboxTimeout?.value || 30),
+    working_dir: dom.sandboxWorkingDir?.value || undefined,
+  };
+}
+
+async function runSandbox(forceApproved = false) {
+  if (dom.sandboxResult) {
+    dom.sandboxResult.innerHTML = `<div class="empty-state-lg"><p>Running sandbox command...</p></div>`;
+  }
+  try {
+    const payload = sandboxPayload(forceApproved);
+    if (!payload.command.trim()) throw new Error('Command is required');
+    const res = await fetch(`${API}/sandbox/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    state.sandbox.lastResult = data;
+    renderSandboxResult(data);
+    await loadSandboxAudit();
+    if (data.approval_required) {
+      toast('info', 'Approval required', 'Toggle approved or use Run approved to execute.');
+    } else if (data.success) {
+      toast('success', 'Sandbox command finished', `exit_code=${data.result.exit_code}`);
+    } else {
+      toast('error', 'Sandbox command blocked/failed', data.result.error_message || `exit_code=${data.result.exit_code}`);
+    }
+  } catch (e) {
+    toast('error', 'Sandbox run failed', e.message);
+    if (dom.sandboxResult) dom.sandboxResult.innerHTML = `<div class="empty-state-lg"><p>${esc(e.message)}</p></div>`;
+  }
+}
+
+function renderSandboxResult(data) {
+  if (!dom.sandboxResult) return;
+  const result = data.result || {};
+  const meta = result.metadata || {};
+  const statusClass = data.approval_required ? 'approval' : (data.success ? 'success' : 'failed');
+  dom.sandboxResult.innerHTML = `
+    <div class="sandbox-result-head">
+      <span class="sandbox-result-status ${statusClass}">${data.approval_required ? 'approval required' : (data.success ? 'success' : 'blocked/failed')}</span>
+      <span>exit=${esc(result.exit_code)}</span>
+      <span>${Math.round(result.duration_ms || 0)}ms</span>
+      <span>${esc(result.permission_level || '')}</span>
+    </div>
+    ${result.error_message ? `<div class="sandbox-error">${esc(result.error_message)}</div>` : ''}
+    <div class="sandbox-output-grid">
+      <div>
+        <div class="sandbox-output-label">stdout</div>
+        <pre class="sandbox-output">${esc(result.stdout || '')}</pre>
+      </div>
+      <div>
+        <div class="sandbox-output-label">stderr</div>
+        <pre class="sandbox-output">${esc(result.stderr || '')}</pre>
+      </div>
+    </div>
+    <div class="sandbox-meta">
+      <span>access: ${esc(meta.policy?.access_mode || '')}</span>
+      <span>approval_policy: ${esc(meta.policy?.approval_policy || '')}</span>
+      <span>approved: ${meta.approved ? 'yes' : 'no'}</span>
+      <span>approval_required: ${meta.approval_required ? 'yes' : 'no'}</span>
+      <span>${esc(result.working_dir || '')}</span>
+    </div>
+  `;
+}
+
+async function loadSandboxAudit() {
+  if (dom.sandboxAuditList) {
+    showLoading(dom.sandboxAuditList, 'Loading audit...');
+  }
+  try {
+    const res = await fetch(`${API}/sandbox/audit`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    state.sandbox.audit = data.records || [];
+    renderSandboxAudit(data.records || []);
+    return data;
+  } catch (e) {
+    toast('error', 'Sandbox audit failed', e.message);
+    if (dom.sandboxAuditList) dom.sandboxAuditList.innerHTML = `<div class="empty-state-lg"><p>${esc(e.message)}</p></div>`;
+    return null;
+  }
+}
+
+function renderSandboxAudit(records) {
+  if (!dom.sandboxAuditList) return;
+  if (!records.length) {
+    dom.sandboxAuditList.innerHTML = `<div class="empty-state-lg"><p>No sandbox audit records.</p></div>`;
+    return;
+  }
+  dom.sandboxAuditList.innerHTML = records.map(record => `
+    <article class="sandbox-audit-card">
+      <div class="sandbox-audit-head">
+        <span class="sandbox-audit-command" title="${esc(record.command)}">${esc(record.command)}</span>
+        <span class="sandbox-result-status ${record.approval_required ? 'approval' : (record.exit_code === 0 ? 'success' : 'failed')}">${record.approval_required ? 'approval' : `exit ${record.exit_code}`}</span>
+      </div>
+      <div class="sandbox-audit-meta">
+        <span>${esc(record.permission_level)}</span>
+        <span>${esc(record.access_mode)}</span>
+        <span>${record.approved ? 'approved' : 'not approved'}</span>
+        <span>${new Date(record.created_at).toLocaleTimeString()}</span>
+      </div>
+      ${record.reason ? `<div class="sandbox-audit-reason">${esc(record.reason)}</div>` : ''}
+    </article>
+  `).join('');
+}
+
+$('#btn-refresh-sandbox')?.addEventListener('click', loadSandbox);
+$('#btn-run-sandbox')?.addEventListener('click', () => runSandbox(false));
+$('#btn-run-sandbox-approved')?.addEventListener('click', () => runSandbox(true));
+
+// ============ External Agents Page ============
+async function loadExternalAgents() {
+  await Promise.all([
+    loadExternalAgentProviders(),
+    loadExternalAgentSessions(),
+    loadExternalAgentTranscripts(),
+    loadExternalAgentAudit(),
+  ]);
+}
+
+async function loadExternalAgentProviders() {
+  try {
+    const res = await fetch(`${API}/external-agents/providers`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    state.externalAgents.providers = data.providers || [];
+    renderExternalAgentProviders();
+    return data;
+  } catch (e) {
+    toast('error', 'External agent providers failed', e.message);
+    return null;
+  }
+}
+
+function renderExternalAgentProviders() {
+  const providers = state.externalAgents.providers || [];
+  if (dom.externalAgentProviderBadges) {
+    dom.externalAgentProviderBadges.innerHTML = providers.map(provider => `
+      <span class="sandbox-badge ${provider.installed ? 'external-agent-installed' : 'external-agent-missing'}" title="${esc(provider.path || provider.notes || '')}">
+        ${esc(provider.provider_id)}:${provider.installed ? 'ready' : 'missing'}
+      </span>
+    `).join('');
+  }
+  if (dom.externalAgentProvider && providers.length) {
+    const current = dom.externalAgentProvider.value;
+    dom.externalAgentProvider.innerHTML = providers.map(provider => `
+      <option value="${esc(provider.provider_id)}">${esc(provider.display_name)} ${provider.installed ? '' : '(missing)'}</option>
+    `).join('');
+    if (providers.some(provider => provider.provider_id === current)) {
+      dom.externalAgentProvider.value = current;
+    }
+  }
+}
+
+async function loadExternalAgentSessions() {
+  if (dom.externalAgentSessions) showLoading(dom.externalAgentSessions, 'Loading sessions...');
+  try {
+    const res = await fetch(`${API}/external-agents/sessions`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    state.externalAgents.sessions = data.sessions || [];
+    if (!state.externalAgents.activeSessionId && state.externalAgents.sessions[0]) {
+      state.externalAgents.activeSessionId = state.externalAgents.sessions[0].session_id;
+    }
+    renderExternalAgentSessions();
+    return data;
+  } catch (e) {
+    toast('error', 'External agent sessions failed', e.message);
+    if (dom.externalAgentSessions) dom.externalAgentSessions.innerHTML = `<div class="empty-state-lg"><p>${esc(e.message)}</p></div>`;
+    return null;
+  }
+}
+
+function renderExternalAgentSessions() {
+  if (!dom.externalAgentSessions) return;
+  const sessions = state.externalAgents.sessions || [];
+  if (!sessions.length) {
+    dom.externalAgentSessions.innerHTML = `<div class="empty-state-lg"><p>No sessions registered.</p></div>`;
+    return;
+  }
+  dom.externalAgentSessions.innerHTML = sessions.map(session => `
+    <button class="external-agent-session ${session.session_id === state.externalAgents.activeSessionId ? 'active' : ''}" data-session-id="${esc(session.session_id)}">
+      <span class="external-agent-session-main">${esc(session.label || session.provider)}</span>
+      <span>${esc(session.provider)}</span>
+      <span>${esc(session.external_session_id || 'new handle')}</span>
+      <span>${esc(session.sandbox_mode || session.permission_mode || 'default')}</span>
+    </button>
+  `).join('');
+}
+
+function externalAgentSessionPayload() {
+  return {
+    provider: dom.externalAgentProvider?.value || 'codex',
+    label: dom.externalAgentLabel?.value || '',
+    workspace: dom.externalAgentWorkspace?.value || '.',
+    external_session_id: dom.externalAgentSessionId?.value || '',
+    model: dom.externalAgentModel?.value || '',
+    sandbox_mode: dom.externalAgentSandboxMode?.value || 'workspace-write',
+    approval_policy: dom.externalAgentApprovalPolicy?.value || 'on-request',
+  };
+}
+
+async function createExternalAgentSession() {
+  try {
+    const payload = externalAgentSessionPayload();
+    const res = await fetch(`${API}/external-agents/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    state.externalAgents.activeSessionId = data.session.session_id;
+    await loadExternalAgentSessions();
+    toast('success', 'External session registered', data.session.label || data.session.provider);
+    return data.session;
+  } catch (e) {
+    toast('error', 'Register external session failed', e.message);
+    return null;
+  }
+}
+
+function activeExternalAgentSession() {
+  return (state.externalAgents.sessions || []).find(
+    session => session.session_id === state.externalAgents.activeSessionId,
+  ) || state.externalAgents.sessions[0];
+}
+
+async function runExternalAgent(dryRun = false) {
+  if (dom.externalAgentResult) {
+    dom.externalAgentResult.innerHTML = `<div class="empty-state-lg"><p>${dryRun ? 'Building command preview...' : 'Running external agent...'}</p></div>`;
+  }
+  try {
+    let session = activeExternalAgentSession();
+    if (!session) session = await createExternalAgentSession();
+    if (!session) throw new Error('No external session available');
+    const prompt = dom.externalAgentPrompt?.value || '';
+    if (!prompt.trim()) throw new Error('Prompt is required');
+    const res = await fetch(`${API}/external-agents/sessions/${encodeURIComponent(session.session_id)}/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt,
+        dry_run: dryRun,
+        model: dom.externalAgentModel?.value || undefined,
+        sandbox_mode: dom.externalAgentSandboxMode?.value || undefined,
+        approval_policy: dom.externalAgentApprovalPolicy?.value || undefined,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    state.externalAgents.lastResult = data.result;
+    renderExternalAgentResult(data.result);
+    await Promise.all([loadExternalAgentSessions(), loadExternalAgentAudit()]);
+    toast(data.result.success ? 'success' : 'error', dryRun ? 'Command preview ready' : 'External agent finished', data.result.error || `exit=${data.result.exit_code}`);
+  } catch (e) {
+    toast('error', 'External agent run failed', e.message);
+    if (dom.externalAgentResult) dom.externalAgentResult.innerHTML = `<div class="empty-state-lg"><p>${esc(e.message)}</p></div>`;
+  }
+}
+
+function renderExternalAgentResult(result) {
+  if (!dom.externalAgentResult) return;
+  const command = (result.command || []).join(' ');
+  const statusClass = result.success ? 'success' : 'failed';
+  dom.externalAgentResult.innerHTML = `
+    <div class="sandbox-result-head">
+      <span class="sandbox-result-status ${statusClass}">${result.dry_run ? 'preview' : (result.success ? 'success' : 'failed')}</span>
+      <span>${esc(result.provider || '')}</span>
+      <span>exit=${esc(result.exit_code)}</span>
+      <span>${Math.round(result.duration_ms || 0)}ms</span>
+    </div>
+    ${result.error ? `<div class="sandbox-error">${esc(result.error)}</div>` : ''}
+    <div class="sandbox-output-label">command</div>
+    <pre class="sandbox-output">${esc(command)}</pre>
+    <div class="sandbox-output-grid">
+      <div>
+        <div class="sandbox-output-label">stdout</div>
+        <pre class="sandbox-output">${esc(result.stdout || '')}</pre>
+      </div>
+      <div>
+        <div class="sandbox-output-label">stderr</div>
+        <pre class="sandbox-output">${esc(result.stderr || '')}</pre>
+      </div>
+    </div>
+  `;
+}
+
+async function loadExternalAgentTranscripts() {
+  if (dom.externalAgentTranscripts) showLoading(dom.externalAgentTranscripts, '正在扫描本机对话...');
+  try {
+    const res = await fetch(`${API}/external-agents/transcripts`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    state.externalAgents.transcripts = data.transcripts || [];
+    renderExternalAgentTranscripts();
+    return data;
+  } catch (e) {
+    toast('error', '扫描外部对话失败', e.message);
+    if (dom.externalAgentTranscripts) dom.externalAgentTranscripts.innerHTML = `<div class="empty-state-lg"><p>${esc(e.message)}</p></div>`;
+    return null;
+  }
+}
+
+function renderExternalAgentTranscripts() {
+  if (!dom.externalAgentTranscripts) return;
+  const transcripts = state.externalAgents.transcripts || [];
+  if (!transcripts.length) {
+    dom.externalAgentTranscripts.innerHTML = `<div class="empty-state-lg"><p>没有发现可导入的 Codex / Claude Code 对话。</p></div>`;
+    return;
+  }
+  dom.externalAgentTranscripts.innerHTML = transcripts.map((transcript, index) => {
+    const updated = transcript.updated_at ? new Date(transcript.updated_at).toLocaleString() : '未知时间';
+    return `
+      <article class="external-transcript-card">
+        <div class="external-transcript-main">
+          <div class="external-transcript-title" title="${esc(transcript.title || transcript.path)}">${esc(transcript.title || '未命名对话')}</div>
+          <div class="external-transcript-meta">
+            <span>${esc(transcript.provider)}</span>
+            <span>${esc(transcript.external_session_id || '无外部 ID')}</span>
+            <span>${esc(String(transcript.message_count || 0))} 条消息</span>
+            <span>${esc(formatFileSize(transcript.file_size || 0))}</span>
+            <span>${esc(updated)}</span>
+          </div>
+          <div class="external-transcript-path" title="${esc(transcript.path || '')}">${esc(transcript.path || '')}</div>
+        </div>
+        <button class="btn-outline external-transcript-import" type="button" data-transcript-index="${index}">导入</button>
+      </article>
+    `;
+  }).join('');
+}
+
+async function importExternalAgentTranscript(index) {
+  const transcript = (state.externalAgents.transcripts || [])[Number(index)];
+  if (!transcript) {
+    toast('error', '导入失败', '未找到选中的外部对话');
+    return null;
+  }
+  try {
+    const res = await fetch(`${API}/external-agents/transcripts/import`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        provider: transcript.provider,
+        path: transcript.path,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    await loadSessions();
+    state.currentSession = data.session.id;
+    renderSessions();
+    await loadSessionMessages(data.session.id);
+    await switchPage('chat');
+    toast('success', '外部对话已导入', `${data.imported_messages || 0} 条消息`);
+    return data;
+  } catch (e) {
+    toast('error', '导入外部对话失败', e.message);
+    return null;
+  }
+}
+
+async function loadExternalAgentAudit() {
+  if (dom.externalAgentAudit) showLoading(dom.externalAgentAudit, 'Loading audit...');
+  try {
+    const res = await fetch(`${API}/external-agents/audit`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    state.externalAgents.audit = data.records || [];
+    renderExternalAgentAudit(data.records || []);
+    return data;
+  } catch (e) {
+    toast('error', 'External agent audit failed', e.message);
+    if (dom.externalAgentAudit) dom.externalAgentAudit.innerHTML = `<div class="empty-state-lg"><p>${esc(e.message)}</p></div>`;
+    return null;
+  }
+}
+
+function renderExternalAgentAudit(records) {
+  if (!dom.externalAgentAudit) return;
+  if (!records.length) {
+    dom.externalAgentAudit.innerHTML = `<div class="empty-state-lg"><p>No external agent audit records.</p></div>`;
+    return;
+  }
+  dom.externalAgentAudit.innerHTML = records.map(record => `
+    <article class="sandbox-audit-card">
+      <div class="sandbox-audit-head">
+        <span class="sandbox-audit-command" title="${esc((record.command || []).join(' '))}">${esc((record.command || []).join(' '))}</span>
+        <span class="sandbox-result-status ${record.success ? 'success' : 'failed'}">${record.dry_run ? 'preview' : `exit ${record.exit_code}`}</span>
+      </div>
+      <div class="sandbox-audit-meta">
+        <span>${esc(record.provider)}</span>
+        <span>${new Date(record.created_at).toLocaleTimeString()}</span>
+        <span>${Math.round(record.duration_ms || 0)}ms</span>
+      </div>
+      ${record.error ? `<div class="sandbox-audit-reason">${esc(record.error)}</div>` : ''}
+    </article>
+  `).join('');
+}
+
+dom.externalAgentSessions?.addEventListener('click', (event) => {
+  const card = event.target.closest('.external-agent-session');
+  if (!card) return;
+  state.externalAgents.activeSessionId = card.dataset.sessionId || '';
+  renderExternalAgentSessions();
+});
+
+dom.externalAgentTranscripts?.addEventListener('click', (event) => {
+  const button = event.target.closest('.external-transcript-import');
+  if (!button) return;
+  importExternalAgentTranscript(button.dataset.transcriptIndex);
+});
+
+$('#btn-refresh-external-agents')?.addEventListener('click', loadExternalAgents);
+$('#btn-create-external-agent')?.addEventListener('click', createExternalAgentSession);
+$('#btn-run-external-agent-dry')?.addEventListener('click', () => runExternalAgent(true));
+$('#btn-run-external-agent')?.addEventListener('click', () => runExternalAgent(false));
+
+// ============ Capabilities Page ============
+async function loadCapabilities() {
+  showLoading(dom.capabilityGrid, 'Loading capabilities...');
+  try {
+    const res = await fetch(`${API}/capabilities`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    state.capabilities = await res.json();
+    renderCapabilities();
+  } catch (e) {
+    toast('error', 'Failed to load capabilities', e.message);
+    if (dom.capabilityGrid) {
+      dom.capabilityGrid.innerHTML = `<div class="empty-state-lg"><p>Load failed. Try again.</p></div>`;
+    }
+  }
+}
+
+function renderCapabilities() {
+  const summary = state.capabilities.summary || {};
+  const items = state.capabilities.items || [];
+  if (dom.capabilitySummary) {
+    dom.capabilitySummary.innerHTML = [
+      capabilityStatCard('Total', summary.total || items.length || 0, 'all'),
+      capabilityStatCard('Implemented', summary.implemented || 0, 'implemented'),
+      capabilityStatCard('Partial', summary.partial || 0, 'partial'),
+      capabilityStatCard('Missing', summary.missing || 0, 'missing'),
+    ].join('');
+  }
+
+  const filtered = state.capabilityFilter === 'all'
+    ? items
+    : items.filter(item => item.status === state.capabilityFilter);
+
+  if (!dom.capabilityGrid) return;
+  if (filtered.length === 0) {
+    dom.capabilityGrid.innerHTML = `<div class="empty-state-lg"><p>No matching capabilities.</p></div>`;
+    return;
+  }
+
+  dom.capabilityGrid.innerHTML = filtered.map(item => `
+    <article class="capability-card capability-${esc(item.status)}">
+      <div class="capability-card-head">
+        <div>
+          <div class="capability-module">${esc(item.module || 'module')}</div>
+          <h3>${esc(item.claim || item.id)}</h3>
+        </div>
+        <span class="capability-status status-${esc(item.status)}">${capabilityStatusLabel(item.status)}</span>
+      </div>
+      <div class="capability-next">${esc(item.next_step || '')}</div>
+      <div class="capability-meta-block">
+        <div class="capability-meta-title">Evidence</div>
+        <div class="capability-chip-row">
+          ${(item.evidence || []).length
+            ? item.evidence.map(path => `<span class="capability-chip">${esc(path)}</span>`).join('')
+            : '<span class="capability-chip muted">No code evidence yet</span>'}
+        </div>
+      </div>
+      <div class="capability-meta-block">
+        <div class="capability-meta-title">Docs</div>
+        <div class="capability-chip-row">
+          ${(item.docs || []).map(path => `<span class="capability-chip doc">${esc(path)}</span>`).join('')}
+        </div>
+      </div>
+    </article>
+  `).join('');
+}
+
+function capabilityStatCard(label, value, status) {
+  return `
+    <button class="capability-stat capability-stat-${status} ${state.capabilityFilter === status ? 'active' : ''}" data-status="${status}">
+      <span>${esc(label)}</span>
+      <strong>${formatNumber(value)}</strong>
+    </button>
+  `;
+}
+
+function capabilityStatusLabel(status) {
+  const map = {
+    implemented: 'Implemented',
+    partial: '部分实现',
+    missing: 'Missing',
+  };
+  return map[status] || status || 'Unknown';
+}
+
+dom.capabilityFilter?.addEventListener('change', (e) => {
+  state.capabilityFilter = e.target.value;
+  renderCapabilities();
+});
+dom.capabilitySummary?.addEventListener('click', (e) => {
+  const card = e.target.closest('.capability-stat');
+  if (!card) return;
+  state.capabilityFilter = card.dataset.status || 'all';
+  if (dom.capabilityFilter) dom.capabilityFilter.value = state.capabilityFilter;
+  renderCapabilities();
+});
+$('#btn-refresh-capabilities')?.addEventListener('click', loadCapabilities);
+
 // ============ HITL Page ============
 async function loadHitl() {
   showLoading(dom.hitlGrid, '加载审批列表...');
   try {
     const filter = state.hitlFilter;
-    const url = filter === 'all' ? `${API}/hitl` : `${API}/hitl/pending`;
+    const url = filter === 'pending' ? `${API}/hitl/pending` : `${API}/hitl`;
     const res = await fetch(url);
     const data = await res.json();
     state.hitlItems = data.requests || data.items || [];
@@ -2234,6 +4564,12 @@ function renderHitl() {
         <span>${esc(item.agent || item.source || 'system')}</span>
         <span>${formatTime(item.created_at || item.timestamp)}</span>
       </div>
+      <div class="hitl-evidence-stack">
+        ${renderPlannerReviewerControls(item)}
+        ${renderApprovalContextPanel(item)}
+        ${renderWorkflowPolicyPanel(item)}
+        ${renderVerificationEvidencePanel(item)}
+      </div>
       ${item.status === 'pending' ? `
         <div class="hitl-card-actions">
           <button class="btn-approve" data-id="${item.id}">通过</button>
@@ -2242,6 +4578,7 @@ function renderHitl() {
       ` : ''}
     </div>
   `).join('');
+  attachReviewControlsInteractions(dom.hitlGrid);
 
   // Attach action listeners
   dom.hitlGrid.querySelectorAll('.btn-approve').forEach(btn => {
@@ -2296,7 +4633,7 @@ async function rejectHitl(id) {
 // HITL filter
 dom.hitlFilter?.addEventListener('change', (e) => {
   state.hitlFilter = e.target.value;
-  renderHitl();
+  loadHitl();
 });
 $('#btn-refresh-hitl')?.addEventListener('click', loadHitl);
 
@@ -2331,6 +4668,7 @@ async function init() {
   applyTheme(state.theme);
 
   await loadSessions();
+  await Promise.all([loadModels(), loadConfig()]);
   await checkHealth();
   connectWebSocket();
   setupVirtualScroll();

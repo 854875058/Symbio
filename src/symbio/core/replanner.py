@@ -17,15 +17,16 @@ class Replanner:
     def decide(self, node_id: str, failure: dict[str, Any]) -> ReplanDecision:
         failure_type = failure.get("kind") or failure.get("failure_type") or failure.get("type", "")
         retry_count = int(failure.get("retry_count", 0))
+        max_retries = int(failure.get("max_retries", self.max_retries))
         replan_count = int(failure.get("replan_count", 0))
         message = str(failure.get("message") or failure.get("details") or "")
 
-        if failure_type == "tool_transient_error" and retry_count < self.max_retries:
+        if failure_type == "tool_transient_error" and retry_count < max_retries:
             return ReplanDecision(
                 decision=ReplanDecisionType.RETRY,
                 reason=message or "transient tool error within retry limit",
                 node_id=node_id,
-                metadata={"retry_count": retry_count, "max_retries": self.max_retries},
+                metadata={"retry_count": retry_count, "max_retries": max_retries},
             )
 
         if failure_type == "verification_failure" and replan_count >= self.max_replan_count:

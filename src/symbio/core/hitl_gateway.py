@@ -330,6 +330,21 @@ class ApprovalGateway:
         await self._ensure_storage()
         return list(self._history)
 
+    async def update_request(self, request: ApprovalRequest) -> None:
+        """Persist an updated request snapshot without changing its lifecycle."""
+        await self._ensure_storage()
+        async with self._lock:
+            if request.status == ApprovalStatus.PENDING:
+                self._pending[request.request_id] = request
+            else:
+                for index, existing in enumerate(self._history):
+                    if existing.request_id == request.request_id:
+                        self._history[index] = request
+                        break
+                else:
+                    self._history.append(request)
+        await self._persist_request(request)
+
     async def attach_task_context(
         self,
         request_id: str,

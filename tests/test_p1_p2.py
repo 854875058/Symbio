@@ -91,6 +91,16 @@ from symbio.tools.lazy_loader import (
     ToolLazyLoader,
     ToolManifest,
 )
+from symbio.tools.mcp import (
+    MCPStdioClient,
+    register_mcp_stdio_tools,
+    test_server_command as mcp_test_server_command,
+)
+from symbio.tools.registry import (
+    PlaywrightBrowserTool,
+    ToolRegistry,
+    get_tool_registry,
+)
 from symbio.tools.cost_tracker import (
     AgentCostBreakdown,
     BudgetCheckResult,
@@ -1240,3 +1250,56 @@ class TestAsyncTrajectoryCapture:
 
         await capture.stop_async()
         assert capture.stats.is_running is False
+
+
+# ================================================================
+# 13. MCP / Browser 工具桥测试
+# ================================================================
+
+
+class TestMCPToolBridge:
+    """MCP stdio 工具发现与执行"""
+
+    async def test_stdio_client_lists_and_calls_tools(self):
+        client = MCPStdioClient(mcp_test_server_command(), name="test")
+        try:
+            tools = await client.list_tools()
+            assert [tool.name for tool in tools] == ["echo"]
+            result = await client.call_tool("echo", {"text": "hello"})
+            assert result["content"][0]["text"] == "hello"
+        finally:
+            await client.close()
+
+    async def test_register_mcp_stdio_tools(self):
+        registry = ToolRegistry()
+        tools = await register_mcp_stdio_tools(
+            registry,
+            mcp_test_server_command(),
+            name="test",
+        )
+        try:
+            assert len(tools) == 1
+            assert registry.get("test_echo") is not None
+
+            result = await registry.execute("test_echo", {"text": "mounted"})
+            assert result.success is True
+            assert result.output == "mounted"
+        finally:
+            await tools[0].client.close()
+
+
+class TestBrowserToolEnhancements:
+    """BrowserTool 截图能力"""
+
+    async def test_registered_browser_tool_uses_playwright_subclass(self):
+        registry = get_tool_registry()
+        browser = registry.get("browser")
+        assert isinstance(browser, PlaywrightBrowserTool)
+
+    async def test_screenshot_reports_missing_playwright_cleanly(self):
+        tool = PlaywrightBrowserTool()
+        with patch.dict(sys.modules, {"playwright.async_api": None}):
+            result = await tool.execute(action="screenshot", url="https://example.com")
+
+        assert result.success is False
+        assert "Playwright is required" in result.error

@@ -1,97 +1,139 @@
-# Symbio 功能实现清单
+# Symbio 功能实现账本
 
-> 对照公众号文章承诺，逐项落实。每完成一项更新状态。
+> 对照 README、README_zh、模块设计白皮书和公众号文章承诺维护。
+> `[x]` 表示已有可运行实现并有测试或人工验证证据；`[~]` 表示已有框架但还没形成完整产品闭环；`[ ]` 表示仍待实现。
 
----
+## 当前汇总
 
-## P0 — 核心卖点（必须优先实现）
+| 状态 | 数量 | 说明 |
+| --- | ---: | --- |
+| `[x]` 已实现 | 5 | DAG-first、规划/审查策略、HITL IM 审批、本体图谱、模型配置 |
+| `[~]` 部分实现 | 6 | Skills Marketplace、MCP、沙箱/K8s、OpenTelemetry、数据飞轮、Ray Actor |
+| `[ ]` 未实现 | 2 | A2A、Computer Use 完整闭环 |
 
-### 文章 1：多Agent系统为什么总是过早宣布完成
+运行时账本接口：`GET /api/capabilities`。
 
-- [x] `submit_task` 强制 Tool Calling 结束机制 — `tools/submit_task.py`
-- [x] JSON Checklist 数据模型（files/test/completion_criteria） — `agents/checklist.py`
-- [x] Initializer Agent 任务开始时自动生成 Checklist — `agents/initializer.py`
-- [x] `submit_task` 验证逻辑（文件存在/非空/checklist 完成/测试通过） — ChecklistValidator
-- [x] Testing Agent 闭环验证（pytest/npm test → 失败回退 → 重试） — `agents/testing_agent.py`
-- [x] 状态驱动通信（全局状态对象 Single Source of Truth） — StateManager
-- [x] 每轮任务完成后清空 Agent 会话历史 — Orchestrator.clear_agent_session()
+## P0 核心承诺
 
-### 文章 2：Agent间通信的致命陷阱
+### 动态 DAG / 编排
 
-- [x] StateManager 类（asyncio.Lock + read/update/CAS 操作） — `core/state_manager.py`
-- [x] 全局状态对象标准化结构（task_id/status/phase/checklist/files/tests/errors/metadata） — GlobalState
-- [x] Orchestrator.generate_instruction（从 pending checklist 生成指令） — InstructionGenerator
-- [x] Orchestrator.get_minimal_context（最小上下文裁剪） — InstructionGenerator
-- [x] 状态持久化到 SQLite — aiosqlite state_snapshots 表
-- [x] Agent 间零对话通信集成（将 StateManager 接入 Orchestrator 主流程） — Orchestrator 已集成
+- [x] DAGEngine 支持节点、依赖、并发执行、动态拓扑变更、快照恢复 - `src/symbio/core/dag_engine.py`
+- [x] Orchestrator 默认路径已委托给 DAG-first runtime - `src/symbio/core/orchestrator.py`, `src/symbio/core/dag_orchestrator.py`
+- [x] Decomposition 编译为持久化 execution graph 节点和边 - `src/symbio/core/execution_planner.py`
+- [x] Observation-driven replan 已接入运行时，支持 retry、local-patch、global-replan 事件记录 - `src/symbio/core/replanner.py`, `src/symbio/core/dag_runtime.py`
+- [x] 执行详情、事件、artifact、图版本接口已暴露 - `/api/executions/{id}`, `/api/tasks/{id}/dag`
+- [~] 断点恢复已有 graph version 和 SQLite 状态恢复能力，但不能宣称固定 `10ms` SLA - `src/symbio/core/execution_state_store.py`
 
-### 文章 7：HITL-Agent卡住了怎么办
+### 工作流纪律
 
-- [x] 异步审批网关（冻结→通知→继续其他任务→回调→恢复） — `core/hitl_gateway.py`
-- [x] 审批请求六要素（做什么/影响范围/为什么/替代方案/操作按钮/超时） — ApprovalRequest
-- [x] 分级审批（低/中/高/极高 → 自动通过/1人/2人/3人） — RiskLevel
-- [x] Webhook 回调端点（JWT 签名验证） — generate/verify_approval_token
-- [x] HITL 与 DAG 集成（节点标记 + 非阻塞） — Orchestrator._check_hitl_required + resume_after_approval
-- [x] 防审批疲劳（合并同类/智能升级/置信度加权） — FatiguePreventer
+- [x] 规划优先、审查门禁、完成前验证策略已接入 Orchestrator - `src/symbio/core/planner_reviewer.py`, `src/symbio/core/workflow_policy.py`
+- [x] `submit_task`、Checklist、Testing Agent 形成防过早完成闭环底座 - `src/symbio/tools/submit_task.py`, `src/symbio/agents/checklist.py`, `src/symbio/agents/testing_agent.py`
+- [x] Web UI 已展示 workflow policy、verification evidence、approval context、planner/reviewer controls - `web/app.js`, `web/style.css`
 
----
+### HITL / 人类审批
 
-## P1 — 重要增强
+- [x] 异步审批网关、风险等级、Token 签名、回调接口 - `src/symbio/core/hitl_gateway.py`, `src/symbio/interfaces/api.py`
+- [x] Orchestrator 高风险任务可挂起并在审批后恢复 - `src/symbio/core/orchestrator.py`
+- [x] Web/IM 审批卡片、文本命令回调、短码审批、outbound notification 审计 payload 已实现 - `src/symbio/core/hitl_notifier.py`, `tests/test_hitl_notifier.py`
+- [x] QQ OneBot/Lagrange、企业微信 webhook、飞书签名机器人发送已接入；Wechaty bridge 保留为兼容目标
+- [~] 审批超时策略仍未形成产品闭环：自动拒绝、降级执行、转交管理员待补
 
-### 文章 4：记忆系统为什么向量数据库不够用
+### 模型配置 / 路由
 
-- [x] 记忆压缩流水线（聚类→模式→规则→T-Box注入→冷存储归档） — `memory/compression.py`
-- [x] 版本化记忆（更新保留历史，可追溯/可回滚/可审计） — `memory/versioning.py`
-- [x] 四层冲突解决（时间戳/可信度加权/因果推理/用户确认） — `memory/versioning.py`
-- [x] 三级噪音过滤（规则0ms→分类器10ms→LLM 200ms） — `memory/filters.py`
-- [x] 记忆写入安全网关（经过安全检查后才写入） — `memory/filters.py`
-- [x] 五层遗忘策略 L3 冲突覆盖 + L5 项目清理 — `memory/filters.py`
+- [x] Web UI 可配置模型池和 LLM 配置 - `web/app.js`, `/api/models`, `/api/config`
+- [x] 模型连接测试会优先使用当前 `symbio.yaml` 配置凭证，避免读到旧库记录 - `src/symbio/interfaces/api.py`
+- [x] 模型列表和创建接口不再向前端泄露 `api_key`，仅返回 `has_api_key` - `src/symbio/interfaces/api.py`, `tests/test_integration.py`
+- [~] 路由决策解释还没有系统写入 execution artifact
 
-### 文章 5：安全防护PromptInjection三层防火墙
+## P1 重要增强
 
-- [x] 信任区域划分（不可信/半可信/可信） — `security/trust_zones.py`
-- [x] 记忆写入安全网关（符号规则+语义分类+来源验证） — `memory/filters.py`
-- [x] 安全测试流水线（1000+ 攻击样本自动化测试） — `security/trust_zones.py`
+### 记忆 / 本体图谱
 
-### 文章 8：Token成本优化从PromptCache到语义缓存
+- [x] 记忆压缩、版本化、冲突处理、噪声过滤底座 - `src/symbio/memory/*`
+- [x] 本体化记忆和零 Token 图推理底座 - `src/symbio/memory/ontology.py`
+- [x] 独立本体图谱接口和 UI 页面已实现 - `/api/ontology`, `web/index.html`, `web/app.js`, `web/style.css`
+- [x] 空本体首次展示可从已有 memories 自动 bootstrap - `src/symbio/interfaces/api.py`
+- [~] 多模态记忆模块存在，但生产级解析质量和索引链路仍需集成验证
 
-- [x] 工具懒加载（项目级静态隔离 + DAG节点级动态加载） — `tools/lazy_loader.py`
-- [x] Prompt Cache 保活 Ping（4分钟心跳） — `core/cost_monitor.py`
-- [x] 成本监控仪表盘（Token消耗/缓存命中率/路由分布） — `core/cost_monitor.py`
-- [x] 项目级成本预算管理（月度预算 + 80%自动降级） — `core/cost_monitor.py`
+### Skills
 
-### 文章 6：数据飞轮让Agent越用越聪明
+- [x] Skills 列表、搜索、导入、启停、删除、自动检测、目录导入接口已实现 - `/api/skills/*`
+- [x] Skill 详情页支持文件树、README、manifest、prompt/test 文件查看和编辑 - `web/app.js`
+- [x] 默认数据确定性和 trigger keywords 补齐已验证 - `tests/test_integration.py`
+- [x] Skills Marketplace API/UI 支持浏览、搜索、已安装状态和本地安装记录 - `/api/skills/marketplace`, `web/app.js`, `tests/test_marketplace_api.py`
+- [~] 远程/私有市场、依赖安装流水线、运行沙箱和版本发布流程仍需产品化
 
-- [x] SOP 蒸馏质量阈值（成功率100%/Token<1.5x/步数<1.5x/重试≤1） — `evolution/sop_distiller.py`
-- [x] 异步非阻塞轨迹捕获（内存队列+批量写入+背压控制） — `evolution/sop_distiller.py`
-- [x] 冷启动种子 SOP 库 — `evolution/sop_distiller.py`
+### MCP / 外部工具
 
----
+- [x] MCP stdio JSON-RPC 客户端和工具桥 - `src/symbio/tools/mcp.py`
+- [~] MCP 配置发现已支持 dict/JSON/YAML 和 `mcpServers` schema - `tests/test_mcp_config.py`
+- [~] 长连接池、resources/prompts 协议、完整认证、市场分发和 UI 挂载仍未完成
+- [ ] A2A 协议适配未实现
 
-## P2 — 锦上添花
+### Browser / Computer Use
 
-- [x] 离线微调 Ray Train 集成 — `evolution/fine_tuner.py`（框架就绪，待数据）
-- [x] 多模态记忆（图片/PDF/代码） — `memory/multimodal.py`
-- [x] K8s Ephemeral Sandbox — `tools/k8s_sandbox.py`（Pod/NetworkPolicy/Docker 生成器）
-- [x] DAG 分层路由评估（70%/15%/10%/5%） — `core/layered_router.py`
-- [x] 并发状态合并（MapReduce + 乐观锁） — StateManager CAS 操作已实现
-- [x] 冷启动代码仓库扫描 — `memory/cold_start.py`
-- [x] Testing Agent 失败重试闭环 — `agents/testing_agent.py` TestDrivenLoop
-- [x] 工具懒加载接入 Orchestrator — orchestrator.py 集成
-- [x] 安全攻击样本库（50+） — `security/attack_samples.py`
-- [x] 三道保险丝（步数/预算/重复） — `core/layered_router.py` CircuitBreaker
+- [x] BrowserTool fetch 能力 - `src/symbio/tools/registry.py`
+- [x] BrowserTool screenshot 在 Playwright 可用时截图，缺依赖时返回明确错误 - `src/symbio/tools/registry.py`
+- [ ] Computer Use 完整闭环未实现：截图理解、坐标规划、GUI 操作执行、回放审计
 
----
+### 安全 / 沙箱 / 资源
 
-## 完成记录
+- [x] Guardrail、RateLimiter、ResourceManager 底座存在 - `src/symbio/core/guardrail.py`, `src/symbio/core/rate_limiter.py`, `src/symbio/core/resource_manager.py`
+- [x] 工具权限分级和高危操作审批元数据 - `src/symbio/tools/registry.py`
+- [x] 本地 SandboxExecutor - `src/symbio/tools/sandbox.py`
+- [x] Codex-like sandbox policy 已接入本地代码执行：`read-only`/`workspace-write`/`danger-full-access`、`on-request`/`on-failure`/`never`/`always` approval policy、工作区边界、网络命令拦截、审计记录和 Web UI - `src/symbio/tools/sandbox.py`, `/api/sandbox/execute`, `web/app.js`, `tests/test_sandbox_runtime.py`
+- [x] K8s/Docker 安全资源 YAML 生成器 - `src/symbio/tools/k8s_sandbox.py`
+- [~] 生产级“动态拉起 Pod 执行并销毁”的 K8s executor 未完成
+- [~] 安全攻击样本库存在，但规模和 CI 接入还达不到 README 宣传口径 - `src/symbio/security/attack_samples.py`
 
-| 日期 | 完成项 | Commit |
-|------|--------|--------|
-| 2026-06-01 | Phase 1-3 基础架构 + 记忆系统 | (多个) |
-| 2026-06-01 | submit_task + Checklist 机制 | 4d8a96c |
-| 2026-06-01 | StateManager + 零对话通信 | affc805 |
-| 2026-06-01 | HITL 异步审批网关 | c031390 |
-| 2026-06-01 | P0 集成（Initializer+Testing+StateManager+HITL接入） | a93576d, edbf1a0 |
-| 2026-06-01 | P1+P2 全部实现（8 个新模块） | d91d3f1 |
-| 2026-06-01 | P2 补全：分层路由+冷启动+重试+多模态+攻击样本 | (多个) |
-| 2026-06-01 | 最终补全：Ray Train+K8s+审计+DAG CAS+攻击100+前端升级 | (多个) |
+### 可观测
+
+- [x] Tracer、Span、Token heatmap、memory snapshot、metric record 底座 - `src/symbio/core/tracer.py`
+- [x] 前端 DAG/Trace 交互式可视化已支持 Graph/Timeline/Artifacts 切换、节点定位、筛选、payload 展开和 artifact 过滤 - `web/app.js`
+- [~] OpenTelemetry 是可选依赖 fallback，默认 OTLP/Jaeger/Grafana/Prometheus 部署和看板仍需补齐
+
+## P2 平台化 / 自我进化
+
+### 数据飞轮
+
+- [x] SOP 蒸馏、异步轨迹捕获、DatasetExporter - `src/symbio/evolution/sop_distiller.py`, `src/symbio/evolution/dataset_exporter.py`
+- [x] CLI export 支持 ShareGPT/Alpaca/OpenAI/raw JSONL - `src/symbio/cli.py`
+- [x] Conversation export API 支持 ShareGPT/Alpaca/OpenAI/raw 预览和 JSONL 写出 - `/api/export/conversations`
+- [x] Evaluation suite discovery API 和 Web UI 可视化已接入 - `/api/evaluation/suites`, `web/app.js`, `data/eval_suites/smoke.json`
+- [~] FineTuner 目前是训练作业管理 + 本地/Ray 桩，不是真实训练循环 - `src/symbio/evolution/fine_tuner.py`
+- [~] Eval pipeline 已可见，但执行报告、回归对比和失败根因分析闭环仍需补
+
+### 分布式 / 边缘 / 企业能力
+
+- [~] Ray-Native SubAgent 目前本地 asyncio 为主，Ray Actor 投递仍待产品化 - `src/symbio/agents/subagent.py`
+- [~] Edge/mobile/IoT 管理模块存在，但仍是平台适配底座，不是完整产品入口 - `src/symbio/interfaces/edge/*`
+- [ ] 隐私计算、联邦学习、差分隐私当前主要是路线图/白皮书承诺，未进入产品闭环
+
+## 本批实现记录
+
+- [x] 2026-06-02: Skills API 默认数据确定性，自动检测/导入补齐 trigger keywords
+- [x] 2026-06-03: MCP stdio 工具桥
+- [x] 2026-06-03: BrowserTool screenshot
+- [x] 2026-06-03: `/api/tasks/{id}/dag`
+- [x] 2026-06-03: Workflow policy checkpoint persistence and `submit_task` evidence enforcement
+- [x] 2026-06-03: Planner/reviewer gate wired into Orchestrator before HITL/DAG execution
+- [x] 2026-06-04: HITL QQ OneBot/Lagrange、企业微信 webhook、飞书签名机器人 connector
+- [x] 2026-06-08: README 架构图更新为 `assets/readme.png`
+- [x] 2026-06-08: 模型配置连接测试改为读取当前配置凭证
+- [x] 2026-06-08: 模型 API 响应隐藏 `api_key`，改为 `has_api_key`
+- [x] 2026-06-08: 独立本体图谱 API/UI 页面
+- [x] 2026-06-08: 新增 `/api/capabilities` 运行时能力账本，并用测试覆盖
+- [x] 2026-06-08: Web UI 新增“能力账本”页面，可查看承诺状态、证据文件、文档来源和下一步动作
+- [x] 2026-06-08: HITL UI 历史筛选修复，approved/rejected/all 会读取 `/api/hitl` 而不是 pending-only 数据
+- [x] 2026-06-08: 新增 `/api/observability/summary`，并在 Dashboard 展示 tracer/span/metric/token heatmap 摘要
+- [x] 2026-06-08: 新增数据飞轮 UI，展示 Dataset Export 预览/写出和 Evaluation Suites 解析结果
+- [x] 2026-06-08: 新增 Skills Marketplace API/UI，支持市场搜索、卡片展示、安装按钮和已安装状态刷新
+- [x] 2026-06-09: 新增 Sandbox Execution API/UI，支持工作区写入边界、审批策略、命令执行结果和审计轨迹
+
+## 下一批建议按这个顺序补
+
+1. Eval/Dataset 页面：把已存在的数据飞轮能力暴露到 UI，形成可点击产品闭环。
+2. MCP 工具挂载页面：展示 MCP 配置、连接测试、工具列表和启停。
+3. OTel 部署包：补 `docker-compose.observability.yml`、Jaeger/Grafana 默认配置和健康检查。
+4. A2A 最小协议适配：schema、handshake、message bridge、测试。
+5. Computer Use 最小闭环：浏览器 session、截图、动作计划接口、审计回放。

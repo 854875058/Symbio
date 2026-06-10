@@ -9,7 +9,6 @@
 
 from __future__ import annotations
 
-import time
 from typing import Any
 
 from symbio.agents.checklist import ChecklistValidator, TaskChecklist
@@ -23,6 +22,113 @@ from symbio.tools.registry import (
 from symbio.utils.logger import get_logger
 
 logger = get_logger("submit_task")
+
+
+_MISSING = object()
+
+
+def _as_dict(value: Any) -> dict[str, Any] | None:
+    """Return a plain dict for mapping-like or pydantic-model values."""
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return value
+    model_dump = getattr(value, "model_dump", None)
+    if callable(model_dump):
+        dumped = model_dump()
+        return dumped if isinstance(dumped, dict) else None
+    return None
+
+
+def _has_evidence(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (list, tuple, set)):
+        return any(_has_evidence(item) for item in value)
+    if isinstance(value, dict):
+        return any(_has_evidence(item) for item in value.values())
+    return True
+
+
+def _has_any_evidence(evidence: dict[str, Any], keys: tuple[str, ...]) -> bool:
+    return any(_has_evidence(evidence.get(key)) for key in keys)
+
+
+def _validate_workflow_policy_evidence(
+    *,
+    metadata: Any,
+    workflow_policy: Any,
+    workflow_evidence: Any,
+) -> list[str]:
+    metadata_dict = _as_dict(metadata)
+    if metadata is not None and metadata_dict is None:
+        return ["workflow policy metadata must be an object when provided"]
+
+    policy = workflow_policy
+    if policy is None and metadata_dict is not None:
+        policy = metadata_dict.get("workflow_policy")
+    if policy is None:
+        return []
+
+    policy_dict = _as_dict(policy)
+    if policy_dict is None:
+        return ["workflow_policy must be an object when provided"]
+
+    evidence = workflow_evidence
+    if evidence is _MISSING and metadata_dict is not None:
+        evidence = metadata_dict.get("workflow_evidence", _MISSING)
+    evidence_dict = _as_dict(None if evidence is _MISSING else evidence)
+    if evidence is not _MISSING and evidence_dict is None:
+        return ["workflow_evidence must be an object when provided"]
+    evidence_dict = evidence_dict or {}
+
+    failed: list[str] = []
+    required_evidence: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+        ("require_plan", "plan", ("plan", "implementation_plan")),
+        ("require_tdd", "TDD/test evidence", ("tdd", "tests", "test_results", "failing_test")),
+        (
+            "require_root_cause_before_fix",
+            "root cause",
+            ("root_cause", "cause_analysis", "failure_analysis"),
+        ),
+        (
+            "require_verification_before_completion",
+            "verification",
+            ("verification", "verification_run", "verification_runs", "commands"),
+        ),
+        (
+            "require_spec_review",
+            "spec/scope review",
+            ("spec_review", "scope_review", "acceptance_review"),
+        ),
+    )
+
+    for policy_key, label, evidence_keys in required_evidence:
+        if policy_dict.get(policy_key) is True and not _has_any_evidence(evidence_dict, evidence_keys):
+            failed.append(
+                f"workflow policy requires {label} evidence "
+                f"(provide one of: {', '.join(evidence_keys)})"
+            )
+
+    if policy_dict.get("allow_assumptions") is False:
+        assumption_keys = (
+            "no_unresolved_ambiguity",
+            "clarification",
+            "clarifications",
+            "assumptions",
+            "uncertainties",
+        )
+        if not _has_any_evidence(evidence_dict, assumption_keys):
+            failed.append(
+                "workflow policy requires evidence that ambiguity and assumptions were handled "
+                f"(provide one of: {', '.join(assumption_keys)})"
+            )
+
+    return failed
 
 
 class SubmitTaskTool(BaseTool):
@@ -56,6 +162,9 @@ class SubmitTaskTool(BaseTool):
         """
         checklist_data = kwargs.get("checklist")
         summary = kwargs.get("summary", "")
+        metadata = kwargs.get("metadata")
+        workflow_policy = kwargs.get("workflow_policy")
+        workflow_evidence = kwargs.get("workflow_evidence", _MISSING)
 
         if not checklist_data:
             return ToolResult(
@@ -88,8 +197,13 @@ class SubmitTaskTool(BaseTool):
 
         # 验证
         result = await self._validator.validate(checklist)
+        policy_failures = _validate_workflow_policy_evidence(
+            metadata=metadata,
+            workflow_policy=workflow_policy,
+            workflow_evidence=workflow_evidence,
+        )
 
-        if result.is_valid:
+        if result.is_valid and not policy_failures:
             logger.info(f"任务提交成功: {checklist.task_id}")
             return ToolResult(
                 call_id="",
@@ -103,7 +217,8 @@ class SubmitTaskTool(BaseTool):
             )
         else:
             logger.warning(f"任务提交被拒绝: {checklist.task_id}")
-            failed_details = "\n".join(f"  - {f}" for f in result.failed_checks)
+            failed_checks = [*result.failed_checks, *policy_failures]
+            failed_details = "\n".join(f"  - {f}" for f in failed_checks)
             return ToolResult(
                 call_id="",
                 tool_name=self.name,
@@ -156,6 +271,28 @@ class SubmitTaskTool(BaseTool):
                     "summary": {
                         "type": "string",
                         "description": "任务完成摘要",
+                    },
+                    "metadata": {
+                        "type": "object",
+                        "description": "任务元数据；如包含 workflow_policy，则提交时必须提供相应 workflow_evidence",
+                        "properties": {
+                            "workflow_policy": {
+                                "type": "object",
+                                "description": "由编排器注入的工作流策略",
+                            },
+                            "workflow_evidence": {
+                                "type": "object",
+                                "description": "满足工作流策略的证据",
+                            },
+                        },
+                    },
+                    "workflow_policy": {
+                        "type": "object",
+                        "description": "工作流策略；通常来自任务 metadata.workflow_policy",
+                    },
+                    "workflow_evidence": {
+                        "type": "object",
+                        "description": "工作流策略证据，例如 plan、tests、root_cause、verification、spec_review",
                     },
                 },
                 "required": ["checklist"],

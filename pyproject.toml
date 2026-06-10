@@ -9,8 +9,35 @@ description = "AI Infra-level Multi-Agent Orchestration Framework with Self-Evol
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
+authors = [
+    { name = "Zhang Haonan" },
+]
+keywords = [
+    "ai",
+    "agents",
+    "multi-agent",
+    "orchestration",
+    "llm",
+    "memory",
+    "hitl",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = [
     "anthropic>=0.40.0",
+    "fastapi>=0.115.0",
     "lancedb>=0.15.0",
     "networkx>=3.0",
     "pydantic>=2.0.0",
@@ -23,7 +50,14 @@ dependencies = [
     "aiosqlite>=0.20.0",
     "prompt-toolkit>=3.0.0",
     "pyyaml>=6.0.0",
+    "uvicorn[standard]>=0.30.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/854875058/Symbio"
+Repository = "https://github.com/854875058/Symbio"
+Issues = "https://github.com/854875058/Symbio/issues"
+Documentation = "https://github.com/854875058/Symbio#readme"
 
 [project.optional-dependencies]
 dev = [
@@ -32,6 +66,8 @@ dev = [
     "pytest-mock>=3.14.0",
     "coverage>=7.0.0",
     "ruff>=0.5.0",
+    "build>=1.2.0",
+    "twine>=5.0.0",
 ]
 server = [
     "fastapi>=0.115.0",
@@ -66,6 +102,43 @@ symbio = "symbio.cli:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/symbio"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"web" = "symbio/interfaces/web/static"
+"data/eval_suites" = "symbio/data/eval_suites"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/web",
+    "/data/eval_suites",
+    "/tests",
+    "/docs",
+    "/assets",
+    "/README.md",
+    "/README_en.md",
+    "/README_zh.md",
+    "/README_ja.md",
+    "/CHANGELOG.md",
+    "/CODE_OF_CONDUCT.md",
+    "/CONTRIBUTING.md",
+    "/LICENSE",
+    "/SECURITY.md",
+    "/pyproject.toml",
+]
+exclude = [
+    "/data/symbio.db",
+    "/data/hitl.db",
+    "/data/executions.db",
+    "/data/skill_marketplace",
+    "/data/skills",
+    "/data/lancedb",
+    "/logs",
+    "/dist",
+    "/symbio.yaml",
+    "/server-*.log",
+    "/.pkg-install-test",
+]
 
 [tool.ruff]
 line-length = 100

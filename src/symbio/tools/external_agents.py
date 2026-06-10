@@ -1,0 +1,410 @@
+"""Control plane for external coding agents such as Codex and Claude Code.
+
+The controller treats local coding-agent CLIs as managed runtimes: discover the
+binary, register or create a session in a workspace, send prompts, and keep an
+audit trail that the API/UI can expose.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import shutil
+import uuid
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field, field_validator
+
+
+ExternalAgentProviderId = Literal["codex", "claude-code"]
+
+
+class ExternalAgentProvider(BaseModel):
+    """Runtime definition for an external coding-agent CLI."""
+
+    provider_id: str
+    display_name: str
+    executable: str
+    installed: bool = False
+    path: str = ""
+    version: str = ""
+    capabilities: list[str] = Field(default_factory=list)
+    session_resume: bool = True
+    notes: str = ""
+
+
+class ExternalAgentSessionCreate(BaseModel):
+    """Request to register an existing CLI session or create a managed handle."""
+
+    provider: str
+    label: str = ""
+    workspace: str = "."
+    external_session_id: str = ""
+    model: str = ""
+    sandbox_mode: str = "workspace-write"
+    approval_policy: str = "on-request"
+    permission_mode: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("provider")
+    @classmethod
+    def _normalize_provider(cls, value: str) -> str:
+        normalized = value.strip().lower().replace("_", "-")
+        if normalized in {"claude", "claude-code", "cc"}:
+            return "claude-code"
+        if normalized in {"codex", "openai-codex"}:
+            return "codex"
+        return normalized
+
+
+class ExternalAgentRunRequest(BaseModel):
+    """Prompt execution request for a registered external session."""
+
+    prompt: str
+    dry_run: bool = False
+    approved: bool = False
+    timeout: int = 300
+    model: str = ""
+    sandbox_mode: str = ""
+    approval_policy: str = ""
+    permission_mode: str = ""
+
+
+class ExternalAgentSession(BaseModel):
+    """Symbio-managed handle for a local external-agent session."""
+
+    session_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    provider: str
+    label: str = ""
+    workspace: str
+    external_session_id: str = ""
+    model: str = ""
+    sandbox_mode: str = "workspace-write"
+    approval_policy: str = "on-request"
+    permission_mode: str = ""
+    status: str = "registered"
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+    last_run_at: datetime | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ExternalAgentRunResult(BaseModel):
+    """Result and audit payload for a prompt sent to an external agent."""
+
+    run_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    session_id: str
+    provider: str
+    command: list[str] = Field(default_factory=list)
+    dry_run: bool = False
+    success: bool = False
+    exit_code: int = -1
+    stdout: str = ""
+    stderr: str = ""
+    error: str = ""
+    duration_ms: float = 0.0
+    created_at: datetime = Field(default_factory=datetime.now)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ExternalAgentController:
+    """Discover and operate Codex/Claude Code CLI sessions."""
+
+    def __init__(
+        self,
+        *,
+        state_path: str | Path = Path("data") / "external_agents.json",
+        workspace_root: str | Path = ".",
+        providers: list[ExternalAgentProvider] | None = None,
+    ) -> None:
+        self.state_path = Path(state_path)
+        self.workspace_root = Path(workspace_root).resolve()
+        self.providers: dict[str, ExternalAgentProvider] = {
+            provider.provider_id: provider
+            for provider in (providers if providers is not None else discover_external_agent_providers())
+        }
+        self.sessions: dict[str, ExternalAgentSession] = {}
+        self.audit: list[ExternalAgentRunResult] = []
+        self._load_state()
+
+    def list_providers(self) -> list[ExternalAgentProvider]:
+        """Return supported local CLI runtimes."""
+        return list(self.providers.values())
+
+    def list_sessions(self) -> list[ExternalAgentSession]:
+        """Return registered external-agent sessions."""
+        return sorted(self.sessions.values(), key=lambda item: item.updated_at, reverse=True)
+
+    def get_session(self, session_id: str) -> ExternalAgentSession | None:
+        return self.sessions.get(session_id)
+
+    def create_session(self, request: ExternalAgentSessionCreate) -> ExternalAgentSession:
+        provider = self._require_provider(request.provider)
+        workspace = self._resolve_workspace(request.workspace)
+        label = request.label or f"{provider.display_name} session"
+        session = ExternalAgentSession(
+            provider=provider.provider_id,
+            label=label,
+            workspace=str(workspace),
+            external_session_id=request.external_session_id,
+            model=request.model,
+            sandbox_mode=request.sandbox_mode,
+            approval_policy=request.approval_policy,
+            permission_mode=request.permission_mode,
+            metadata=request.metadata,
+        )
+        self.sessions[session.session_id] = session
+        self._save_state()
+        return session
+
+    async def run_session(
+        self,
+        session_id: str,
+        request: ExternalAgentRunRequest,
+    ) -> ExternalAgentRunResult:
+        session = self.sessions.get(session_id)
+        if session is None:
+            raise KeyError(f"External agent session not found: {session_id}")
+        provider = self._require_provider(session.provider)
+        command = build_external_agent_command(provider, session, request)
+
+        if request.dry_run:
+            result = ExternalAgentRunResult(
+                session_id=session.session_id,
+                provider=session.provider,
+                command=command,
+                dry_run=True,
+                success=True,
+                exit_code=0,
+                stdout="Dry run only. Command was not executed.",
+            )
+            self._record_result(session, result)
+            return result
+
+        if not provider.installed:
+            result = ExternalAgentRunResult(
+                session_id=session.session_id,
+                provider=session.provider,
+                command=command,
+                success=False,
+                error=f"{provider.display_name} CLI is not installed or not on PATH",
+            )
+            self._record_result(session, result)
+            return result
+
+        result = await self._execute(command, Path(session.workspace), request.timeout)
+        result.session_id = session.session_id
+        result.provider = session.provider
+        result.command = command
+        self._record_result(session, result)
+        return result
+
+    def list_audit(self, limit: int = 50) -> list[ExternalAgentRunResult]:
+        return list(reversed(self.audit[-max(limit, 1):]))
+
+    def _require_provider(self, provider_id: str) -> ExternalAgentProvider:
+        normalized = ExternalAgentSessionCreate(provider=provider_id).provider
+        provider = self.providers.get(normalized)
+        if provider is None:
+            raise ValueError(f"Unsupported external agent provider: {provider_id}")
+        return provider
+
+    def _resolve_workspace(self, workspace: str) -> Path:
+        path = Path(workspace)
+        if not path.is_absolute():
+            path = self.workspace_root / path
+        resolved = path.resolve()
+        if not _is_relative_to(resolved, self.workspace_root):
+            raise ValueError(f"Workspace is outside Symbio workspace root: {resolved}")
+        resolved.mkdir(parents=True, exist_ok=True)
+        return resolved
+
+    async def _execute(
+        self,
+        command: list[str],
+        cwd: Path,
+        timeout: int,
+    ) -> ExternalAgentRunResult:
+        started = datetime.now()
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *command,
+                cwd=str(cwd),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.communicate()
+                elapsed = (datetime.now() - started).total_seconds() * 1000
+                return ExternalAgentRunResult(
+                    session_id="",
+                    provider="",
+                    success=False,
+                    exit_code=-1,
+                    stderr=f"TIMEOUT: external agent exceeded {timeout}s",
+                    error=f"TIMEOUT: external agent exceeded {timeout}s",
+                    duration_ms=elapsed,
+                )
+            elapsed = (datetime.now() - started).total_seconds() * 1000
+            exit_code = proc.returncode or 0
+            return ExternalAgentRunResult(
+                session_id="",
+                provider="",
+                success=exit_code == 0,
+                exit_code=exit_code,
+                stdout=stdout.decode("utf-8", errors="replace"),
+                stderr=stderr.decode("utf-8", errors="replace"),
+                error="" if exit_code == 0 else stderr.decode("utf-8", errors="replace"),
+                duration_ms=elapsed,
+            )
+        except FileNotFoundError:
+            elapsed = (datetime.now() - started).total_seconds() * 1000
+            return ExternalAgentRunResult(
+                session_id="",
+                provider="",
+                success=False,
+                exit_code=-1,
+                error=f"Command not found: {command[0]}",
+                stderr=f"Command not found: {command[0]}",
+                duration_ms=elapsed,
+            )
+
+    def _record_result(
+        self,
+        session: ExternalAgentSession,
+        result: ExternalAgentRunResult,
+    ) -> None:
+        now = datetime.now()
+        session.updated_at = now
+        session.last_run_at = now
+        self.audit.append(result)
+        self._save_state()
+
+    def _load_state(self) -> None:
+        if not self.state_path.exists():
+            return
+        try:
+            data = json.loads(self.state_path.read_text(encoding="utf-8"))
+            self.sessions = {
+                item["session_id"]: ExternalAgentSession(**item)
+                for item in data.get("sessions", [])
+            }
+            self.audit = [ExternalAgentRunResult(**item) for item in data.get("audit", [])]
+        except Exception:
+            self.sessions = {}
+            self.audit = []
+
+    def _save_state(self) -> None:
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "sessions": [session.model_dump(mode="json") for session in self.sessions.values()],
+            "audit": [record.model_dump(mode="json") for record in self.audit[-200:]],
+        }
+        self.state_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def discover_external_agent_providers() -> list[ExternalAgentProvider]:
+    """Discover supported CLIs without failing when they are absent."""
+    return [
+        _provider_from_path(
+            provider_id="codex",
+            display_name="Codex",
+            executable="codex",
+            capabilities=[
+                "local_repo_control",
+                "session_resume",
+                "sandbox_mode",
+                "approval_policy",
+                "mcp_bridge",
+            ],
+            notes="OpenAI Codex CLI runtime; Symbio controls prompts, policy, and audit.",
+        ),
+        _provider_from_path(
+            provider_id="claude-code",
+            display_name="Claude Code",
+            executable="claude",
+            capabilities=[
+                "local_repo_control",
+                "session_resume",
+                "allowed_tools",
+                "permission_mode",
+                "mcp_bridge",
+            ],
+            notes="Anthropic Claude Code CLI runtime; Symbio registers and resumes sessions.",
+        ),
+    ]
+
+
+def build_external_agent_command(
+    provider: ExternalAgentProvider,
+    session: ExternalAgentSession,
+    request: ExternalAgentRunRequest,
+) -> list[str]:
+    prompt = request.prompt.strip()
+    if not prompt:
+        raise ValueError("Prompt is required")
+    if provider.provider_id == "codex":
+        command = [
+            provider.executable,
+            "exec",
+            "--cd",
+            session.workspace,
+            "--sandbox",
+            request.sandbox_mode or session.sandbox_mode,
+            "--approval-policy",
+            request.approval_policy or session.approval_policy,
+        ]
+        model = request.model or session.model
+        if model:
+            command.extend(["--model", model])
+        if session.external_session_id:
+            command.extend(["--resume", session.external_session_id])
+        command.append(prompt)
+        return command
+
+    if provider.provider_id == "claude-code":
+        command = [provider.executable, "-p", prompt]
+        model = request.model or session.model
+        if model:
+            command.extend(["--model", model])
+        permission_mode = request.permission_mode or session.permission_mode
+        if permission_mode:
+            command.extend(["--permission-mode", permission_mode])
+        if session.external_session_id:
+            command.extend(["--resume", session.external_session_id])
+        return command
+
+    raise ValueError(f"Unsupported external agent provider: {provider.provider_id}")
+
+
+def _provider_from_path(
+    *,
+    provider_id: str,
+    display_name: str,
+    executable: str,
+    capabilities: list[str],
+    notes: str,
+) -> ExternalAgentProvider:
+    path = shutil.which(executable) or ""
+    return ExternalAgentProvider(
+        provider_id=provider_id,
+        display_name=display_name,
+        executable=executable,
+        installed=bool(path),
+        path=path,
+        capabilities=capabilities,
+        notes=notes,
+    )
+
+
+def _is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False

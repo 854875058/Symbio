@@ -56,6 +56,32 @@ class TestResults(BaseModel):
     stderr: str = ""
 
 
+class WorkflowCheckpoint(BaseModel):
+    """Workflow policy checkpoint persisted with task state."""
+
+    name: str
+    timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
+    details: dict[str, Any] = Field(default_factory=dict)
+
+    def __getitem__(self, key: str) -> Any:
+        return getattr(self, key)
+
+
+class AgentHandoff(BaseModel):
+    """Structured artifact handoff between agents through GlobalState."""
+
+    handoff_id: str = Field(default_factory=lambda: str(uuid4()))
+    from_agent: str
+    to_agent: str
+    artifact_type: str
+    summary: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+    timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
+
+    def __getitem__(self, key: str) -> Any:
+        return getattr(self, key)
+
+
 class ErrorRecord(BaseModel):
     """错误记录"""
 
@@ -92,6 +118,12 @@ class GlobalState(BaseModel):
 
     # 元数据
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    # Workflow policy checkpoints
+    workflow_checkpoints: list[WorkflowCheckpoint] = Field(default_factory=list)
+
+    # Structured agent handoffs
+    agent_handoffs: list[AgentHandoff] = Field(default_factory=list)
 
     # 版本号（用于 CAS 乐观锁）
     version: int = 0
@@ -188,6 +220,50 @@ class StateManager:
             await self._persist()
             logger.debug(f"状态更新完成: version={self._state.version}")
             return self._state.model_copy(deep=True)
+
+    async def record_workflow_checkpoint(
+        self,
+        name: str,
+        details: Optional[dict[str, Any]] = None,
+    ) -> GlobalState:
+        """Append a workflow policy checkpoint to the current state."""
+
+        checkpoint = WorkflowCheckpoint(name=name, details=details or {})
+        return await self.update(
+            lambda s: s.model_copy(update={
+                "workflow_checkpoints": [
+                    *s.workflow_checkpoints,
+                    checkpoint,
+                ],
+            })
+        )
+
+    async def record_agent_handoff(
+        self,
+        *,
+        from_agent: str,
+        to_agent: str,
+        artifact_type: str,
+        summary: str,
+        payload: Optional[dict[str, Any]] = None,
+    ) -> GlobalState:
+        """Append a structured agent handoff artifact to the current state."""
+
+        handoff = AgentHandoff(
+            from_agent=from_agent,
+            to_agent=to_agent,
+            artifact_type=artifact_type,
+            summary=summary,
+            payload=payload or {},
+        )
+        return await self.update(
+            lambda s: s.model_copy(update={
+                "agent_handoffs": [
+                    *s.agent_handoffs,
+                    handoff,
+                ],
+            })
+        )
 
     async def compare_and_swap(
         self,
@@ -405,6 +481,15 @@ class InstructionGenerator:
             ),
             "total_count": len(items),
             "test_results": state.test_results.model_dump(),
+            "agent_handoffs": [
+                {
+                    "from_agent": handoff.from_agent,
+                    "to_agent": handoff.to_agent,
+                    "artifact_type": handoff.artifact_type,
+                    "summary": handoff.summary,
+                }
+                for handoff in state.agent_handoffs[-3:]
+            ],
             "errors": [
                 e.model_dump() for e in state.errors[-3:]
             ],  # 最近 3 条错误
@@ -416,6 +501,7 @@ class InstructionGenerator:
 # ---------------------------------------------------------------------------
 
 __all__ = [
+    "AgentHandoff",
     "ErrorRecord",
     "FileInfo",
     "GlobalState",
@@ -423,4 +509,5 @@ __all__ = [
     "StateManager",
     "TaskPhase",
     "TestResults",
+    "WorkflowCheckpoint",
 ]

@@ -121,6 +121,7 @@ class HITLConfig(BaseSettings):
     notify_endpoint: str = Field(default="", description="Notification bridge endpoint")
     notify_chat_type: str = Field(default="group", description="Chat type (group/private)")
     notify_access_token: str = Field(default="", description="Notification bridge access token")
+    notify_secret: str = Field(default="", description="Notification platform signing secret")
     notify_targets: list[dict[str, str]] = Field(default_factory=list, description="Notification targets")
     notify_timeout: float = Field(default=5.0, description="Notification HTTP timeout (seconds)")
     callback_base_url: str = Field(default="", description="Public API base URL for approval links")
@@ -168,8 +169,20 @@ class Settings(BaseSettings):
         if not path.exists():
             return cls()
 
+        class _SettingsSafeLoader(yaml.SafeLoader):
+            pass
+
+        def _construct_legacy_log_level(loader: yaml.SafeLoader, node: yaml.Node) -> str:
+            value = loader.construct_sequence(node)
+            return str(value[0]) if value else LogLevel.INFO.value
+
+        _SettingsSafeLoader.add_constructor(
+            "tag:yaml.org,2002:python/object/apply:symbio.config.settings.LogLevel",
+            _construct_legacy_log_level,
+        )
+
         with open(path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
+            data = yaml.load(f, Loader=_SettingsSafeLoader) or {}
 
         return cls(**data)
 
@@ -179,7 +192,13 @@ class Settings(BaseSettings):
         path.parent.mkdir(parents=True, exist_ok=True)
 
         with open(path, "w", encoding="utf-8") as f:
-            yaml.dump(self.model_dump(), f, default_flow_style=False, allow_unicode=True)
+            yaml.safe_dump(
+                self.model_dump(mode="json"),
+                f,
+                default_flow_style=False,
+                allow_unicode=True,
+                sort_keys=False,
+            )
 
 
 @lru_cache

@@ -1,0 +1,40 @@
+{
+  "name": "Symbio Smoke Suite",
+  "description": "Minimal regression checks for tool planning and response quality.",
+  "version": "1.0.0",
+  "cases": [
+    {
+      "case_id": "tool-search-docs",
+      "name": "Plans a documentation lookup",
+      "description": "The agent should identify that documentation lookup needs a browser fetch style tool.",
+      "task_type": "tool_call_accuracy",
+      "tags": ["smoke", "tools", "docs"],
+      "input_text": "Find the latest project documentation and summarize the deployment steps.",
+      "expected_tool_calls": [
+        {
+          "tool_name": "browser.fetch",
+          "parameters": {},
+          "required": true,
+          "min_call_count": 1
+        }
+      ]
+    },
+    {
+      "case_id": "quality-actionable-answer",
+      "name": "Returns an actionable answer",
+      "description": "The response should be structured and useful enough for an operator.",
+      "task_type": "output_quality",
+      "tags": ["smoke", "quality"],
+      "input_text": "Summarize the current execution status and list the next verification steps.",
+      "expected_output": "Status summary with concrete verification steps.",
+      "quality_criteria": [
+        {
+          "name": "actionable",
+          "description": "Includes concrete next steps.",
+          "weight": 1.0,
+          "min_score": 0.7
+        }
+      ]
+    }
+  ]
+}

@@ -49,6 +49,13 @@ from symbio.core.decomposer import (
 )
 from symbio.core.event_bus import EventBus
 from symbio.core.orchestrator import Orchestrator
+from symbio.core.planner_reviewer import (
+    PlannerReviewerResult,
+    PlannerReviewerStatus,
+    ReviewFinding,
+    ReviewFindingSeverity,
+    ReviewResult,
+)
 from symbio.core.rate_limiter import RateLimiter
 from symbio.agents.subagent import (
     AggregatedResult,
@@ -168,6 +175,43 @@ class _FakeDAGOrchestrator:
             content=self.result_content,
             data={"execution_id": "exec-1"},
         )
+
+
+class _FakePlannerReviewerLoop:
+    def __init__(self, result):
+        self.result = result
+        self.calls = []
+
+    def run(self, **kwargs):
+        self.calls.append(kwargs)
+        return self.result
+
+
+def _planner_reviewer_result(status=PlannerReviewerStatus.APPROVED):
+    blocking_findings = []
+    if status == PlannerReviewerStatus.BLOCKED:
+        blocking_findings = [
+            ReviewFinding(
+                source="spec_review",
+                severity=ReviewFindingSeverity.BLOCKING,
+                message="Acceptance criteria are missing",
+            )
+        ]
+    return PlannerReviewerResult(
+        status=status,
+        approved=status == PlannerReviewerStatus.APPROVED,
+        task_text="Implement a new API endpoint",
+        action="write_code",
+        complexity=TaskComplexity.HIGH,
+        spec_review=ReviewResult(
+            stage="spec_review",
+            status="blocked" if blocking_findings else "passed",
+            findings=blocking_findings,
+        ),
+        quality_review=ReviewResult(stage="quality_review", status="passed"),
+        blocking_findings=blocking_findings,
+        evidence={"loop": "deterministic_planner_reviewer"},
+    )
 
 
 # ================================================================
@@ -1270,6 +1314,21 @@ class TestOrchestratorHITL:
         assert resumed.data["hitl_request_id"] == request_id
         orchestrator.dag_orchestrator.execute.assert_awaited_once()
 
+        state = await orchestrator.state_manager.read()
+        checkpoint_names = [item["name"] for item in state.workflow_checkpoints]
+        assert "hitl_suspended" in checkpoint_names
+        assert "hitl_approved" in checkpoint_names
+        suspended = next(
+            item for item in state.workflow_checkpoints
+            if item["name"] == "hitl_suspended"
+        )
+        approved = next(
+            item for item in state.workflow_checkpoints
+            if item["name"] == "hitl_approved"
+        )
+        assert suspended["details"]["request_id"] == request_id
+        assert approved["details"]["request_id"] == request_id
+
     async def test_resume_after_approval_uses_normal_execution_scaffolding(self):
         orchestrator = Orchestrator()
         orchestrator.initialize_memory = AsyncMock()
@@ -1340,6 +1399,101 @@ class TestOrchestratorWorkflowPolicy:
         assert policy["require_tdd"] is True
         assert policy["require_verification_before_completion"] is True
         assert "TDD" in captured_task.metadata["workflow_guidance"]
+
+    async def test_planner_reviewer_result_is_attached_to_task_metadata_and_state(self):
+        orchestrator = Orchestrator()
+        orchestrator.initialize_memory = AsyncMock()
+        orchestrator.memory_bridge.enhance_context = AsyncMock(return_value="")
+        orchestrator.memory_bridge.store_execution_result = AsyncMock()
+        orchestrator.dag_orchestrator = _FakeDAGOrchestrator(result_content="done")
+        orchestrator.planner_reviewer = _FakePlannerReviewerLoop(
+            _planner_reviewer_result(PlannerReviewerStatus.APPROVED)
+        )
+
+        message = Message(
+            source=MessageSource.CLI,
+            user_id="test-user",
+            content="Implement a new API endpoint",
+            session_id="test-session",
+        )
+
+        with patch("symbio.core.orchestrator.get_settings", return_value=_make_mock_settings(api_key="")):
+            result = await orchestrator.process(message)
+
+        assert result.success is True
+        captured_task = orchestrator.dag_orchestrator.tasks[0]
+        planner_result = captured_task.metadata["planner_reviewer"]
+        assert planner_result["status"] == "approved"
+        assert planner_result["evidence"]["loop"] == "deterministic_planner_reviewer"
+        state = await orchestrator.state_manager.read()
+        checkpoint_names = [item["name"] for item in state.workflow_checkpoints]
+        assert "planner_reviewer_completed" in checkpoint_names
+        assert state.agent_handoffs[-1]["artifact_type"] == "planner_reviewer"
+        assert state.agent_handoffs[-1]["to_agent"] == "orchestrator"
+
+    async def test_blocked_planner_reviewer_stops_before_dag_execution(self):
+        orchestrator = Orchestrator()
+        orchestrator.initialize_memory = AsyncMock()
+        orchestrator.memory_bridge.enhance_context = AsyncMock(return_value="")
+        orchestrator.memory_bridge.store_execution_result = AsyncMock()
+        orchestrator.dag_orchestrator = _FakeDAGOrchestrator(result_content="done")
+        orchestrator.planner_reviewer = _FakePlannerReviewerLoop(
+            _planner_reviewer_result(PlannerReviewerStatus.BLOCKED)
+        )
+
+        message = Message(
+            source=MessageSource.CLI,
+            user_id="test-user",
+            content="Implement a new API endpoint",
+            session_id="test-session",
+        )
+
+        with patch("symbio.core.orchestrator.get_settings", return_value=_make_mock_settings(api_key="")):
+            result = await orchestrator.process(message)
+
+        assert result.success is False
+        assert result.data["planner_reviewer"]["status"] == "blocked"
+        assert "Acceptance criteria are missing" in result.content
+        orchestrator.dag_orchestrator.execute.assert_not_called()
+        state = await orchestrator.state_manager.read()
+        assert state.status == "blocked"
+
+    async def test_workflow_policy_checkpoints_persist_in_state_manager(self):
+        orchestrator = Orchestrator()
+        orchestrator.initialize_memory = AsyncMock()
+        orchestrator.memory_bridge.enhance_context = AsyncMock(
+            return_value="memory context"
+        )
+        orchestrator.memory_bridge.store_execution_result = AsyncMock()
+        orchestrator.dag_orchestrator = _FakeDAGOrchestrator(result_content="done")
+
+        message = Message(
+            source=MessageSource.CLI,
+            user_id="test-user",
+            content="Implement a new API endpoint",
+            session_id="test-session",
+        )
+
+        with patch("symbio.core.orchestrator.get_settings", return_value=_make_mock_settings(api_key="")):
+            result = await orchestrator.process(message)
+
+        assert result.success is True
+        state = await orchestrator.state_manager.read()
+        checkpoint_names = [item["name"] for item in state.workflow_checkpoints]
+        assert checkpoint_names == [
+            "workflow_policy_attached",
+            "memory_context_injected",
+            "planner_reviewer_completed",
+            "execution_started",
+            "execution_completed",
+        ]
+        assert state.workflow_checkpoints[0]["details"]["phase"] == "planning"
+        assert (
+            state.workflow_checkpoints[0]["details"]["workflow_policy"]["require_tdd"]
+            is True
+        )
+        assert state.workflow_checkpoints[1]["details"]["memory_context"] is True
+        assert state.workflow_checkpoints[-1]["details"]["success"] is True
 
 
 class TestDAGFirstOrchestratorIntegration:

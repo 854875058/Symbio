@@ -26,15 +26,15 @@
 ### 0.3 细粒度主动可观测性 (Agentic Observability)
 > 多 Agent 协同最大痛点是"黑盒化"，我们让一切透明。
 
-- [ ] 时空运行轨迹图 — 类似分布式链路追踪 (Trace) 的可视化状态，谁派发、谁等待、谁 Token 异常，一目了然
-- [ ] 记忆快照回放 — 在任务失败节点"打断点"，恢复当时记忆状态，方便复现调试
-- [ ] Token 消耗热力图 — 可视化各 Agent/工具的 Token 消耗分布
+- [~] 时空运行轨迹图 — Web UI 已可查看 execution graph / timeline / artifacts / workflow evidence，完整 Trace 交互体验仍在收尾
+- [~] 记忆快照回放 — execution graph / graph version / workflow checkpoint 已持久化，面向用户的完整回放体验仍未闭环
+- [x] Token 消耗热力图 — Tracer / Token heatmap 底座已实现
 
 ### 0.4 动态人类介入总线 (Human-in-the-Loop, HITL)
 > 在自动化和安全性之间找到完美平衡。
 
-- [ ] 高危动作悬挂 — SubAgent 执行高危操作（生产数据库修改、批量删除、大额 API 调用）时自动挂起
-- [ ] IM 异步授权 — 通过微信/飞书向管理员发送授权卡片，手机点击"同意"或回复修改意见后继续执行
+- [x] 高危动作悬挂 — Orchestrator 可冻结高风险任务并在审批后恢复
+- [x] IM 异步授权 — Web / API / QQ OneBot/Lagrange、企业微信 webhook、飞书签名自定义机器人发送与文本审批回调已接入
 - [ ] 审批超时策略 — 超时自动拒绝/降级执行/转交其他管理员
 
 ### 0.5 MCP (Model Context Protocol) 原生支持
@@ -82,9 +82,9 @@
 ### 0.11 动态拓扑自适应与运行时重规划 (Dynamic DAG & Runtime Re-planning)
 > 市面框架都是静态图，我们实现"兵无常势，水无常形"。
 
-- [ ] 完全动态 DAG — 放弃预设路径，Orchestrator 只生成初始宏观步骤
-- [ ] 运行时拓扑重构 — SubAgent 返回超预期结果时，动态增删节点、合并并行链路、分支切换
-- [ ] 自适应执行 — 根据中间观测结果实时调整后续策略，而非机械执行预设流程
+- [x] 完全动态 DAG — Orchestrator 默认路径已委托给 DAG-first runtime，初始 execution graph 来自 decomposition/planning
+- [~] 运行时拓扑重构 — 已有 graph mutation records 与 replan decision 类型，运行时策略仍在扩展
+- [~] 自适应执行 — 已支持 observation-driven replan 决策骨架，完整策略闭环仍在推进
 
 ### 0.12 上下文智能剪枝与 Prompt Cache 深度对齐 (Context Pruning & Cache Alignment)
 > 长作业上下文膨胀导致费用飙升、注意力涣散，我们从底层工程优化。
@@ -363,8 +363,8 @@
 - [ ] WebSocket 支持流式对话与状态推送
 
 ### 6.2 IM 平台接入
-- [ ] QQ / 微信 (基于相关协议或框架)
-- [ ] 飞书 / 钉钉企业级机器人接入
+- [x] QQ / 微信 (QQ OneBot/Lagrange、企业微信 webhook；Wechaty bridge 保留)
+- [~] 飞书 / 钉钉企业级机器人接入（飞书签名自定义机器人已接入；钉钉仍待接入）
 
 ### 6.3 客户端 (规划中)
 - [ ] 本地跨平台客户端 (Tauri + Next.js)

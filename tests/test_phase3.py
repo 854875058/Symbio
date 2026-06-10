@@ -814,6 +814,46 @@ class TestOrchestratorMemoryIntegration:
         assert "Python" in user_message
         assert "用户问题" in user_message
 
+    async def test_general_agent_includes_workflow_guidance_in_prompt(self):
+        from symbio.agents.builtin.general_agent import GeneralAgent
+        from symbio.utils.types import Intent, Task
+
+        task = Task(intent=Intent(raw_text="Implement a bug fix", action="write_code"))
+        task.metadata["workflow_guidance"] = "Workflow policy:\n- Use TDD.\n- Verify before completion."
+
+        agent = GeneralAgent()
+        mock_settings = MagicMock()
+        mock_settings.model = MagicMock()
+        mock_settings.model.anthropic_api_key = "test-key"
+        mock_settings.model.anthropic_base_url = "https://api.anthropic.com"
+        mock_settings.model.model_medium = "claude-sonnet-4-20250514"
+
+        captured_messages = None
+        mock_response = MagicMock()
+        mock_response.content = [MagicMock(text="done")]
+        mock_response.usage = MagicMock(input_tokens=10, output_tokens=5)
+        mock_response.model = "claude-sonnet-4-20250514"
+
+        async def capture_create(**kwargs):
+            nonlocal captured_messages
+            captured_messages = kwargs.get("messages", [])
+            return mock_response
+
+        mock_anthropic_client = MagicMock()
+        mock_anthropic_client.messages.create = AsyncMock(side_effect=capture_create)
+
+        with (
+            patch("symbio.agents.builtin.general_agent.get_settings", return_value=mock_settings),
+            patch("anthropic.AsyncAnthropic", return_value=mock_anthropic_client),
+        ):
+            await agent.execute(task)
+
+        assert captured_messages is not None
+        user_message = captured_messages[0]["content"]
+        assert "Workflow policy" in user_message
+        assert "Use TDD" in user_message
+        assert "Implement a bug fix" in user_message
+
     async def test_orchestrator_get_memory_stats(self):
         """Orchestrator.get_memory_stats 应返回记忆统计"""
         from symbio.core.orchestrator import Orchestrator

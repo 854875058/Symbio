@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import io
 import json
+from contextlib import redirect_stderr
 from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
@@ -17,6 +19,16 @@ from symbio.config.settings import get_settings
 from symbio.utils.logger import get_logger
 
 logger = get_logger("memory_manager")
+
+OPTIONAL_VECTOR_BACKEND_ERROR_HINTS = (
+    "_ARRAY_API",
+    "numpy",
+    "NumPy",
+    "lancedb",
+    "pyarrow",
+    "bottleneck",
+    "numexpr",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -257,8 +269,7 @@ class MemoryManager:
             return
 
         try:
-            import lancedb
-            import pyarrow as pa
+            lancedb, pa = self._load_vector_backend()
 
             db_path = Path(self._config.lancedb_path)
             db_path.mkdir(parents=True, exist_ok=True)
@@ -305,12 +316,30 @@ class MemoryManager:
             if self._config.enable_decay:
                 self._start_decay_task()
 
-        except ImportError:
-            logger.warning("lancedb 未安装，记忆管理器将使用纯内存模式")
+        except (ImportError, AttributeError) as exc:
+            if not self._is_optional_vector_backend_error(exc):
+                raise
+            logger.warning(
+                f"Optional vector backend unavailable; "
+                f"MemoryManager will use in-memory mode: {exc}"
+            )
             self._initialized = True
         except Exception as e:
             logger.error(f"记忆管理器初始化失败: {e}")
             raise
+
+    @staticmethod
+    def _load_vector_backend():
+        stderr_buffer = io.StringIO()
+        with redirect_stderr(stderr_buffer):
+            import lancedb
+            import pyarrow as pa
+        return lancedb, pa
+
+    @staticmethod
+    def _is_optional_vector_backend_error(exc: BaseException) -> bool:
+        error_text = f"{type(exc).__name__}: {exc}"
+        return any(hint in error_text for hint in OPTIONAL_VECTOR_BACKEND_ERROR_HINTS)
 
     async def close(self) -> None:
         """关闭管理器"""
