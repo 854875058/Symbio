@@ -26,6 +26,12 @@ venv/
 ENV/
 env/
 
+# Claude Code local settings
+.claude/settings.local.json
+
+# One-off local helper scripts
+push_to_github.bat
+
 # IDE
 .idea/
 .vscode/

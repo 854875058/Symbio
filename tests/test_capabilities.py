@@ -24,7 +24,7 @@ def test_capability_report_marks_claim_statuses_and_evidence():
     assert "src/symbio/core/dag_runtime.py" in items["dynamic_dag"]["evidence"]
     assert items["hitl_im_approval"]["status"] == "implemented"
     assert "src/symbio/core/hitl_notifier.py" in items["hitl_im_approval"]["evidence"]
-    assert items["a2a_protocol"]["status"] == "missing"
+    assert items["a2a_protocol"]["status"] == "partial"
     assert items["computer_use_loop"]["status"] == "missing"
 
     for item in report["items"]:
