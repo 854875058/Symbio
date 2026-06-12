@@ -43,6 +43,8 @@ const state = {
   pagesLoaded: {},
   virtualScrollEnabled: false,
   executionCache: {},
+  a2a: { sessions: [], inboundTasks: [], ownCard: null },
+  sidebarCollapsed: localStorage.getItem('symbio-sidebar-collapsed') === '1',
 };
 
 // ============ DOM ============
@@ -125,13 +127,34 @@ const dom = {
   externalAgentSessions: $('#external-agent-sessions'),
   externalAgentTranscripts: $('#external-agent-transcripts'),
   externalAgentAudit: $('#external-agent-audit'),
+  sidebarEl: $('#sidebar'),
+  appRoot: $('.app'),
+  topbarTitle: $('#topbar-title'),
+  topbarTokens: $('#topbar-tokens'),
+  topbarCost: $('#topbar-cost'),
+  topbarConnLabel: $('#topbar-conn-label'),
+  statusTokens: $('#status-tokens'),
+  statusCost: $('#status-cost'),
+  statusModelName: $('#status-model-name'),
+  statusDot: $('#status-dot'),
+  sidebarCollapseBtn: $('#sidebar-collapse'),
 };
 
 // ============ Navigation ============
+const PAGE_TITLES = {
+  chat: '对话', tasks: '任务监控', models: '模型配置', memory: '记忆管理',
+  ontology: '本体图谱', skills: 'Skills', dashboard: '仪表盘',
+  capabilities: '能力账本', evolution: '数据飞轮', sandbox: 'Sandbox',
+  'external-agents': 'External Agents', hitl: '审批中心', a2a: 'A2A 协议', mcp: 'MCP 工具网关',
+};
+
 async function switchPage(name) {
   state.page = name;
   dom.navTabs.forEach(t => t.classList.toggle('active', t.dataset.page === name));
   dom.pages.forEach(p => p.classList.toggle('active', p.id === `page-${name}`));
+
+  // Update topbar title
+  if (dom.topbarTitle) dom.topbarTitle.textContent = PAGE_TITLES[name] || name;
 
   // Lazy load: only load data on first visit per page (avoids re-fetching on tab switch)
   if (name === 'models' && !state.pagesLoaded.models) { state.pagesLoaded.models = true; await loadModels(); await loadConfig(); }
@@ -147,12 +170,33 @@ async function switchPage(name) {
   if (name === 'evolution') await loadEvolution();
   if (name === 'sandbox') await loadSandbox();
   if (name === 'external-agents') await loadExternalAgents();
-  if (name === 'hitl') await loadHitl();
+  if (name === 'hitl') { await loadHitl(); await loadHitlChannels(); }
+  if (name === 'mcp') await loadMCP();
+  if (name === 'a2a') await loadA2A();
 }
 
 dom.navTabs.forEach(tab => {
   tab.addEventListener('click', () => switchPage(tab.dataset.page));
 });
+
+// ============ Sidebar Collapse ============
+function setSidebarCollapsed(collapsed) {
+  state.sidebarCollapsed = collapsed;
+  localStorage.setItem('symbio-sidebar-collapsed', collapsed ? '1' : '0');
+  dom.appRoot?.classList.toggle('sidebar-collapsed', collapsed);
+  const btn = dom.sidebarCollapseBtn;
+  if (btn) {
+    btn.title = collapsed ? '展开侧边栏' : '收起侧边栏';
+    const svg = btn.querySelector('svg');
+    if (svg) svg.style.transform = collapsed ? 'rotate(180deg)' : '';
+  }
+  const menuToggle = $('#topbar-menu-toggle');
+  if (menuToggle) menuToggle.style.display = collapsed ? 'flex' : 'none';
+}
+
+dom.sidebarCollapseBtn?.addEventListener('click', () => setSidebarCollapsed(!state.sidebarCollapsed));
+$('#topbar-menu-toggle')?.addEventListener('click', () => setSidebarCollapsed(false));
+
 
 // ============ Sessions ============
 function renderSessions() {
@@ -487,6 +531,20 @@ function removeStreaming() {
 }
 
 function updateConnectionStatus(online) {
+  // Update topbar connection
+  if (dom.topbarConnLabel) {
+    dom.topbarConnLabel.textContent = online ? '已连接' : '断开';
+    dom.topbarConnLabel.style.color = online ? 'var(--green)' : 'var(--red)';
+  }
+  const dots = [dom.statusDot, document.getElementById('connection-dot')];
+  dots.forEach(dot => {
+    if (!dot) return;
+    dot.classList.toggle('online', online);
+    dot.classList.toggle('offline', !online);
+  });
+  const connText = document.getElementById('status-conn-text');
+  if (connText) connText.textContent = online ? '已连接' : '已断开';
+
   const dot = document.querySelector('.status-dot');
   if (dot) {
     dot.className = `status-dot ${online ? 'online' : 'offline'}`;
@@ -651,6 +709,12 @@ applyTheme(state.theme);
 
 // ============ Status ============
 function updateStatus() {
+  // Update topbar tokens
+  if (dom.topbarTokens) dom.topbarTokens.textContent = formatNumber ? formatNumber(state.tokens.total) : state.tokens.total;
+  if (dom.topbarCost) dom.topbarCost.textContent = (state.cost || 0).toFixed(2);
+  if (dom.statusTokens) dom.statusTokens.textContent = formatNumber ? formatNumber(state.tokens.total) : state.tokens.total;
+  if (dom.statusCost) dom.statusCost.textContent = '$' + (state.cost || 0).toFixed(2);
+
   const el = document.querySelector('.status-center');
   if (el) {
     el.innerHTML = `
@@ -3886,28 +3950,76 @@ async function loadObservabilitySummary() {
   }
 }
 
+let _tokenChartInst = null;
 function renderTokenChart(sessions) {
-  const chart = dom.tokenBarChart;
-  if (!chart) return;
+  const container = dom.tokenBarChart;
+  if (!container) return;
 
-  // Build data: last 7 sessions or fallback to mock
+  // Use Chart.js if available
+  if (typeof Chart !== 'undefined') {
+    const data = sessions.slice(-8).map(s => ({
+      label: (s.title || '对话').substring(0, 8),
+      value: s.token_count || s.tokens || 0,
+    }));
+    if (data.length === 0) {
+      // Generate placeholder data
+      for (let i = 1; i <= 6; i++) data.push({ label: `会话${i}`, value: 0 });
+    }
+
+    // Destroy existing chart
+    if (_tokenChartInst) { _tokenChartInst.destroy(); _tokenChartInst = null; }
+
+    // Create canvas if needed
+    container.innerHTML = '<canvas id="token-chart-canvas" style="max-height:160px"></canvas>';
+    const canvas = container.querySelector('canvas');
+    const isDark = state.theme !== 'light';
+    const gridColor = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
+    const labelColor = isDark ? '#8080a0' : '#52527a';
+
+    _tokenChartInst = new Chart(canvas, {
+      type: 'bar',
+      data: {
+        labels: data.map(d => d.label),
+        datasets: [{
+          label: 'Tokens',
+          data: data.map(d => d.value),
+          backgroundColor: 'rgba(91,156,246,0.5)',
+          borderColor: 'rgba(91,156,246,0.9)',
+          borderWidth: 1,
+          borderRadius: 4,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: ctx => ` ${ctx.parsed.y.toLocaleString()} tokens`,
+            },
+          },
+        },
+        scales: {
+          x: { grid: { color: gridColor }, ticks: { color: labelColor, font: { size: 11 } } },
+          y: { grid: { color: gridColor }, ticks: { color: labelColor, font: { size: 11 } } },
+        },
+      },
+    });
+    return;
+  }
+
+  // Fallback: simple bars
   const data = sessions.slice(-7).map(s => ({
     label: (s.title || '会话').substring(0, 6),
     value: s.token_count || s.tokens || 0,
   }));
-
-  // If no data, show placeholder
   if (data.length === 0 || data.every(d => d.value === 0)) {
-    const placeholders = ['会话1', '会话2', '会话3', '会话4', '会话5'];
-    chart.innerHTML = placeholders.map((l, i) => {
-      const h = Math.max(8, Math.floor(Math.random() * 80 + 20));
-      return `<div class="bar-chart-bar"><div class="bar-chart-fill" style="height:${h}%" data-value="0"></div><div class="bar-chart-label">${l}</div></div>`;
-    }).join('');
+    container.innerHTML = '<div class="empty-state-lg"><p>暂无 Token 数据</p></div>';
     return;
   }
-
   const maxVal = Math.max(...data.map(d => d.value), 1);
-  chart.innerHTML = data.map(d => {
+  container.innerHTML = data.map(d => {
     const pct = Math.max(4, Math.round((d.value / maxVal) * 100));
     return `<div class="bar-chart-bar"><div class="bar-chart-fill" style="height:${pct}%" data-value="${d.value}"></div><div class="bar-chart-label">${esc(d.label)}</div></div>`;
   }).join('');
@@ -4741,13 +4853,463 @@ async function init() {
   // Apply theme
   applyTheme(state.theme);
 
+  // Apply sidebar state
+  if (state.sidebarCollapsed) {
+    dom.appRoot?.classList.add('sidebar-collapsed');
+    const menuToggle = document.getElementById('topbar-menu-toggle');
+    if (menuToggle) menuToggle.style.display = 'flex';
+  }
+
   await loadSessions();
   await Promise.all([loadModels(), loadConfig()]);
   await checkHealth();
   connectWebSocket();
   setupVirtualScroll();
+
+  // Update status model name
+  const modelName = state.selectedChatModel || (state.models?.[0]?.model_id) || '--';
+  if (dom.statusModelName) dom.statusModelName.textContent = modelName;
+
   setInterval(checkHealth, 30000);
   console.log('Symbio UI initialized');
 }
 
 document.addEventListener('DOMContentLoaded', init);
+
+// ============ A2A Page ============
+async function loadA2A() {
+  await Promise.all([
+    loadA2AOwnCard(),
+    loadA2ASessions(),
+    loadA2AInboundTasks(),
+  ]);
+}
+
+async function loadA2AOwnCard() {
+  const el = document.getElementById('a2a-own-card');
+  if (!el) return;
+  try {
+    const res = await fetch(`${window.location.origin}/.well-known/agent.json`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const card = await res.json();
+    state.a2a.ownCard = card;
+    renderA2ACard(el, card);
+  } catch (e) {
+    el.innerHTML = `<div class="empty-state-lg"><p>加载失败: ${esc(e.message)}</p></div>`;
+  }
+}
+
+function renderA2ACard(container, card) {
+  if (!card) { container.innerHTML = '<div class="empty-state-lg"><p>无数据</p></div>'; return; }
+  const caps = card.capabilities || {};
+  const skills = card.skills || [];
+  container.innerHTML = `
+    <div class="a2a-card-grid">
+      <div class="a2a-card-field"><label>名称</label><span>${esc(card.name || '—')}</span></div>
+      <div class="a2a-card-field"><label>版本</label><span>${esc(card.version || '—')}</span></div>
+      <div class="a2a-card-field"><label>URL</label><span style="font-family:var(--font-mono);font-size:0.78rem;color:var(--accent)">${esc(card.url || '—')}</span></div>
+      <div class="a2a-card-field"><label>流式响应</label><span>${caps.streaming ? '✓ 支持' : '✗ 不支持'}</span></div>
+      <div class="a2a-card-field"><label>推送通知</label><span>${caps.pushNotifications ? '✓ 支持' : '✗ 不支持'}</span></div>
+      <div class="a2a-card-field"><label>状态历史</label><span>${caps.stateTransitionHistory ? '✓ 支持' : '✗ 不支持'}</span></div>
+      <div class="a2a-card-field" style="grid-column:1/-1">
+        <label>描述</label>
+        <span style="line-height:1.5">${esc(card.description || '—')}</span>
+      </div>
+    </div>
+    ${skills.length ? `
+    <div style="margin-top:14px">
+      <div class="a2a-card-field"><label>可用 Skills</label></div>
+      <div class="a2a-skills-list">
+        ${skills.map(s => `<span class="a2a-skill-chip" title="${esc(s.description || '')}">${esc(s.name)}</span>`).join('')}
+      </div>
+    </div>` : ''}
+  `;
+}
+
+async function loadA2ASessions(limit = 30) {
+  const el = document.getElementById('a2a-sessions-list');
+  if (!el) return;
+  try {
+    const res = await fetch(`${API}/a2a/sessions?limit=${limit}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    state.a2a.sessions = data.sessions || [];
+    renderA2ASessions(el, data.sessions || []);
+  } catch (e) {
+    el.innerHTML = `<div class="empty-state-lg"><p>加载失败: ${esc(e.message)}</p></div>`;
+  }
+}
+
+function renderA2ASessions(container, sessions) {
+  if (!sessions.length) {
+    container.innerHTML = '<div class="empty-state-lg"><p>暂无出站会话</p></div>';
+    return;
+  }
+  container.innerHTML = sessions.map(s => `
+    <div class="a2a-session-item" id="a2a-session-${esc(s.id)}">
+      <div class="a2a-session-meta">
+        <div class="a2a-session-name">${esc(s.remote_name || 'remote-agent')}</div>
+        <div class="a2a-session-url">${esc(s.remote_url)}</div>
+        <div class="a2a-session-time">${formatTime(s.last_active)} · ${s.messages?.length || 0} 条消息</div>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
+        <span class="a2a-state-badge a2a-state-${esc(s.state || 'submitted')}">${a2aStateLabel(s.state)}</span>
+        <div class="a2a-send-row" style="margin:0">
+          <input class="text-input a2a-send-input" id="a2a-send-msg-${esc(s.id)}" placeholder="继续发送消息...">
+          <button class="btn-outline" onclick="sendA2AMessage('${esc(s.id)}')">发送</button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function loadA2AInboundTasks(limit = 30) {
+  const el = document.getElementById('a2a-inbound-tasks');
+  if (!el) return;
+  try {
+    const res = await fetch(`${API}/a2a/tasks?origin=inbound&limit=${limit}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    state.a2a.inboundTasks = data.tasks || [];
+    renderA2AInboundTasks(el, data.tasks || []);
+  } catch (e) {
+    el.innerHTML = `<div class="empty-state-lg"><p>加载失败: ${esc(e.message)}</p></div>`;
+  }
+}
+
+function renderA2AInboundTasks(container, tasks) {
+  if (!tasks.length) {
+    container.innerHTML = '<div class="empty-state-lg"><p>暂无入站任务</p></div>';
+    return;
+  }
+  container.innerHTML = tasks.map(t => {
+    const prompt = t.message?.parts?.[0]?.text || t.message?.text_content || '(no content)';
+    const resultText = t.result?.message?.parts?.[0]?.text || t.result?.message?.text_content || '';
+    return `
+    <div class="a2a-task-item">
+      <div class="a2a-task-meta">
+        <div class="a2a-task-prompt">${esc(prompt)}</div>
+        ${resultText ? `<div style="margin-top:4px;font-size:0.78rem;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">↳ ${esc(resultText.substring(0,100))}${resultText.length > 100 ? '…' : ''}</div>` : ''}
+        <div class="a2a-task-time">${formatTime(t.created_at)} · ${esc(t.id.substring(0,20))}…</div>
+      </div>
+      <span class="a2a-state-badge a2a-state-${esc(t.state || 'submitted')}">${a2aStateLabel(t.state)}</span>
+    </div>
+    `;
+  }).join('');
+}
+
+function a2aStateLabel(state) {
+  const map = {
+    submitted: '待处理', working: '处理中', completed: '完成',
+    failed: '失败', cancelled: '已取消', input_required: '等待输入',
+  };
+  return map[state] || state || '—';
+}
+
+// Probe remote agent
+document.getElementById('btn-a2a-probe')?.addEventListener('click', async () => {
+  const url = document.getElementById('a2a-probe-url')?.value?.trim();
+  const resultEl = document.getElementById('a2a-probe-result');
+  if (!url || !resultEl) return;
+  resultEl.innerHTML = '<div class="empty-state-lg"><p>探测中...</p></div>';
+  try {
+    const res = await fetch(`${API}/a2a/probe?url=${encodeURIComponent(url)}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    renderA2ACard(resultEl, data);
+    toast('success', '探测成功', data.name || url);
+  } catch (e) {
+    resultEl.innerHTML = `<div class="empty-state-lg"><p>探测失败: ${esc(e.message)}</p></div>`;
+    toast('error', '探测失败', e.message);
+  }
+});
+
+// Load own card
+document.getElementById('btn-load-own-card')?.addEventListener('click', loadA2AOwnCard);
+
+// Create outbound session
+document.getElementById('btn-a2a-create-session')?.addEventListener('click', async () => {
+  const remoteUrl = document.getElementById('a2a-session-url')?.value?.trim();
+  const remoteName = document.getElementById('a2a-session-name')?.value?.trim() || 'remote-agent';
+  const initMsg = document.getElementById('a2a-session-init-msg')?.value?.trim();
+  const resultEl = document.getElementById('a2a-session-result');
+  if (!remoteUrl) { toast('error', '请输入远程 Agent URL', ''); return; }
+  if (resultEl) resultEl.innerHTML = '<div class="empty-state-lg"><p>建立连接中...</p></div>';
+  try {
+    const res = await fetch(`${API}/a2a/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ remote_url: remoteUrl, remote_name: remoteName, initial_message: initMsg || null }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    toast('success', '会话已建立', `连接到 ${data.session?.remote_name || remoteUrl}`);
+    if (resultEl) {
+      const remCard = data.remote_card;
+      resultEl.innerHTML = `
+        <div class="a2a-card-display" style="margin-top:0">
+          <div style="font-size:0.8rem;color:var(--green);margin-bottom:8px">✓ 会话创建成功 · ID: ${esc((data.session?.id || '').substring(0,24))}…</div>
+          ${remCard ? `<div style="font-size:0.8rem;color:var(--text-secondary)">远程 Agent: <strong>${esc(remCard.name || remoteName)}</strong> ${esc(remCard.version || '')}</div>` : ''}
+          ${data.send_error ? `<div style="font-size:0.8rem;color:var(--red);margin-top:6px">初始消息发送失败: ${esc(data.send_error)}</div>` : ''}
+        </div>`;
+    }
+    await loadA2ASessions();
+  } catch (e) {
+    if (resultEl) resultEl.innerHTML = `<div class="empty-state-lg"><p>失败: ${esc(e.message)}</p></div>`;
+    toast('error', '建立会话失败', e.message);
+  }
+});
+
+async function sendA2AMessage(sessionId) {
+  const input = document.getElementById(`a2a-send-msg-${sessionId}`);
+  const msg = input?.value?.trim();
+  if (!msg) return;
+  input.value = '';
+  try {
+    const res = await fetch(`${API}/a2a/sessions/${encodeURIComponent(sessionId)}/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: msg }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    toast('success', '消息已发送', '等待远程 Agent 响应');
+    await loadA2ASessions();
+  } catch (e) {
+    toast('error', '发送失败', e.message);
+  }
+}
+
+document.getElementById('btn-refresh-a2a')?.addEventListener('click', loadA2A);
+
+// ============ HITL Channel Management ============
+async function loadHitlChannels() {
+  const list = document.getElementById('hitl-channels-list');
+  if (!list) return;
+  try {
+    const res = await fetch(`${API}/hitl/channels/list`);
+    const data = await res.json();
+    renderHitlChannels(list, data.channels || []);
+  } catch (e) {
+    if (list) list.innerHTML = `<div class="empty-state-lg"><p>加载失败: ${esc(e.message)}</p></div>`;
+  }
+}
+
+function renderHitlChannels(container, channels) {
+  if (!channels.length) {
+    container.innerHTML = '<div class="empty-state-lg" style="padding:12px 0"><p>暂无配置的通知渠道</p><span class="empty-hint">点击"添加渠道"配置 QQ / 企业微信 / 飞书 / 钉钉 / Telegram 等</span></div>';
+    return;
+  }
+  container.innerHTML = channels.map(ch => `
+    <div class="hitl-channel-item">
+      <div class="hitl-channel-meta">
+        <div class="hitl-channel-name">${esc(ch.display_name || ch.platform)}</div>
+        <div class="hitl-channel-endpoint">${esc(ch.endpoint || ch.chat_id || '—')}</div>
+        <div style="font-size:0.72rem;color:var(--text-tertiary);margin-top:2px">
+          ${ch.has_access_token ? '🔑 Token' : ''} ${ch.has_secret ? '🔒 Secret' : ''}
+        </div>
+      </div>
+      <span class="hitl-channel-badge ${ch.enabled ? '' : 'disabled'}">${ch.enabled ? '启用' : '停用'}</span>
+      <div class="hitl-channel-actions">
+        ${ch.deletable ? `<button class="btn-outline" style="padding:4px 10px;font-size:0.78rem" onclick="deleteHitlChannel('${esc(ch.id)}')">删除</button>` : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+document.getElementById('btn-add-channel')?.addEventListener('click', () => {
+  const form = document.getElementById('hitl-add-channel-form');
+  if (form) form.style.display = form.style.display === 'none' ? 'block' : 'none';
+});
+document.getElementById('btn-cancel-channel')?.addEventListener('click', () => {
+  const form = document.getElementById('hitl-add-channel-form');
+  if (form) form.style.display = 'none';
+});
+document.getElementById('btn-test-channel')?.addEventListener('click', async () => {
+  const resultEl = document.getElementById('ch-test-result');
+  const body = gatherChannelForm();
+  if (!body) return;
+  if (resultEl) resultEl.innerHTML = '<span style="color:var(--text-tertiary)">发送测试中...</span>';
+  try {
+    const res = await fetch(`${API}/hitl/channels/test`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (resultEl) {
+      const ok = data.success;
+      resultEl.innerHTML = `<span style="color:${ok ? 'var(--green)' : 'var(--red)'}">${ok ? '✓ 测试成功' : `✗ 失败: ${esc(data.error || data.delivery_status)}`}</span>`;
+    }
+  } catch (e) {
+    if (resultEl) resultEl.innerHTML = `<span style="color:var(--red)">✗ ${esc(e.message)}</span>`;
+  }
+});
+document.getElementById('btn-save-channel')?.addEventListener('click', async () => {
+  const body = gatherChannelForm();
+  if (!body) return;
+  try {
+    const res = await fetch(`${API}/hitl/channels`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    toast('success', '渠道已保存', data.channel?.display_name || body.platform);
+    document.getElementById('hitl-add-channel-form').style.display = 'none';
+    await loadHitlChannels();
+  } catch (e) {
+    toast('error', '保存失败', e.message);
+  }
+});
+
+function gatherChannelForm() {
+  return {
+    platform: document.getElementById('ch-platform')?.value || '',
+    endpoint: document.getElementById('ch-endpoint')?.value?.trim() || '',
+    access_token: document.getElementById('ch-access-token')?.value?.trim() || '',
+    chat_id: document.getElementById('ch-chat-id')?.value?.trim() || '',
+    secret: document.getElementById('ch-secret')?.value?.trim() || '',
+    chat_type: document.getElementById('ch-chat-type')?.value || 'group',
+    enabled: true,
+  };
+}
+
+async function deleteHitlChannel(channelId) {
+  try {
+    const res = await fetch(`${API}/hitl/channels/${encodeURIComponent(channelId)}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    toast('success', '渠道已删除', '');
+    await loadHitlChannels();
+  } catch (e) {
+    toast('error', '删除失败', e.message);
+  }
+}
+
+document.getElementById('btn-refresh-channels')?.addEventListener('click', loadHitlChannels);
+
+// Timeout check
+document.getElementById('btn-check-timeouts')?.addEventListener('click', async () => {
+  const resultEl = document.getElementById('hitl-timeout-result');
+  const seconds = parseInt(document.getElementById('hitl-timeout-seconds')?.value || '300');
+  const action = document.getElementById('hitl-timeout-action')?.value || 'auto_reject';
+  if (resultEl) resultEl.innerHTML = '<span style="color:var(--text-tertiary)">检查中...</span>';
+  try {
+    const res = await fetch(`${API}/hitl/timeout/check?max_age_seconds=${seconds}&action=${action}`);
+    const data = await res.json();
+    if (resultEl) {
+      resultEl.innerHTML = `<span style="color:var(--green)">✓ 检查了 ${data.checked} 个，处理了 ${data.handled} 个</span>`;
+    }
+    if (data.handled > 0) await loadHitl();
+  } catch (e) {
+    if (resultEl) resultEl.innerHTML = `<span style="color:var(--red)">✗ ${esc(e.message)}</span>`;
+  }
+});
+
+// Hook into loadHitl to also load channels
+const _origLoadHitl = loadHitl;
+// We don't need to override loadHitl, just call loadHitlChannels on page switch
+
+// ============ MCP Page ============
+const mcpState = { servers: [] };
+
+async function loadMCP() {
+  await loadMCPServers();
+}
+
+async function loadMCPServers() {
+  const list = document.getElementById('mcp-servers-list');
+  if (!list) return;
+  try {
+    const res = await fetch(`${API}/mcp/servers`);
+    const data = await res.json();
+    mcpState.servers = data.servers || [];
+    renderMCPServers(list, data.servers || []);
+  } catch (e) {
+    list.innerHTML = `<div class="empty-state-lg"><p>加载失败: ${esc(e.message)}</p></div>`;
+  }
+}
+
+function renderMCPServers(container, servers) {
+  if (!servers.length) {
+    container.innerHTML = `<div class="empty-state-lg">
+      <p>暂无 MCP Server 配置</p>
+      <span class="empty-hint">添加 MCP server 让 Agent 使用标准 MCP 工具（如 filesystem、browser、database 等）</span>
+    </div>`;
+    return;
+  }
+  container.innerHTML = servers.map(s => `
+    <div class="a2a-session-item">
+      <div class="a2a-session-meta">
+        <div class="a2a-session-name">${esc(s.name)}</div>
+        <div class="a2a-session-url">${esc([s.command, ...(s.args || [])].join(' '))}</div>
+        <div class="a2a-session-time">${esc(s.description || '')} ${s.source === 'yaml' ? '(来自 symbio.yaml)' : ''}</div>
+      </div>
+      <div style="display:flex;gap:6px;flex-shrink:0;align-items:center">
+        <button class="btn-outline" style="padding:4px 10px;font-size:0.78rem" onclick="probeMCPTools('${esc(s.id || '')}', '${esc(s.name)}')">探测工具</button>
+        ${s.source !== 'yaml' ? `<button class="btn-outline" style="padding:4px 10px;font-size:0.78rem" onclick="deleteMCPServer('${esc(s.id || '')}')">删除</button>` : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+async function probeMCPTools(serverId, serverName) {
+  if (!serverId) { toast('error', '无 server ID', '内置 yaml 配置暂不支持探测'); return; }
+  const panel = document.getElementById('mcp-tools-panel');
+  const titleEl = document.getElementById('mcp-tools-title');
+  const listEl = document.getElementById('mcp-tools-list');
+  if (!panel || !listEl) return;
+  panel.style.display = 'block';
+  if (titleEl) titleEl.textContent = `${serverName} — 探测中...`;
+  listEl.innerHTML = '<div class="empty-state-lg"><p>连接中...</p></div>';
+  try {
+    const res = await fetch(`${API}/mcp/servers/${encodeURIComponent(serverId)}/tools`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    if (titleEl) titleEl.textContent = `${serverName} — ${data.total} 个工具`;
+    listEl.innerHTML = (data.tools || []).map(t => `
+      <div class="a2a-task-item">
+        <div class="a2a-task-meta">
+          <div class="a2a-task-prompt" style="font-family:var(--font-mono);color:var(--accent)">${esc(t.name)}</div>
+          <div style="font-size:0.8rem;color:var(--text-secondary);margin-top:2px">${esc(t.description || '—')}</div>
+        </div>
+      </div>
+    `).join('') || '<div class="empty-state-lg"><p>无可用工具</p></div>';
+  } catch (e) {
+    listEl.innerHTML = `<div class="empty-state-lg"><p>探测失败: ${esc(e.message)}</p></div>`;
+  }
+}
+
+async function deleteMCPServer(serverId) {
+  try {
+    const res = await fetch(`${API}/mcp/servers/${encodeURIComponent(serverId)}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    toast('success', 'MCP Server 已删除', '');
+    await loadMCPServers();
+  } catch (e) { toast('error', '删除失败', e.message); }
+}
+
+document.getElementById('btn-add-mcp-server')?.addEventListener('click', () => {
+  const form = document.getElementById('mcp-add-form');
+  if (form) form.style.display = form.style.display === 'none' ? 'block' : 'none';
+});
+document.getElementById('btn-cancel-mcp-server')?.addEventListener('click', () => {
+  document.getElementById('mcp-add-form').style.display = 'none';
+});
+document.getElementById('btn-save-mcp-server')?.addEventListener('click', async () => {
+  const name = document.getElementById('mcp-name')?.value?.trim();
+  const cmd = document.getElementById('mcp-command')?.value?.trim();
+  const argsRaw = document.getElementById('mcp-args')?.value?.trim();
+  const desc = document.getElementById('mcp-description')?.value?.trim();
+  if (!name || !cmd) { toast('error', '请填写名称和命令', ''); return; }
+  const args = argsRaw ? argsRaw.split(/\s+/) : [];
+  try {
+    const res = await fetch(`${API}/mcp/servers`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ name, command: cmd, args, description: desc || '' }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    toast('success', 'MCP Server 已添加', name);
+    document.getElementById('mcp-add-form').style.display = 'none';
+    await loadMCPServers();
+  } catch (e) { toast('error', '添加失败', e.message); }
+});
+document.getElementById('btn-refresh-mcp')?.addEventListener('click', loadMCP);

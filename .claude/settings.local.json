@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import ast; ast.parse\\(open\\('src/symbio/core/orchestrator.py', encoding='utf-8'\\).read\\(\\)\\); print\\('Syntax OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('src/symbio/agents/registry.py'\\).read\\(\\)\\); print\\('No syntax errors'\\)\")",
+      "Bash(git add *)",
+      "Bash(git commit -m '修复：将 AgentState 导入移到文件顶部，避免运行时 NameError *)",
+      "Bash(git -c http.proxy=http://127.0.0.1:7897 -c https.proxy=http://127.0.0.1:7897 push)",
+      "Bash(git push *)",
+      "Bash(git commit -m '@ *)",
+      "Bash(taskkill /F /IM python.exe /FI \"WINDOWTITLE eq *uvicorn*\")",
+      "Bash(netstat -ano)",
+      "Bash(findstr \":9090\")",
+      "Bash(findstr \"LISTENING\")",
+      "Bash(git config *)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('src/symbio/agents/subagent.py', encoding='utf-8'\\).read\\(\\)\\); print\\('subagent.py: OK'\\)\")",
+      "Bash(python -c ' *)",
+      "Bash(PYTHONPATH=src python -m pytest tests/test_phase3.py -v -x)",
+      "Bash(git commit -m '新增：Phase 3 记忆系统集成测试 *)",
+      "Bash(git reset *)",
+      "Bash(python -c ' *、)",
+      "Bash(PYTHONPATH=src python -m uvicorn symbio.interfaces.api:app --host 127.0.0.1 --port 9090)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:9090/ui)",
+      "Bash(curl -s \"http://127.0.0.1:9090/api/skills\")",
+      "Bash(taskkill //F //IM python.exe //FI \"WINDOWTITLE eq *uvicorn*\")",
+      "Bash(taskkill //F //PID 25180)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'Total: {d[\\\\\"total\\\\\"]}'\\); [print\\(f' {s[\\\\\"id\\\\\"]}: {s[\\\\\"name\\\\\"]} \\({s[\\\\\"source\\\\\"]}\\)'\\) for s in d['skills'][:5]]\")",
+      "Bash(curl -s \"http://127.0.0.1:9090/api/skills/fs-pdf/detail\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'Name: {d[\\\\\"skill\\\\\"][\\\\\"name\\\\\"]}'\\); print\\(f'Dir: {d[\\\\\"directory\\\\\"]}'\\); print\\(f'Files: {len\\(d[\\\\\"files\\\\\"]\\)}'\\); print\\(f'Readme: {bool\\(d[\\\\\"readme\\\\\"]\\)}'\\)\")",
+      "Bash(curl -s \"http://127.0.0.1:9090/api/skills/fs-pdf/file?path=SKILL.md\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'File: {d[\\\\\"path\\\\\"]}'\\); print\\(f'Size: {d[\\\\\"size\\\\\"]}'\\); print\\(f'Content preview: {d[\\\\\"content\\\\\"][:100]}...'\\)\")"
+    ]
+  }
+}

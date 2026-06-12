@@ -111,10 +111,12 @@ CAPABILITY_ITEMS: tuple[CapabilityItem, ...] = (
         "status": "partial",
         "evidence": [
             "src/symbio/tools/mcp.py",
+            "src/symbio/interfaces/api.py",
+            "web/app.js",
             "tests/test_mcp_config.py",
         ],
         "docs": ["README.md", "docs/features.md", "docs/feature-checklist.md"],
-        "next_step": "Finish persistent connection pooling, resource/prompt protocols, auth, and UI mounting.",
+        "next_step": "Finish persistent connection pooling, resource/prompt protocols, and auth schemes.",
     },
     {
         "id": "external_agent_control",
@@ -156,9 +158,13 @@ CAPABILITY_ITEMS: tuple[CapabilityItem, ...] = (
         "evidence": [
             "src/symbio/core/tracer.py",
             "web/app.js",
+            "docker-compose.observability.yml",
+            "config/otel/collector.yaml",
+            "config/prometheus/prometheus.yml",
+            "config/grafana/provisioning/datasources/datasource.yml",
         ],
         "docs": ["README.md", "docs/features.md", "docs/feature-checklist.md"],
-        "next_step": "Ship default OTLP/Jaeger/Grafana compose profiles and health checks.",
+        "next_step": "Add Grafana dashboards JSON and Symbio metrics endpoint; wire OTLP exporter in production settings.",
     },
     {
         "id": "data_flywheel",
@@ -192,10 +198,13 @@ CAPABILITY_ITEMS: tuple[CapabilityItem, ...] = (
         "id": "a2a_protocol",
         "module": "external_agents",
         "claim": "Agent-to-Agent protocol compatibility with external agent systems.",
-        "status": "missing",
-        "evidence": [],
+        "status": "partial",
+        "evidence": [
+            "src/symbio/interfaces/a2a.py",
+            "src/symbio/interfaces/api.py",
+        ],
         "docs": ["README.md", "docs/features.md", "docs/feature-checklist.md"],
-        "next_step": "Add an A2A adapter boundary, message schema, handshake endpoint, and conformance tests.",
+        "next_step": "Add streaming A2A responses, push notification delivery, OAuth auth scheme, and full conformance test suite.",
     },
     {
         "id": "computer_use_loop",

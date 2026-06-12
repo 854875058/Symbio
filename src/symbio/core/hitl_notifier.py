@@ -26,6 +26,19 @@ from symbio.utils.logger import get_logger
 logger = get_logger("hitl_notifier")
 
 
+PLATFORM_LABELS: dict[str, str] = {
+    "qq": "QQ", "onebot": "OneBot/QQ", "lagrange": "Lagrange/QQ",
+    "wechat": "微信", "weixin": "微信", "wx": "微信", "wecom": "企业微信",
+    "work_wechat": "企业微信", "enterprise_wechat": "企业微信",
+    "feishu": "飞书", "lark": "Lark",
+    "dingtalk": "钉钉", "dingding": "钉钉",
+    "telegram": "Telegram", "tg": "Telegram",
+    "wxpusher": "WxPusher(微信)", "pushplus": "PushPlus(微信)",
+    "push_plus": "PushPlus(微信)", "serverchan": "Server酱(微信)",
+    "server_chan": "Server酱(微信)", "ftqq": "Server酱(微信)",
+    "slack": "Slack", "wechaty": "Wechaty(微信)",
+}
+
 class HITLNotificationTarget(BaseModel):
     """A configured external approval notification target."""
 
@@ -280,12 +293,22 @@ class HITLNotifier:
         return headers
 
     def _url_for(self, platform: str, target: HITLNotificationTarget) -> str:
-        endpoint = target.endpoint.rstrip("/")
+        endpoint = target.endpoint.rstrip("/") if target.endpoint else ""
         if platform in {"qq", "onebot", "lagrange"}:
             if endpoint.endswith("/send_group_msg") or endpoint.endswith("/send_private_msg"):
                 return endpoint
             action = "send_private_msg" if target.chat_type == "private" else "send_group_msg"
             return f"{endpoint}/{action}"
+        if platform in {"telegram", "tg"}:
+            token = target.access_token or endpoint
+            return f"https://api.telegram.org/bot{token}/sendMessage"
+        if platform in {"wxpusher"}:
+            return "https://wxpusher.zjiecode.com/api/send/message"
+        if platform in {"pushplus", "push_plus"}:
+            return "http://www.pushplus.plus/send"
+        if platform in {"serverchan", "server_chan", "ftqq"}:
+            token = target.access_token
+            return f"https://sctapi.ftqq.com/{token}.send"
         return target.endpoint
 
     def _payload_for(
@@ -318,6 +341,37 @@ class HITLNotifier:
                 payload["timestamp"] = timestamp
                 payload["sign"] = self._feishu_sign(timestamp, target.secret)
             return payload
+        if platform in {"dingtalk", "dingding"}:
+            return self._dingtalk_card_payload(request, message)
+        if platform in {"telegram", "tg"}:
+            return {
+                "chat_id": target.chat_id,
+                "text": message,
+                "parse_mode": "Markdown",
+            }
+        if platform in {"wxpusher"}:
+            return {
+                "appToken": target.access_token,
+                "content": self._wxpusher_html(request),
+                "contentType": 2,
+                "uids": [uid.strip() for uid in target.chat_id.split(",") if uid.strip()],
+                "url": self.action_url(request, "approve") if self.callback_base_url else "",
+            }
+        if platform in {"pushplus", "push_plus"}:
+            return {
+                "token": target.access_token,
+                "title": f"Symbio 审批 | {request.risk_level.value}",
+                "content": self._pushplus_html(request),
+                "template": "html",
+                "topic": target.chat_id or "",
+            }
+        if platform in {"serverchan", "server_chan", "ftqq"}:
+            return {
+                "title": f"Symbio 审批请求 [{request.risk_level.value}]",
+                "desp": self._serverchan_markdown(request),
+            }
+        if platform in {"slack"}:
+            return {"text": message, "blocks": self._slack_blocks(request)}
         return {
             "platform": target.platform,
             "chat_id": target.chat_id,
@@ -399,6 +453,120 @@ class HITLNotifier:
             },
         }
 
+    def _dingtalk_card_payload(self, request, message: str) -> dict:
+        code = approval_short_code(request.request_id)
+        approve_url = self.action_url(request, "approve") if self.callback_base_url else ""
+        reject_url = self.action_url(request, "reject", "Rejected from card") if self.callback_base_url else ""
+        md_text = (
+            f"## Symbio 审批请求\n\n"
+            f"- **任务**: {request.task_id}\n"
+            f"- **风险**: {request.risk_level.value}\n"
+            f"- **动作**: {request.action or '-'}\n"
+            f"- **影响**: {request.impact_scope or '-'}\n"
+            f"- **原因**: {request.reason or '-'}\n\n"
+            f"快捷指令: `同意 {code}` / `拒绝 {code} 原因`"
+        )
+        if approve_url and reject_url:
+            return {
+                "msgtype": "actionCard",
+                "actionCard": {
+                    "title": f"Symbio 审批 | {request.risk_level.value}",
+                    "text": md_text,
+                    "btnOrientation": "0",
+                    "btns": [
+                        {"title": "✅ 同意", "actionURL": approve_url},
+                        {"title": "❌ 拒绝", "actionURL": reject_url},
+                    ],
+                },
+            }
+        return {
+            "msgtype": "markdown",
+            "markdown": {
+                "title": f"Symbio 审批请求 [{request.risk_level.value}]",
+                "text": md_text,
+            },
+        }
+
+    def _wxpusher_html(self, request) -> str:
+        code = approval_short_code(request.request_id)
+        approve_url = self.action_url(request, "approve") if self.callback_base_url else "#"
+        reject_url = self.action_url(request, "reject", "Rejected from card") if self.callback_base_url else "#"
+        return (
+            f"<h3>Symbio 审批请求</h3>"
+            f"<table border='1' cellpadding='6'>"
+            f"<tr><td>任务</td><td>{request.task_id}</td></tr>"
+            f"<tr><td>风险</td><td>{request.risk_level.value}</td></tr>"
+            f"<tr><td>动作</td><td>{request.action or '-'}</td></tr>"
+            f"<tr><td>影响</td><td>{request.impact_scope or '-'}</td></tr>"
+            f"<tr><td>原因</td><td>{request.reason or '-'}</td></tr>"
+            f"</table>"
+            f"<br/><strong>快捷指令</strong>: 同意 {code} / 拒绝 {code} 原因<br/>"
+            f"<a href='{approve_url}'>✅ 同意</a> &nbsp; <a href='{reject_url}'>❌ 拒绝</a>"
+        )
+
+    def _pushplus_html(self, request) -> str:
+        code = approval_short_code(request.request_id)
+        approve_url = self.action_url(request, "approve") if self.callback_base_url else "#"
+        reject_url = self.action_url(request, "reject", "Rejected from card") if self.callback_base_url else "#"
+        return (
+            f"<h3>Symbio 审批请求</h3>"
+            f"<p><b>任务:</b> {request.task_id}</p>"
+            f"<p><b>风险:</b> {request.risk_level.value}</p>"
+            f"<p><b>动作:</b> {request.action or '-'}</p>"
+            f"<p><b>影响:</b> {request.impact_scope or '-'}</p>"
+            f"<p><b>原因:</b> {request.reason or '-'}</p>"
+            f"<p>快捷指令: <code>同意 {code}</code> / <code>拒绝 {code} 原因</code></p>"
+            f'<p><a href="{approve_url}">✅ 同意</a> &nbsp; <a href="{reject_url}">❌ 拒绝</a></p>'
+        )
+
+    def _serverchan_markdown(self, request) -> str:
+        code = approval_short_code(request.request_id)
+        approve_url = self.action_url(request, "approve") if self.callback_base_url else ""
+        lines = [
+            f"## Symbio 审批请求",
+            f"",
+            f"| 字段 | 内容 |",
+            f"|------|------|",
+            f"| 任务 | `{request.task_id}` |",
+            f"| 风险 | `{request.risk_level.value}` |",
+            f"| 动作 | {request.action or '-'} |",
+            f"| 影响 | {request.impact_scope or '-'} |",
+            f"| 原因 | {request.reason or '-'} |",
+            f"",
+            f"**快捷指令**: `同意 {code}` / `拒绝 {code} 原因`",
+        ]
+        if approve_url:
+            lines.append(f"\n[点击同意]({approve_url})")
+        return "\n".join(lines)
+
+    def _slack_blocks(self, request) -> list:
+        code = approval_short_code(request.request_id)
+        approve_url = self.action_url(request, "approve") if self.callback_base_url else ""
+        reject_url = self.action_url(request, "reject", "Rejected from card") if self.callback_base_url else ""
+        blocks = [
+            {"type": "header", "text": {"type": "plain_text", "text": "🔔 Symbio 审批请求"}},
+            {
+                "type": "section",
+                "fields": [
+                    {"type": "mrkdwn", "text": f"*任务*\n`{request.task_id}`"},
+                    {"type": "mrkdwn", "text": f"*风险*\n`{request.risk_level.value}`"},
+                    {"type": "mrkdwn", "text": f"*动作*\n{request.action or '-'}"},
+                    {"type": "mrkdwn", "text": f"*影响*\n{request.impact_scope or '-'}"},
+                ],
+            },
+            {"type": "section", "text": {"type": "mrkdwn", "text": f"*原因*: {request.reason or '-'}"}},
+            {"type": "context", "elements": [{"type": "mrkdwn", "text": f"快捷指令: `同意 {code}` / `拒绝 {code} 原因`"}]},
+        ]
+        if approve_url and reject_url:
+            blocks.append({
+                "type": "actions",
+                "elements": [
+                    {"type": "button", "text": {"type": "plain_text", "text": "✅ 同意"}, "style": "primary", "url": approve_url},
+                    {"type": "button", "text": {"type": "plain_text", "text": "❌ 拒绝"}, "style": "danger", "url": reject_url},
+                ],
+            })
+        return blocks
+
     def _feishu_sign(self, timestamp: str, secret: str) -> str:
         string_to_sign = f"{timestamp}\n{secret}"
         digest = hmac.new(
@@ -432,6 +600,14 @@ class HITLNotifier:
             retcode = response_payload.get("retcode", 0)
             status = str(response_payload.get("status", "ok")).lower()
             return retcode == 0 and status in {"ok", "async", "success"}
+        if platform in {"dingtalk", "dingding"}:
+            return response_payload.get("errcode", 0) == 0
+        if platform in {"wxpusher"}:
+            return response_payload.get("success", False)
+        if platform in {"pushplus", "push_plus"}:
+            return response_payload.get("code", -1) == 200
+        if platform in {"serverchan", "server_chan", "ftqq"}:
+            return response_payload.get("code", -1) == 0
         return True
 
     def _response_error(self, response: httpx.Response, response_payload: dict[str, Any]) -> str:

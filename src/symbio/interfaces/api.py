@@ -2653,3 +2653,515 @@ if web_dir is not None:
     async def serve_ui():
         """提供 Web UI"""
         return FileResponse(str(web_dir / "index.html"))
+
+
+# ============ A2A 协议 ============
+
+from symbio.interfaces.a2a import (
+    A2AAgentCard,
+    A2AMessage,
+    A2AMessageRole,
+    A2ASession,
+    A2ASessionManager,
+    A2ATask,
+    A2ATaskResult,
+    A2ATaskState,
+    A2ATextPart,
+    build_agent_card,
+    fetch_remote_agent_card,
+    send_task_to_agent,
+)
+
+_A2A_PERSIST_PATH = Path("data") / "a2a_state.json"
+
+
+def _get_a2a_manager() -> A2ASessionManager:
+    mgr = getattr(app.state, "a2a_manager", None)
+    if mgr is None:
+        mgr = A2ASessionManager(persist_path=_A2A_PERSIST_PATH)
+        app.state.a2a_manager = mgr
+    return mgr
+
+
+def _server_base_url(request) -> str:
+    """Best-effort base URL of this server (for AgentCard)."""
+    try:
+        return str(request.base_url).rstrip("/")
+    except Exception:
+        return "http://localhost:9090"
+
+
+# -- AgentCard (self-description) ------------------------------------------
+
+@app.get("/.well-known/agent.json", tags=["a2a"])
+async def agent_card(request):
+    """A2A AgentCard — describes this agent's capabilities to external agents."""
+    card = build_agent_card(base_url=_server_base_url(request))
+    return card.model_dump(mode="json")
+
+
+@app.get("/api/a2a/card", tags=["a2a"])
+async def get_own_agent_card(request):
+    """Return this agent's own A2A card (same as /.well-known/agent.json)."""
+    card = build_agent_card(base_url=_server_base_url(request))
+    return card.model_dump(mode="json")
+
+
+# -- Inbound tasks (we receive from external agents) -----------------------
+
+class A2AInboundTaskRequest(BaseModel):
+    id: Optional[str] = None
+    sessionId: Optional[str] = None
+    message: dict  # raw dict; validated inside handler
+
+
+@app.post("/api/a2a/tasks", tags=["a2a"])
+async def receive_a2a_task(payload: A2AInboundTaskRequest, request=None):
+    """Receive a task from an external A2A-compatible agent."""
+    mgr = _get_a2a_manager()
+
+    # Normalise message
+    raw_msg = payload.message
+    role_str = raw_msg.get("role", "user")
+    parts = raw_msg.get("parts", [])
+    if not parts:
+        parts = [{"type": "text", "text": raw_msg.get("text", "")}]
+
+    msg = A2AMessage(
+        role=A2AMessageRole(role_str),
+        parts=[A2ATextPart(**p) for p in parts],
+        messageId=raw_msg.get("messageId", f"msg-{uuid.uuid4().hex[:12]}"),
+    )
+
+    task = A2ATask(
+        id=payload.id or f"a2a-task-{uuid.uuid4().hex[:16]}",
+        sessionId=payload.sessionId,
+        message=msg,
+        origin="inbound",
+    )
+
+    task = await mgr.receive_task(task)
+
+    # Fire-and-forget: process the task via Symbio's chat pipeline
+    asyncio.create_task(_process_inbound_a2a_task(task.id, msg.text_content))
+
+    return {
+        "id": task.id,
+        "sessionId": task.sessionId,
+        "state": task.state,
+        "created_at": task.created_at,
+    }
+
+
+async def _process_inbound_a2a_task(task_id: str, prompt: str) -> None:
+    """Process an inbound A2A task through Symbio's LLM and update the task state."""
+    mgr = _get_a2a_manager()
+    await mgr.update_task_state(task_id, A2ATaskState.WORKING)
+
+    response_text = ""
+    try:
+        settings = await _load_llm_settings()
+        import anthropic
+
+        if not settings.model.anthropic_api_key:
+            raise ValueError("No API key configured")
+
+        client = anthropic.AsyncAnthropic(
+            api_key=settings.model.anthropic_api_key,
+            base_url=settings.model.anthropic_base_url,
+        )
+        resp = await client.messages.create(
+            model=settings.model.model_medium,
+            max_tokens=2048,
+            system=SYMBIO_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        response_text = resp.content[0].text if resp.content else ""
+    except Exception as exc:
+        response_text = f"[Symbio error: {exc}]"
+
+    result = A2ATaskResult(
+        state=A2ATaskState.COMPLETED,
+        message=A2AMessage.text(A2AMessageRole.AGENT, response_text),
+    )
+    await mgr.update_task_state(task_id, A2ATaskState.COMPLETED, result=result)
+
+
+@app.get("/api/a2a/tasks/{task_id}", tags=["a2a"])
+async def get_a2a_task(task_id: str):
+    mgr = _get_a2a_manager()
+    task = await mgr.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="A2A task not found")
+    return task.model_dump(mode="json")
+
+
+@app.get("/api/a2a/tasks", tags=["a2a"])
+async def list_a2a_tasks(origin: Optional[str] = None, limit: int = 50):
+    mgr = _get_a2a_manager()
+    tasks = await mgr.list_tasks(origin=origin, limit=limit)
+    return {"tasks": [t.model_dump(mode="json") for t in tasks], "total": len(tasks)}
+
+
+# -- Outbound sessions (we initiate to remote agents) ---------------------
+
+class A2ACreateSessionRequest(BaseModel):
+    remote_url: str
+    remote_name: str = "remote-agent"
+    initial_message: Optional[str] = None
+    metadata: dict = {}
+
+
+class A2ASendMessageRequest(BaseModel):
+    message: str
+
+
+@app.post("/api/a2a/sessions", tags=["a2a"])
+async def create_a2a_session(req: A2ACreateSessionRequest):
+    """Create an outbound A2A session to a remote agent (optionally sends first message)."""
+    mgr = _get_a2a_manager()
+
+    # Try to discover the remote agent's card first
+    card = await fetch_remote_agent_card(req.remote_url, timeout=5)
+    remote_name = card.get("name", req.remote_name) if card else req.remote_name
+
+    session = await mgr.create_session(
+        remote_url=req.remote_url,
+        remote_name=remote_name,
+        metadata=req.metadata,
+    )
+
+    result_payload: dict = {
+        "session": session.model_dump(mode="json"),
+        "remote_card": card,
+    }
+
+    # Optionally send the first message
+    if req.initial_message:
+        try:
+            send_result = await send_task_to_agent(
+                req.remote_url, req.initial_message, session_id=session.id
+            )
+            msg = A2AMessage.text(A2AMessageRole.USER, req.initial_message)
+            await mgr.append_session_message(session.id, msg, task_id=send_result.get("task_id"))
+            await mgr.update_session_state(session.id, A2ATaskState.WORKING)
+            result_payload["send_result"] = send_result
+        except Exception as exc:
+            result_payload["send_error"] = str(exc)
+            await mgr.update_session_state(session.id, A2ATaskState.FAILED)
+
+    return result_payload
+
+
+@app.get("/api/a2a/sessions", tags=["a2a"])
+async def list_a2a_sessions(limit: int = 50):
+    mgr = _get_a2a_manager()
+    sessions = await mgr.list_sessions(limit=limit)
+    return {"sessions": [s.model_dump(mode="json") for s in sessions], "total": len(sessions)}
+
+
+@app.get("/api/a2a/sessions/{session_id}", tags=["a2a"])
+async def get_a2a_session(session_id: str):
+    mgr = _get_a2a_manager()
+    session = await mgr.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="A2A session not found")
+    return session.model_dump(mode="json")
+
+
+@app.post("/api/a2a/sessions/{session_id}/send", tags=["a2a"])
+async def send_a2a_session_message(session_id: str, req: A2ASendMessageRequest):
+    """Send a follow-up message in an existing outbound A2A session."""
+    mgr = _get_a2a_manager()
+    session = await mgr.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="A2A session not found")
+
+    try:
+        send_result = await send_task_to_agent(
+            session.remote_url, req.message, session_id=session_id
+        )
+        msg = A2AMessage.text(A2AMessageRole.USER, req.message)
+        await mgr.append_session_message(session_id, msg, task_id=send_result.get("task_id"))
+        await mgr.update_session_state(session_id, A2ATaskState.WORKING)
+        return {"session_id": session_id, "send_result": send_result}
+    except Exception as exc:
+        await mgr.update_session_state(session_id, A2ATaskState.FAILED)
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+# -- Remote agent card probe -----------------------------------------------
+
+@app.get("/api/a2a/probe", tags=["a2a"])
+async def probe_remote_agent(url: str):
+    """Fetch and return the AgentCard from a remote agent URL."""
+    card = await fetch_remote_agent_card(url, timeout=8)
+    if card is None:
+        raise HTTPException(status_code=502, detail=f"Could not reach agent card at {url}")
+    return card
+
+
+# ============ HITL 渠道管理 API ============
+
+class HITLChannelCreate(BaseModel):
+    platform: str
+    endpoint: str = ""
+    chat_id: str = ""
+    chat_type: str = "group"
+    access_token: str = ""
+    secret: str = ""
+    enabled: bool = True
+
+
+_hitl_channels_persist = Path("data") / "hitl_channels.json"
+
+
+def _load_custom_channels() -> list[dict]:
+    if _hitl_channels_persist.exists():
+        try:
+            return json.loads(_hitl_channels_persist.read_text())
+        except Exception:
+            pass
+    return []
+
+
+def _save_custom_channels(channels: list[dict]) -> None:
+    _hitl_channels_persist.parent.mkdir(parents=True, exist_ok=True)
+    _hitl_channels_persist.write_text(json.dumps(channels, indent=2))
+
+
+@app.post("/api/hitl/channels", tags=["hitl"])
+async def add_hitl_channel(req: HITLChannelCreate):
+    """添加一个 HITL 通知渠道（持久化保存）。"""
+    from symbio.core.hitl_notifier import HITLNotificationTarget, PLATFORM_LABELS
+    channels = _load_custom_channels()
+    new_ch = req.model_dump()
+    new_ch["id"] = f"ch-{uuid.uuid4().hex[:12]}"
+    new_ch["display_name"] = PLATFORM_LABELS.get(req.platform.lower(), req.platform)
+    channels.append(new_ch)
+    _save_custom_channels(channels)
+    # Reload notifier
+    notifier = _get_hitl_notifier()
+    notifier.targets.append(HITLNotificationTarget(**{k: v for k, v in new_ch.items() if k not in {"id", "display_name"}}))
+    safe = {k: v for k, v in new_ch.items() if k != "access_token"}
+    safe["has_access_token"] = bool(new_ch.get("access_token"))
+    return {"channel": safe}
+
+
+@app.delete("/api/hitl/channels/{channel_id}", tags=["hitl"])
+async def delete_hitl_channel(channel_id: str):
+    """删除已保存的通知渠道。"""
+    channels = _load_custom_channels()
+    new_list = [c for c in channels if c.get("id") != channel_id]
+    if len(new_list) == len(channels):
+        raise HTTPException(status_code=404, detail="Channel not found")
+    _save_custom_channels(new_list)
+    # Reload notifier targets
+    from symbio.core.hitl_notifier import HITLNotifier as _HN
+    app.state.hitl_notifier = _HN.from_settings()
+    return {"deleted": channel_id}
+
+
+@app.get("/api/hitl/channels/list", tags=["hitl"])
+async def list_hitl_channels():
+    """列出所有已配置的通知渠道（包括 yaml 和手动添加的）。"""
+    from symbio.core.hitl_notifier import PLATFORM_LABELS
+    notifier = _get_hitl_notifier()
+    all_targets = notifier.targets
+    saved = _load_custom_channels()
+    saved_by_platform_endpoint = {
+        (c.get("platform", ""), c.get("endpoint", "")): c.get("id")
+        for c in saved
+    }
+    result = []
+    for t in all_targets:
+        ch_id = saved_by_platform_endpoint.get((t.platform, t.endpoint), None)
+        result.append({
+            "id": ch_id or f"built-in-{t.platform}",
+            "platform": t.platform,
+            "display_name": PLATFORM_LABELS.get(t.platform.lower(), t.platform),
+            "endpoint": t.endpoint,
+            "chat_id": t.chat_id,
+            "chat_type": t.chat_type,
+            "enabled": t.enabled,
+            "has_access_token": bool(t.access_token),
+            "has_secret": bool(t.secret),
+            "deletable": ch_id is not None,
+        })
+    return {"channels": result, "total": len(result)}
+
+
+@app.post("/api/hitl/channels/test", tags=["hitl"])
+async def test_hitl_channel(req: HITLChannelCreate):
+    """向指定渠道发送一条测试通知。"""
+    from symbio.core.hitl_notifier import HITLNotifier, HITLNotificationTarget
+    from symbio.core.hitl_gateway import ApprovalRequest, RiskLevel
+
+    test_request = ApprovalRequest(
+        request_id=f"test-{uuid.uuid4().hex[:8]}",
+        task_id="test-task",
+        risk_level=RiskLevel.LOW,
+        action="test notification",
+        reason="This is a test message from Symbio.",
+        impact_scope="none",
+    )
+    target = HITLNotificationTarget(**req.model_dump())
+    notifier = HITLNotifier(targets=[target], callback_base_url="")
+    results = await notifier.notify(test_request)
+    r = results[0] if results else None
+    return {
+        "success": r.success if r else False,
+        "delivery_status": r.delivery_status if r else "not_sent",
+        "error": r.error if r else "No target",
+        "status_code": r.status_code if r else 0,
+    }
+
+
+# ============ HITL 审批超时策略 ============
+
+class HITLTimeoutPolicy(BaseModel):
+    request_id: str
+    action: str = "auto_reject"  # auto_reject | auto_approve | escalate
+    comment: str = "Auto-handled: approval timeout"
+
+
+@app.post("/api/hitl/{request_id}/timeout-action", tags=["hitl"])
+async def hitl_timeout_action(request_id: str, policy: HITLTimeoutPolicy):
+    """手动触发超时处理（通常由后台任务调用）。"""
+    gateway = _get_hitl_gateway()
+    request = await gateway.get_request(request_id)
+    if request is None:
+        raise HTTPException(status_code=404, detail="审批请求不存在")
+    from symbio.core.hitl_gateway import ApprovalStatus
+    if request.status != ApprovalStatus.PENDING:
+        return {"skipped": True, "reason": f"Request is {request.status.value}, not pending"}
+
+    if policy.action == "auto_approve":
+        updated = await gateway.approve(request_id, approver_id="timeout-policy", comment=policy.comment)
+    else:
+        updated = await gateway.reject(request_id, approver_id="timeout-policy", comment=policy.comment)
+
+    resume_result = None
+    if policy.action == "auto_approve":
+        resume_result = await _try_resume_hitl_task(request_id)
+
+    return {
+        "request_id": request_id,
+        "action": policy.action,
+        "status": updated.status.value if updated else "unknown",
+        "resume_result": resume_result,
+    }
+
+
+@app.get("/api/hitl/timeout/check", tags=["hitl"])
+async def check_hitl_timeouts(max_age_seconds: int = 300, action: str = "auto_reject"):
+    """检查超时的审批请求并批量处理（可由外部 cron 或前端轮询调用）。"""
+    gateway = _get_hitl_gateway()
+    from symbio.core.hitl_gateway import ApprovalStatus
+    import time as _time
+
+    pending = await gateway.list_requests(status_filter="pending")
+    now = _time.time()
+    handled = []
+
+    for req in pending:
+        created_ts = None
+        try:
+            from datetime import datetime, timezone
+            created_ts = datetime.fromisoformat(req.created_at.replace("Z", "+00:00")).timestamp()
+        except Exception:
+            continue
+        age = now - created_ts
+        if age >= max_age_seconds:
+            policy = HITLTimeoutPolicy(request_id=req.request_id, action=action,
+                                        comment=f"Auto-handled: timed out after {int(age)}s")
+            if action == "auto_approve":
+                await gateway.approve(req.request_id, approver_id="timeout-checker", comment=policy.comment)
+            else:
+                await gateway.reject(req.request_id, approver_id="timeout-checker", comment=policy.comment)
+            handled.append({"request_id": req.request_id, "age_seconds": int(age), "action": action})
+
+    return {"checked": len(pending), "handled": len(handled), "items": handled}
+
+
+# ============ MCP 工具网关 API ============
+
+class MCPServerAdd(BaseModel):
+    name: str
+    command: str
+    args: list[str] = []
+    env: dict[str, str] = {}
+    description: str = ""
+
+
+_mcp_servers_persist = Path("data") / "mcp_servers.json"
+
+
+def _load_mcp_servers() -> list[dict]:
+    if _mcp_servers_persist.exists():
+        try:
+            return json.loads(_mcp_servers_persist.read_text())
+        except Exception:
+            pass
+    return []
+
+
+def _save_mcp_servers(servers: list[dict]) -> None:
+    _mcp_servers_persist.parent.mkdir(parents=True, exist_ok=True)
+    _mcp_servers_persist.write_text(json.dumps(servers, indent=2))
+
+
+@app.get("/api/mcp/servers", tags=["mcp"])
+async def list_mcp_servers():
+    """列出所有已配置的 MCP 服务器。"""
+    servers = _load_mcp_servers()
+    # Also try to read from symbio.yaml mcp_servers section
+    try:
+        settings = await _load_llm_settings()
+        yaml_mcp = getattr(settings, "mcp_servers", None) or {}
+        for name, cfg in yaml_mcp.items():
+            if isinstance(cfg, dict) and not any(s.get("name") == name for s in servers):
+                servers.append({"name": name, "command": cfg.get("command", ""), "args": cfg.get("args", []),
+                                 "env": cfg.get("env", {}), "source": "yaml"})
+    except Exception:
+        pass
+    return {"servers": servers, "total": len(servers)}
+
+
+@app.post("/api/mcp/servers", tags=["mcp"])
+async def add_mcp_server(req: MCPServerAdd):
+    """添加一个 MCP 服务器配置。"""
+    servers = _load_mcp_servers()
+    new_srv = req.model_dump()
+    new_srv["id"] = f"mcp-{uuid.uuid4().hex[:12]}"
+    new_srv["source"] = "manual"
+    servers.append(new_srv)
+    _save_mcp_servers(servers)
+    return {"server": new_srv}
+
+
+@app.delete("/api/mcp/servers/{server_id}", tags=["mcp"])
+async def delete_mcp_server(server_id: str):
+    servers = _load_mcp_servers()
+    new_list = [s for s in servers if s.get("id") != server_id]
+    if len(new_list) == len(servers):
+        raise HTTPException(status_code=404, detail="MCP server not found")
+    _save_mcp_servers(new_list)
+    return {"deleted": server_id}
+
+
+@app.post("/api/mcp/servers/{server_id}/tools", tags=["mcp"])
+async def probe_mcp_server_tools(server_id: str):
+    """连接指定 MCP 服务器，返回可用工具列表。"""
+    servers = _load_mcp_servers()
+    srv = next((s for s in servers if s.get("id") == server_id), None)
+    if srv is None:
+        raise HTTPException(status_code=404, detail="MCP server not found")
+    try:
+        from symbio.tools.mcp import MCPStdioClient
+        cmd = [srv["command"]] + srv.get("args", [])
+        async with MCPStdioClient(cmd, name=srv["name"]) as client:
+            tools = await client.list_tools()
+        return {"server_id": server_id, "tools": [{"name": t.name, "description": t.description} for t in tools], "total": len(tools)}
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"MCP probe failed: {exc}")

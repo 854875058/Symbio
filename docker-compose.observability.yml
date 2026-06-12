@@ -1,0 +1,91 @@
+# Symbio Observability Stack
+# Usage: docker compose -f docker-compose.observability.yml up -d
+#
+# Includes:
+#   - Jaeger (distributed tracing)
+#   - Prometheus (metrics)
+#   - Grafana (dashboards)
+#   - OpenTelemetry Collector (unified ingestion)
+
+version: "3.9"
+
+services:
+  # ── OpenTelemetry Collector ──────────────────────────────────────
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.97.0
+    container_name: symbio-otel-collector
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./config/otel/collector.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8889:8889"   # Prometheus metrics exporter
+    depends_on:
+      - jaeger
+      - prometheus
+    restart: unless-stopped
+    networks: [symbio-obs]
+
+  # ── Jaeger ──────────────────────────────────────────────────────
+  jaeger:
+    image: jaegertracing/all-in-one:1.56
+    container_name: symbio-jaeger
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - SPAN_STORAGE_TYPE=badger
+      - BADGER_EPHEMERAL=false
+      - BADGER_DIRECTORY_VALUE=/badger/data
+      - BADGER_DIRECTORY_KEY=/badger/key
+    volumes:
+      - jaeger-badger:/badger
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "14250:14250"  # gRPC (collector)
+      - "14268:14268"  # HTTP (collector)
+    restart: unless-stopped
+    networks: [symbio-obs]
+
+  # ── Prometheus ──────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.2
+    container_name: symbio-prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+      - "--storage.tsdb.retention.time=30d"
+    volumes:
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9091:9090"   # Prometheus UI (9091 to avoid conflict with Symbio)
+    restart: unless-stopped
+    networks: [symbio-obs]
+
+  # ── Grafana ─────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: symbio-grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=symbio123
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3001:3000"   # Grafana UI (3001 to avoid common conflicts)
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks: [symbio-obs]
+
+volumes:
+  jaeger-badger:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  symbio-obs:
+    driver: bridge

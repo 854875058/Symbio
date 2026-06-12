@@ -3,11 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Symbio — Neural Command Center</title>
+  <title>Symbio — AI Infra Multi-Agent Platform</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
 <body>
   <div class="app">
@@ -16,87 +17,151 @@
       <div class="orb orb-1"></div>
       <div class="orb orb-2"></div>
       <div class="orb orb-3"></div>
-      <div class="grid-overlay"></div>
     </div>
 
-    <!-- Top Navigation -->
-    <nav class="navbar">
-      <div class="navbar-brand">
+    <!-- Left Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-brand">
         <div class="logo-mark">
-          <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-            <circle cx="14" cy="14" r="12" stroke="url(#lg)" stroke-width="1.5" opacity="0.5"/>
-            <circle cx="14" cy="14" r="7" stroke="url(#lg)" stroke-width="1.5"/>
-            <circle cx="14" cy="14" r="2.5" fill="url(#lg)"/>
-            <line x1="14" y1="2" x2="14" y2="8" stroke="url(#lg)" stroke-width="1.5"/>
-            <line x1="14" y1="20" x2="14" y2="26" stroke="url(#lg)" stroke-width="1.5"/>
-            <line x1="2" y1="14" x2="8" y2="14" stroke="url(#lg)" stroke-width="1.5"/>
-            <line x1="20" y1="14" x2="26" y2="14" stroke="url(#lg)" stroke-width="1.5"/>
-            <defs><linearGradient id="lg" x1="0" y1="0" x2="28" y2="28"><stop stop-color="#60a5fa"/><stop offset="1" stop-color="#c084fc"/></linearGradient></defs>
+          <svg width="26" height="26" viewBox="0 0 28 28" fill="none">
+            <circle cx="14" cy="14" r="12" stroke="url(#slg)" stroke-width="1.5" opacity="0.5"/>
+            <circle cx="14" cy="14" r="7" stroke="url(#slg)" stroke-width="1.5"/>
+            <circle cx="14" cy="14" r="2.5" fill="url(#slg)"/>
+            <line x1="14" y1="2" x2="14" y2="8" stroke="url(#slg)" stroke-width="1.5"/>
+            <line x1="14" y1="20" x2="14" y2="26" stroke="url(#slg)" stroke-width="1.5"/>
+            <line x1="2" y1="14" x2="8" y2="14" stroke="url(#slg)" stroke-width="1.5"/>
+            <line x1="20" y1="14" x2="26" y2="14" stroke="url(#slg)" stroke-width="1.5"/>
+            <defs><linearGradient id="slg" x1="0" y1="0" x2="28" y2="28"><stop stop-color="#60a5fa"/><stop offset="1" stop-color="#c084fc"/></linearGradient></defs>
           </svg>
         </div>
-        <span class="brand-name">Symbio</span>
-        <span class="brand-ver">v0.1</span>
+        <div class="brand-text">
+          <span class="brand-name">Symbio</span>
+          <span class="brand-ver">v0.1</span>
+        </div>
       </div>
-      <div class="navbar-tabs">
-        <button class="nav-tab active" data-page="chat">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-          <span>对话</span>
-        </button>
-        <button class="nav-tab" data-page="tasks">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
-          <span>任务</span>
-        </button>
-        <button class="nav-tab" data-page="models">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-          <span>模型</span>
-        </button>
-        <button class="nav-tab" data-page="memory">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-          <span>记忆</span>
-        </button>
-        <button class="nav-tab" data-page="ontology">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><path d="M10.4 7.5 6.6 16.5"/><path d="M13.6 7.5 17.4 16.5"/><path d="M8 19h8"/></svg>
-          <span>本体图谱</span>
-        </button>
-        <button class="nav-tab" data-page="skills">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
-          <span>Skills</span>
-        </button>
-        <button class="nav-tab" data-page="dashboard">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
-          <span>仪表盘</span>
-        </button>
-        <button class="nav-tab" data-page="capabilities">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><path d="M21 12a9 9 0 11-9-9"/><path d="M21 3v6h-6"/></svg>
-          <span>能力账本</span>
-        </button>
-        <button class="nav-tab" data-page="evolution">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-7"/><circle cx="7" cy="15" r="1"/><circle cx="11" cy="11" r="1"/><circle cx="14" cy="14" r="1"/><circle cx="19" cy="7" r="1"/></svg>
-          <span>数据飞轮</span>
-        </button>
-        <button class="nav-tab" data-page="sandbox">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 8l3 4-3 4"/><path d="M13 16h4"/></svg>
-          <span>Sandbox</span>
-        </button>
-        <button class="nav-tab" data-page="external-agents">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 20h8"/><path d="M12 18v2"/><path d="M8 9l3 3-3 3"/><path d="M14 15h3"/></svg>
-          <span>Agents</span>
-        </button>
-        <button class="nav-tab" data-page="hitl">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><polyline points="17 11 19 13 23 9"/></svg>
-          <span>审批</span>
-        </button>
-      </div>
-      <div class="navbar-actions">
-        <button class="icon-btn" id="theme-toggle" title="切换主题">
+
+      <nav class="sidebar-nav">
+
+        <!-- 核心 -->
+        <div class="nav-group">
+          <span class="nav-group-label">核心</span>
+          <button class="nav-tab active" data-page="chat" title="对话">
+            <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+            <span class="nav-label">对话</span>
+          </button>
+        </div>
+
+        <!-- 智能体 -->
+        <div class="nav-group">
+          <span class="nav-group-label">智能体</span>
+          <button class="nav-tab" data-page="tasks" title="任务监控">
+            <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+            <span class="nav-label">任务</span>
+          </button>
+          <button class="nav-tab" data-page="hitl" title="人工审批">
+            <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><polyline points="17 11 19 13 23 9"/></svg>
+            <span class="nav-label">审批</span>
+          </button>
+          <button class="nav-tab" data-page="external-agents" title="外部 Agent">
+            <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 20h8"/><path d="M12 18v2"/><path d="M8 9l3 3-3 3"/><path d="M14 15h3"/></svg>
+            <span class="nav-label">Agents</span>
+          </button>
+          <button class="nav-tab" data-page="a2a" title="A2A 协议">
+            <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="12" r="3"/><circle cx="18" cy="12" r="3"/><path d="M9 12h6"/><path d="M6 9V6a2 2 0 012-2h8a2 2 0 012 2v3"/><path d="M6 15v3a2 2 0 002 2h8a2 2 0 002-2v-3"/></svg>
+            <span class="nav-label">A2A</span>
+            <span class="nav-badge-new">NEW</span>
+          </button>
+        </div>
+
+        <!-- 工具 -->
+        <div class="nav-group">
+          <span class="nav-group-label">工具</span>
+          <button class="nav-tab" data-page="skills" title="Skills 管理">
+            <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
+            <span class="nav-label">Skills</span>
+          </button>
+          <button class="nav-tab" data-page="sandbox" title="沙箱执行">
+            <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 8l3 4-3 4"/><path d="M13 16h4"/></svg>
+            <span class="nav-label">Sandbox</span>
+          </button>
+          <button class="nav-tab" data-page="mcp" title="MCP 工具网关">
+            <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 3H6a2 2 0 00-2 2v14a2 2 0 002 2h4"/><path d="M18 3h-4v4h4V3z"/><path d="M18 11h-4v4h4v-4z"/><path d="M18 19h-4v2h4v-2z"/><path d="M14 7v4"/><path d="M14 15v4"/></svg>
+            <span class="nav-label">MCP</span>
+          </button>
+        </div>
+
+        <!-- 知识 -->
+        <div class="nav-group">
+          <span class="nav-group-label">知识</span>
+          <button class="nav-tab" data-page="memory" title="记忆管理">
+            <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+            <span class="nav-label">记忆</span>
+          </button>
+          <button class="nav-tab" data-page="ontology" title="本体图谱">
+            <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><path d="M10.4 7.5 6.6 16.5"/><path d="M13.6 7.5 17.4 16.5"/><path d="M8 19h8"/></svg>
+            <span class="nav-label">本体图谱</span>
+          </button>
+        </div>
+
+        <!-- 分析 -->
+        <div class="nav-group">
+          <span class="nav-group-label">分析</span>
+          <button class="nav-tab" data-page="dashboard" title="仪表盘">
+            <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+            <span class="nav-label">仪表盘</span>
+          </button>
+          <button class="nav-tab" data-page="capabilities" title="能力账本">
+            <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><path d="M21 12a9 9 0 11-9-9"/><path d="M21 3v6h-6"/></svg>
+            <span class="nav-label">能力账本</span>
+          </button>
+          <button class="nav-tab" data-page="evolution" title="数据飞轮">
+            <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-7"/><circle cx="7" cy="15" r="1"/><circle cx="11" cy="11" r="1"/><circle cx="14" cy="14" r="1"/><circle cx="19" cy="7" r="1"/></svg>
+            <span class="nav-label">数据飞轮</span>
+          </button>
+        </div>
+
+        <!-- 配置 -->
+        <div class="nav-group">
+          <span class="nav-group-label">配置</span>
+          <button class="nav-tab" data-page="models" title="模型配置">
+            <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+            <span class="nav-label">模型</span>
+          </button>
+        </div>
+
+      </nav>
+
+      <div class="sidebar-footer">
+        <button class="icon-btn sidebar-action" id="theme-toggle" title="切换主题">
           <svg class="icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
           <svg class="icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+          <span class="nav-label">主题</span>
         </button>
-        <button class="icon-btn" title="Ctrl+K">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9l3 3 3-3"/></svg>
+        <button class="icon-btn sidebar-action" id="sidebar-collapse" title="收起侧边栏">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+          <span class="nav-label">收起</span>
         </button>
       </div>
-    </nav>
+    </aside>
+
+    <!-- Main Area -->
+    <div class="main-area">
+      <!-- Top bar -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-btn topbar-btn" id="topbar-menu-toggle" title="展开侧边栏" style="display:none">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          </button>
+          <span class="topbar-title" id="topbar-title">对话</span>
+        </div>
+        <div class="topbar-right">
+          <span class="status-dot online" id="connection-dot"></span>
+          <span class="topbar-conn" id="topbar-conn-label">已连接</span>
+          <span class="topbar-divider"></span>
+          <span class="topbar-tokens">Token: <strong id="topbar-tokens">0</strong></span>
+          <span class="topbar-cost">· $<strong id="topbar-cost">0.00</strong></span>
+        </div>
+      </header>
 
     <!-- Main Content -->
     <div class="main-content">
@@ -676,6 +741,101 @@
             <span class="empty-hint">HITL 请求将在此显示</span>
           </div>
         </div>
+
+        <!-- Channel Management -->
+        <div class="hitl-channels-section">
+          <div class="page-header" style="padding:0 0 12px">
+            <h3 style="font-size:0.9rem">通知渠道管理</h3>
+            <div class="page-header-bar">
+              <button class="btn-outline" id="btn-refresh-channels">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/><polyline points="21 3 21 9 15 9"/></svg>
+                刷新
+              </button>
+              <button class="btn-primary" id="btn-add-channel">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                添加渠道
+              </button>
+            </div>
+          </div>
+
+          <!-- Add channel form (hidden by default) -->
+          <div class="hitl-add-channel-form" id="hitl-add-channel-form" style="display:none">
+            <div class="sandbox-form-grid">
+              <label class="sandbox-field">
+                <span>平台</span>
+                <select id="ch-platform">
+                  <option value="dingtalk">钉钉机器人</option>
+                  <option value="feishu">飞书群机器人</option>
+                  <option value="wecom">企业微信机器人</option>
+                  <option value="wxpusher">WxPusher (个人微信)</option>
+                  <option value="pushplus">PushPlus (微信)</option>
+                  <option value="serverchan">Server酱 (微信)</option>
+                  <option value="telegram">Telegram Bot</option>
+                  <option value="qq">QQ OneBot</option>
+                  <option value="slack">Slack Webhook</option>
+                </select>
+              </label>
+              <label class="sandbox-field sandbox-field-wide">
+                <span>Webhook URL / 接口地址</span>
+                <input type="text" id="ch-endpoint" placeholder="https://...">
+              </label>
+              <label class="sandbox-field">
+                <span>Access Token / Bot Token</span>
+                <input type="password" id="ch-access-token" placeholder="平台 token">
+              </label>
+              <label class="sandbox-field">
+                <span>群 ID / Chat ID / UID</span>
+                <input type="text" id="ch-chat-id" placeholder="群号或用户 ID">
+              </label>
+              <label class="sandbox-field">
+                <span>签名 Secret（可选）</span>
+                <input type="password" id="ch-secret" placeholder="仅飞书等需要">
+              </label>
+              <label class="sandbox-field">
+                <span>消息类型</span>
+                <select id="ch-chat-type">
+                  <option value="group">群组</option>
+                  <option value="private">私聊</option>
+                </select>
+              </label>
+            </div>
+            <div class="sandbox-actions">
+              <button class="btn-outline" id="btn-test-channel">🔔 测试发送</button>
+              <button class="btn-primary" id="btn-save-channel">保存渠道</button>
+              <button class="btn-outline" id="btn-cancel-channel">取消</button>
+            </div>
+            <div id="ch-test-result" style="margin-top:8px"></div>
+          </div>
+
+          <div class="hitl-channels-list" id="hitl-channels-list">
+            <div class="empty-state-lg" style="padding:16px 0"><p>加载中...</p></div>
+          </div>
+        </div>
+
+        <!-- Timeout Control -->
+        <div class="hitl-timeout-section">
+          <div class="page-header" style="padding:12px 0 8px">
+            <h3 style="font-size:0.9rem">超时策略</h3>
+          </div>
+          <div class="sandbox-form-grid">
+            <label class="sandbox-field">
+              <span>超时时间 (秒)</span>
+              <input type="number" id="hitl-timeout-seconds" value="300" min="30">
+            </label>
+            <label class="sandbox-field">
+              <span>超时处理</span>
+              <select id="hitl-timeout-action">
+                <option value="auto_reject">自动拒绝</option>
+                <option value="auto_approve">自动通过</option>
+              </select>
+            </label>
+          </div>
+          <div class="sandbox-actions" style="margin-top:8px">
+            <button class="btn-outline" id="btn-check-timeouts">检查并处理超时</button>
+          </div>
+          <div id="hitl-timeout-result" style="margin-top:8px"></div>
+        </div>
+
       </div>
 
       <!-- Skills Page -->
@@ -750,19 +910,176 @@
       </div>
     </div>
 
+
+      <!-- A2A Page -->
+      <div class="page" id="page-a2a">
+        <div class="page-header">
+          <h2>A2A 协议</h2>
+          <div class="page-header-bar">
+            <button class="btn-outline" id="btn-refresh-a2a">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/><polyline points="21 3 21 9 15 9"/></svg>
+              刷新
+            </button>
+          </div>
+        </div>
+        <div class="a2a-content">
+
+          <!-- Own agent card -->
+          <section class="a2a-panel">
+            <div class="a2a-panel-head">
+              <div>
+                <h3>本机 Agent 名片</h3>
+                <p>其他 A2A 兼容 Agent 可通过 <code>/.well-known/agent.json</code> 发现本机</p>
+              </div>
+              <button class="btn-outline" id="btn-load-own-card">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/><polyline points="21 3 21 9 15 9"/></svg>
+                加载名片
+              </button>
+            </div>
+            <div class="a2a-card-display" id="a2a-own-card">
+              <div class="empty-state-lg"><p>点击"加载名片"查看本机 AgentCard</p></div>
+            </div>
+          </section>
+
+          <!-- Probe remote agent -->
+          <section class="a2a-panel">
+            <div class="a2a-panel-head">
+              <div>
+                <h3>探测远程 Agent</h3>
+                <p>输入远程 Agent 地址，获取其 AgentCard</p>
+              </div>
+            </div>
+            <div class="a2a-form-row">
+              <input class="text-input a2a-url-input" id="a2a-probe-url" type="text" placeholder="http://remote-agent:9090">
+              <button class="btn-outline" id="btn-a2a-probe">探测</button>
+            </div>
+            <div class="a2a-probe-result" id="a2a-probe-result"></div>
+          </section>
+
+          <!-- Create outbound session -->
+          <section class="a2a-panel">
+            <div class="a2a-panel-head">
+              <div>
+                <h3>发起出站会话</h3>
+                <p>连接到远程 A2A Agent，开始多轮对话</p>
+              </div>
+            </div>
+            <div class="sandbox-form-grid">
+              <label class="sandbox-field sandbox-field-wide">
+                <span>远程 Agent URL</span>
+                <input class="text-input" id="a2a-session-url" type="text" placeholder="http://remote-agent:9090">
+              </label>
+              <label class="sandbox-field">
+                <span>远程 Agent 名称</span>
+                <input class="text-input" id="a2a-session-name" type="text" placeholder="remote-agent">
+              </label>
+              <label class="sandbox-field sandbox-field-wide">
+                <span>初始消息（可选）</span>
+                <textarea id="a2a-session-init-msg" placeholder="Hello! What can you do?"></textarea>
+              </label>
+            </div>
+            <div class="sandbox-actions">
+              <button class="btn-primary" id="btn-a2a-create-session">建立会话</button>
+            </div>
+            <div class="a2a-session-result" id="a2a-session-result"></div>
+          </section>
+
+          <!-- Sessions list -->
+          <section class="a2a-panel">
+            <div class="a2a-panel-head">
+              <div>
+                <h3>出站会话</h3>
+                <p>当前 Symbio 主动发起的 A2A 会话</p>
+              </div>
+            </div>
+            <div class="a2a-sessions-list" id="a2a-sessions-list">
+              <div class="empty-state-lg"><p>暂无出站会话</p></div>
+            </div>
+          </section>
+
+          <!-- Inbound tasks -->
+          <section class="a2a-panel">
+            <div class="a2a-panel-head">
+              <div>
+                <h3>入站任务</h3>
+                <p>其他 Agent 通过 <code>POST /api/a2a/tasks</code> 投递给本机的任务</p>
+              </div>
+            </div>
+            <div class="a2a-tasks-list" id="a2a-inbound-tasks">
+              <div class="empty-state-lg"><p>暂无入站 A2A 任务</p></div>
+            </div>
+          </section>
+
+        </div>
+      </div>
+
+
+      <!-- MCP Page -->
+      <div class="page" id="page-mcp">
+        <div class="page-header">
+          <h2>MCP 工具网关</h2>
+          <div class="page-header-bar">
+            <button class="btn-outline" id="btn-refresh-mcp">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/><polyline points="21 3 21 9 15 9"/></svg>
+              刷新
+            </button>
+            <button class="btn-primary" id="btn-add-mcp-server">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              添加 MCP Server
+            </button>
+          </div>
+        </div>
+        <div class="a2a-content">
+
+          <!-- Add server form -->
+          <section class="a2a-panel" id="mcp-add-form" style="display:none">
+            <div class="a2a-panel-head"><div><h3>添加 MCP Server</h3></div></div>
+            <div class="sandbox-form-grid">
+              <label class="sandbox-field"><span>名称</span><input type="text" id="mcp-name" placeholder="my-mcp-server"></label>
+              <label class="sandbox-field sandbox-field-wide"><span>命令</span><input type="text" id="mcp-command" placeholder="npx @modelcontextprotocol/server-filesystem"></label>
+              <label class="sandbox-field sandbox-field-wide"><span>参数 (空格分隔)</span><input type="text" id="mcp-args" placeholder="/path/to/allowed/dir"></label>
+              <label class="sandbox-field sandbox-field-wide"><span>描述 (可选)</span><input type="text" id="mcp-description" placeholder="文件系统工具"></label>
+            </div>
+            <div class="sandbox-actions">
+              <button class="btn-primary" id="btn-save-mcp-server">保存</button>
+              <button class="btn-outline" id="btn-cancel-mcp-server">取消</button>
+            </div>
+          </section>
+
+          <!-- Server list -->
+          <section class="a2a-panel">
+            <div class="a2a-panel-head"><div><h3>已配置的 MCP Server</h3><p>通过 symbio.yaml 或手动添加的 MCP stdio 服务器</p></div></div>
+            <div class="a2a-sessions-list" id="mcp-servers-list">
+              <div class="empty-state-lg"><p>加载中...</p></div>
+            </div>
+          </section>
+
+          <!-- Tool probe result -->
+          <section class="a2a-panel" id="mcp-tools-panel" style="display:none">
+            <div class="a2a-panel-head">
+              <div><h3 id="mcp-tools-title">工具列表</h3><p>探测到的可用工具</p></div>
+            </div>
+            <div id="mcp-tools-list" class="a2a-tasks-list"></div>
+          </section>
+
+        </div>
+      </div>
+
+    </div><!-- /main-area -->
+
     <!-- Status Bar -->
     <footer class="status-bar">
       <div class="status-left">
-        <span class="status-dot online"></span>
-        <span>已连接</span>
+        <span class="status-dot online" id="status-dot"></span>
+        <span id="status-conn-text">已连接</span>
       </div>
       <div class="status-center">
-        <span>Token: <strong>0</strong></span>
+        <span>Token: <strong id="status-tokens">0</strong></span>
         <span class="sep">·</span>
-        <span>成本: <strong>$0.00</strong></span>
+        <span>成本: <strong id="status-cost">$0.00</strong></span>
       </div>
       <div class="status-right">
-        <span>mimo-v2.5-pro</span>
+        <span id="status-model-name">--</span>
       </div>
     </footer>
   </div>
