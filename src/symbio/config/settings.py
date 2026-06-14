@@ -130,6 +130,17 @@ class HITLConfig(BaseSettings):
     model_config = {"env_prefix": "SYMBIO_HITL_"}
 
 
+class CostConfig(BaseSettings):
+    """Token cost optimization configuration (semantic cache / context pruning / budget)."""
+
+    semantic_cache_enabled: bool = Field(default=True, description="Enable semantic cache on chat path (requires OpenAI embedding key)")
+    context_max_tokens: int = Field(default=8000, description="Context pruning target budget (tokens)")
+    budget_project_id: str = Field(default="default", description="Default budget project id")
+    monthly_budget_tokens: int = Field(default=0, description="Monthly token budget, 0 = unlimited")
+
+    model_config = {"env_prefix": "SYMBIO_COST_"}
+
+
 class OtelConfig(BaseSettings):
     """OpenTelemetry tracing configuration."""
 
@@ -158,6 +169,7 @@ class Settings(BaseSettings):
     server: ServerConfig = Field(default_factory=ServerConfig)
     evolution: EvolutionConfig = Field(default_factory=EvolutionConfig)
     hitl: HITLConfig = Field(default_factory=HITLConfig)
+    cost: CostConfig = Field(default_factory=CostConfig)
     otel: OtelConfig = Field(default_factory=OtelConfig)
 
     model_config = {"env_prefix": "SYMBIO_"}

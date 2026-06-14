@@ -37,6 +37,7 @@ from symbio.core.hitl_gateway import (
     verify_approval_token,
 )
 from symbio.core.hitl_notifier import HITLNotifier, approval_short_code, parse_im_approval_command
+from symbio.core.chat_pipeline import get_chat_pipeline
 from symbio.utils.logger import get_logger
 
 logger = get_logger("api")
@@ -252,6 +253,8 @@ class ChatResponse(BaseModel):
     content: str
     session_id: str
     token_usage: Optional[dict] = None
+    cached: bool = False
+    prune_info: Optional[dict] = None
 
 
 class ModelCreate(BaseModel):
@@ -1130,6 +1133,55 @@ async def list_evaluation_suites(path: str = "data/eval_suites"):
     return {"suites": suites, "total": len(suites), "path": str(suite_dir), "errors": errors}
 
 
+# ============ 成本监控 API ============
+
+class BudgetUpdate(BaseModel):
+    project_id: str = "default"
+    monthly_limit_tokens: int
+
+
+@app.get("/api/costs/summary")
+async def get_cost_summary(period_hours: int = 24):
+    """Token 用量摘要：总量、按 Agent、按模型分组（来自成本追踪数据库）。"""
+    pipeline = get_chat_pipeline()
+    return await pipeline.cost_summary(period_hours)
+
+
+@app.get("/api/costs/cache")
+async def get_semantic_cache_stats():
+    """语义缓存命中率与节省 Token 估算。"""
+    pipeline = get_chat_pipeline()
+    return await pipeline.cache_stats()
+
+
+@app.get("/api/costs/budget")
+async def get_budget_status(project_id: str = "default"):
+    """项目月度预算状态：用量、余量、是否需要降级模型。"""
+    pipeline = get_chat_pipeline()
+    return await pipeline.budget_status(project_id)
+
+
+@app.post("/api/costs/budget")
+async def set_budget(update: BudgetUpdate):
+    """设置项目月度 Token 预算。"""
+    if update.monthly_limit_tokens < 0:
+        raise HTTPException(status_code=400, detail="预算不能为负数")
+    pipeline = get_chat_pipeline()
+    return await pipeline.set_budget(update.project_id, update.monthly_limit_tokens)
+
+
+@app.get("/api/costs/dashboard")
+async def get_cost_dashboard(period_hours: int = 24, project_id: str = "default"):
+    """成本仪表盘聚合接口：摘要 + 缓存统计 + 预算状态一次返回。"""
+    pipeline = get_chat_pipeline()
+    summary, cache, budget = await asyncio.gather(
+        pipeline.cost_summary(period_hours),
+        pipeline.cache_stats(),
+        pipeline.budget_status(project_id),
+    )
+    return {"summary": summary, "cache": cache, "budget": budget}
+
+
 # ============ 对话 API ============
 
 @app.post("/api/chat", response_model=ChatResponse)
@@ -1174,6 +1226,28 @@ async def chat(request: ChatRequest):
         messages = await _build_history_messages(db, session_id)
         logger.info(f"HTTP 对话 - 会话: {session_id}, 历史消息数: {len(messages)}")
 
+        # 成本优化管线：语义缓存查询（命中则零 Token 返回）
+        pipeline = get_chat_pipeline()
+        ctx_hash = pipeline.context_hash(messages[:-1] if messages else [])
+        cached = await pipeline.lookup_cache(request.message, model=model, context_hash=ctx_hash)
+        if cached:
+            content = cached["content"]
+            await db.create_message(
+                f"msg-{uuid.uuid4().hex[:12]}", session_id, "assistant",
+                content, time.strftime("%Y-%m-%dT%H:%M:%S"), 0,
+            )
+            if hasattr(app.state, 'memory_manager') and app.state.memory_manager:
+                await app.state.memory_manager.add_conversation_turn("assistant", content, session_id)
+            logger.info(f"语义缓存命中，零 Token 返回 - 会话: {session_id}")
+            return ChatResponse(
+                success=True, content=content, session_id=session_id,
+                token_usage={"input": 0, "output": 0, "total": 0},
+                cached=True,
+            )
+
+        # 成本优化管线：上下文剪枝（超出预算时裁剪历史）
+        messages, prune_info = pipeline.prune_history(messages)
+
         response = await client.messages.create(
             model=model,
             max_tokens=4096,
@@ -1202,7 +1276,17 @@ async def chat(request: ChatRequest):
         if hasattr(app.state, 'memory_manager') and app.state.memory_manager:
             await app.state.memory_manager.add_conversation_turn("assistant", content, session_id)
 
-        return ChatResponse(success=True, content=content, session_id=session_id, token_usage=token_usage)
+        # 成本优化管线：记录用量 + 回写语义缓存
+        await pipeline.record_usage(
+            session_id=session_id, model=model,
+            input_tokens=token_usage["input"], output_tokens=token_usage["output"],
+        )
+        await pipeline.store_cache(request.message, content, model=model, context_hash=ctx_hash)
+
+        return ChatResponse(
+            success=True, content=content, session_id=session_id,
+            token_usage=token_usage, prune_info=prune_info,
+        )
 
     except Exception as e:
         logger.error(f"对话失败: {e}")
@@ -2555,6 +2639,7 @@ async def websocket_chat(websocket: WebSocket):
             full_response = ""
             token_input = 0
             token_output = 0
+            cache_hit = False
 
             try:
                 import anthropic
@@ -2577,23 +2662,52 @@ async def websocket_chat(websocket: WebSocket):
                 messages = await _build_history_messages(db, session_id)
                 logger.info(f"WebSocket 对话 - 会话: {session_id}, 历史消息数: {len(messages)}")
 
-                # 流式调用
-                async with client.messages.stream(
-                    model=model,
-                    max_tokens=4096,
-                    system=SYMBIO_SYSTEM_PROMPT,
-                    messages=messages,
-                ) as stream:
-                    async for text in stream.text_stream:
-                        full_response += text
+                # 成本优化管线：语义缓存查询（命中则分块流式回放缓存回答）
+                pipeline = get_chat_pipeline()
+                ctx_hash = pipeline.context_hash(messages[:-1] if messages else [])
+                cached = await pipeline.lookup_cache(content, model=model, context_hash=ctx_hash)
+                if cached:
+                    cached_text = cached["content"]
+                    chunk_size = 48
+                    for i in range(0, len(cached_text), chunk_size):
+                        full_response += cached_text[i:i + chunk_size]
                         await websocket.send_text(json.dumps({
                             "type": "token",
-                            "content": text,
+                            "content": cached_text[i:i + chunk_size],
                         }))
+                        await asyncio.sleep(0.01)
+                    token_input = 0
+                    token_output = 0
+                    cache_hit = True
+                    logger.info(f"语义缓存命中，零 Token 流式回放 - 会话: {session_id}")
+                else:
+                    # 成本优化管线：上下文剪枝
+                    messages, _prune_info = pipeline.prune_history(messages)
 
-                    final = await stream.get_final_message()
-                    token_input = final.usage.input_tokens
-                    token_output = final.usage.output_tokens
+                    # 流式调用
+                    async with client.messages.stream(
+                        model=model,
+                        max_tokens=4096,
+                        system=SYMBIO_SYSTEM_PROMPT,
+                        messages=messages,
+                    ) as stream:
+                        async for text in stream.text_stream:
+                            full_response += text
+                            await websocket.send_text(json.dumps({
+                                "type": "token",
+                                "content": text,
+                            }))
+
+                        final = await stream.get_final_message()
+                        token_input = final.usage.input_tokens
+                        token_output = final.usage.output_tokens
+
+                    # 成本优化管线：记录用量 + 回写语义缓存
+                    await pipeline.record_usage(
+                        session_id=session_id, model=model,
+                        input_tokens=token_input, output_tokens=token_output,
+                    )
+                    await pipeline.store_cache(content, full_response, model=model, context_hash=ctx_hash)
 
             except ImportError:
                 response = f"收到: {content}"
@@ -2626,6 +2740,7 @@ async def websocket_chat(websocket: WebSocket):
                 "type": "done",
                 "content": full_response,
                 "session_id": session_id,
+                "cached": cache_hit,
                 "token_usage": {
                     "input": token_input,
                     "output": token_output,

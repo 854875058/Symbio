@@ -441,6 +441,39 @@
               </div>
             </div>
           </div>
+          <div class="dashboard-chart-section cost-section">
+            <h3 class="dash-section-title">成本中心<span class="dash-section-hint">24 小时窗口 · 语义缓存 · 月度预算</span></h3>
+            <div class="observability-grid" id="cost-summary-grid">
+              <div class="observability-item">
+                <span>Token 消耗 (24h)</span>
+                <strong id="cost-total-tokens">0</strong>
+              </div>
+              <div class="observability-item">
+                <span>LLM 请求数</span>
+                <strong id="cost-total-requests">0</strong>
+              </div>
+              <div class="observability-item">
+                <span>缓存命中率</span>
+                <strong id="cost-cache-hit-rate">—</strong>
+              </div>
+              <div class="observability-item">
+                <span>缓存节省 Token</span>
+                <strong id="cost-cache-saved">0</strong>
+              </div>
+            </div>
+            <div class="cost-budget-row">
+              <div class="cost-budget-info">
+                <span class="cost-budget-label">月度预算</span>
+                <div class="cost-budget-bar"><div class="cost-budget-fill" id="cost-budget-fill" style="width:0%"></div></div>
+                <span class="cost-budget-text" id="cost-budget-text">未设置（不限制）</span>
+              </div>
+              <div class="cost-budget-actions">
+                <input type="number" class="text-input cost-budget-input" id="cost-budget-input" placeholder="月度 Token 上限" min="0" step="100000">
+                <button class="btn-outline" id="btn-set-budget">设置预算</button>
+              </div>
+            </div>
+            <div class="cost-model-table" id="cost-model-table"></div>
+          </div>
         </div>
       </div>
 

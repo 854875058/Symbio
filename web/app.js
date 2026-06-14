@@ -3921,14 +3921,111 @@ async function loadDashboard() {
     // Render bar chart from session token data
     renderTokenChart(sessData.sessions || []);
     await loadObservabilitySummary();
+    await loadCostDashboard();
   } catch (e) {
     console.warn('加载仪表盘数据失败:', e.message);
     // Use local state as fallback
     document.getElementById('dash-total-tokens').textContent = formatNumber(state.tokens.total);
     document.getElementById('dash-active-sessions').textContent = state.sessions.length;
     await loadObservabilitySummary();
+    await loadCostDashboard();
   }
 }
+
+async function loadCostDashboard() {
+  const setText = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+  };
+  try {
+    const res = await fetch(`${API}/costs/dashboard`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    const summary = data.summary || {};
+    setText('cost-total-tokens', formatNumber(summary.total_tokens || 0));
+    setText('cost-total-requests', formatNumber(summary.total_requests || 0));
+
+    const cache = data.cache || {};
+    if (cache.enabled && cache.total_queries > 0) {
+      setText('cost-cache-hit-rate', `${Math.round((cache.hit_rate || 0) * 100)}%`);
+    } else {
+      setText('cost-cache-hit-rate', cache.enabled ? '0%' : '未启用');
+    }
+    setText('cost-cache-saved', formatNumber(cache.estimated_token_saved || 0));
+
+    const budget = data.budget || {};
+    const fill = document.getElementById('cost-budget-fill');
+    const text = document.getElementById('cost-budget-text');
+    if (budget.available && budget.monthly_limit_tokens > 0) {
+      const pct = Math.min(100, Math.round((budget.percentage_used || 0) * 100));
+      if (fill) {
+        fill.style.width = `${pct}%`;
+        fill.classList.toggle('over', budget.is_exceeded);
+        fill.classList.toggle('warn', !budget.is_exceeded && budget.should_downgrade);
+      }
+      if (text) {
+        let label = `${formatNumber(budget.consumed_tokens)} / ${formatNumber(budget.monthly_limit_tokens)} (${pct}%)`;
+        if (budget.is_exceeded) label += ' · 已超预算';
+        else if (budget.should_downgrade) label += ` · 建议降级${budget.downgrade_model ? `到 ${budget.downgrade_model}` : '模型'}`;
+        text.textContent = label;
+      }
+    } else {
+      if (fill) { fill.style.width = '0%'; fill.classList.remove('over', 'warn'); }
+      if (text) text.textContent = budget.available ? `已消耗 ${formatNumber(budget.consumed_tokens || 0)} · 未设置上限` : '未设置（不限制）';
+    }
+
+    renderCostModelTable(summary.models || []);
+  } catch (e) {
+    console.warn('加载成本中心失败:', e.message);
+    setText('cost-cache-hit-rate', 'error');
+  }
+}
+
+function renderCostModelTable(models) {
+  const container = document.getElementById('cost-model-table');
+  if (!container) return;
+  if (!models.length) {
+    container.innerHTML = '<div class="cost-table-empty">暂无模型用量记录，发起一次对话后这里会出现按模型分组的消耗明细</div>';
+    return;
+  }
+  const maxTotal = Math.max(...models.map(m => m.total_tokens || 0), 1);
+  container.innerHTML = `
+    <div class="cost-table-row cost-table-head">
+      <span>模型</span><span>请求</span><span>输入</span><span>输出</span><span>占比</span>
+    </div>
+    ${models.map(m => {
+      const pct = Math.round(((m.total_tokens || 0) / maxTotal) * 100);
+      return `<div class="cost-table-row">
+        <span class="cost-model-name" title="${esc(m.model)}">${esc(m.model)}</span>
+        <span>${formatNumber(m.request_count || 0)}</span>
+        <span>${formatNumber(m.total_input_tokens || 0)}</span>
+        <span>${formatNumber(m.total_output_tokens || 0)}</span>
+        <span class="cost-model-share"><i style="width:${pct}%"></i></span>
+      </div>`;
+    }).join('')}`;
+}
+
+document.getElementById('btn-set-budget')?.addEventListener('click', async () => {
+  const input = document.getElementById('cost-budget-input');
+  const value = parseInt(input?.value, 10);
+  if (isNaN(value) || value < 0) {
+    toast('error', '预算无效', '请输入有效的月度 Token 上限（0 表示不限）');
+    return;
+  }
+  try {
+    const res = await fetch(`${API}/costs/budget`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project_id: 'default', monthly_limit_tokens: value }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    toast('success', '预算已更新', value === 0 ? '已取消预算限制' : `月度预算设置为 ${formatNumber(value)} tokens`);
+    await loadCostDashboard();
+  } catch (e) {
+    toast('error', '设置预算失败', e.message);
+  }
+});
 
 async function loadObservabilitySummary() {
   try {

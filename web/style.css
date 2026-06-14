@@ -3257,6 +3257,121 @@ textarea::placeholder { color:var(--text-tertiary); }
   font-size: 0.9rem;
 }
 
+/* ============ Cost Center (Dashboard) ============ */
+.cost-section {
+  margin-top: 18px;
+}
+.dash-section-hint {
+  margin-left: 10px;
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--text-tertiary);
+}
+.cost-budget-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+.cost-budget-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 240px;
+}
+.cost-budget-label {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+.cost-budget-bar {
+  flex: 1;
+  height: 8px;
+  min-width: 100px;
+  border-radius: 4px;
+  background: var(--bg-tertiary, rgba(128,128,160,0.15));
+  overflow: hidden;
+}
+.cost-budget-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #60a5fa, #c084fc);
+  transition: width 0.4s ease;
+}
+.cost-budget-fill.warn { background: linear-gradient(90deg, #fbbf24, #f59e0b); }
+.cost-budget-fill.over { background: linear-gradient(90deg, #f87171, #ef4444); }
+.cost-budget-text {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+.cost-budget-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cost-budget-input {
+  width: 150px;
+}
+.cost-model-table {
+  margin-top: 14px;
+  display: grid;
+  gap: 4px;
+}
+.cost-table-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 2fr) 1fr 1fr 1fr minmax(80px, 1.4fr);
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm, 6px);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--text-primary);
+}
+.cost-table-row:not(.cost-table-head):hover {
+  background: var(--bg-secondary);
+}
+.cost-table-head {
+  color: var(--text-tertiary);
+  font-family: var(--font-sans, inherit);
+  font-size: 0.72rem;
+}
+.cost-model-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cost-model-share {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-tertiary, rgba(128,128,160,0.15));
+  overflow: hidden;
+  display: block;
+}
+.cost-model-share i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #60a5fa, #c084fc);
+}
+.cost-table-empty {
+  padding: 14px 12px;
+  color: var(--text-tertiary);
+  font-size: 0.78rem;
+  text-align: center;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+}
+
 /* ============ Evolution Page ============ */
 .evolution-content {
   flex: 1;
