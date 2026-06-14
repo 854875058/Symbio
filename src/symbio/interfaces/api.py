@@ -38,6 +38,7 @@ from symbio.core.hitl_gateway import (
 )
 from symbio.core.hitl_notifier import HITLNotifier, approval_short_code, parse_im_approval_command
 from symbio.core.chat_pipeline import get_chat_pipeline
+from symbio.security.chat_guard import get_chat_guard
 from symbio.utils.logger import get_logger
 
 logger = get_logger("api")
@@ -1182,6 +1183,39 @@ async def get_cost_dashboard(period_hours: int = 24, project_id: str = "default"
     return {"summary": summary, "cache": cache, "budget": budget}
 
 
+# ============ 安全防火墙 API ============
+
+class SecurityScanRequest(BaseModel):
+    text: str
+
+
+@app.get("/api/security/stats")
+async def security_stats():
+    """威胁分布、攻击类型分布、拦截率（来自防火墙审计日志）。"""
+    return get_chat_guard().stats()
+
+
+@app.get("/api/security/audit")
+async def security_audit(limit: int = 50, threat_level: Optional[str] = None):
+    """最近的安全审计记录。"""
+    records = get_chat_guard().audit(limit=limit, threat_level=threat_level)
+    return {"records": records, "total": len(records)}
+
+
+@app.post("/api/security/scan")
+async def security_scan(payload: SecurityScanRequest):
+    """对任意文本做一次三层安全扫描，返回威胁等级与净化结果。"""
+    if not payload.text.strip():
+        raise HTTPException(status_code=400, detail="文本不能为空")
+    return get_chat_guard().scan(payload.text)
+
+
+@app.post("/api/security/selftest")
+async def security_selftest(category: Optional[str] = None):
+    """用内置攻击样本库自检防火墙，返回拦截率/准确率与未命中样本。"""
+    return get_chat_guard().selftest(category=category)
+
+
 # ============ 对话 API ============
 
 @app.post("/api/chat", response_model=ChatResponse)
@@ -1221,6 +1255,20 @@ async def chat(request: ChatRequest):
 
         client = anthropic.AsyncAnthropic(api_key=api_key, base_url=base_url)
         model = request.model or settings.model.model_medium
+
+        # 安全防火墙：Prompt Injection 三层检测（高危输入直接拦截，不调用 LLM）
+        guard = get_chat_guard()
+        verdict = guard.inspect(request.message, session_id=session_id)
+        if not verdict["allowed"]:
+            block_msg = f"⛔ 该消息被安全防火墙拦截：{verdict['reason']}"
+            await db.create_message(
+                f"msg-{uuid.uuid4().hex[:12]}", session_id, "assistant",
+                block_msg, time.strftime("%Y-%m-%dT%H:%M:%S"), 0,
+            )
+            return ChatResponse(
+                success=False, content=block_msg, session_id=session_id,
+                token_usage={"input": 0, "output": 0, "total": 0},
+            )
 
         # 构建含历史对话的消息列表
         messages = await _build_history_messages(db, session_id)
@@ -2657,6 +2705,28 @@ async def websocket_chat(websocket: WebSocket):
 
                 client = anthropic.AsyncAnthropic(api_key=api_key, base_url=base_url)
                 model = model_override or settings.model.model_medium
+
+                # 安全防火墙：Prompt Injection 三层检测
+                guard = get_chat_guard()
+                verdict = guard.inspect(content, session_id=session_id)
+                if not verdict["allowed"]:
+                    block_msg = f"⛔ 该消息被安全防火墙拦截：{verdict['reason']}"
+                    await db.create_message(
+                        f"msg-{uuid.uuid4().hex[:12]}", session_id, "assistant",
+                        block_msg, time.strftime("%Y-%m-%dT%H:%M:%S"), 0,
+                    )
+                    await websocket.send_text(json.dumps({
+                        "type": "blocked",
+                        "content": block_msg,
+                        "threat_level": verdict["threat_level"],
+                        "attack_type": verdict["attack_type"],
+                    }))
+                    await websocket.send_text(json.dumps({
+                        "type": "done", "content": block_msg, "session_id": session_id,
+                        "blocked": True,
+                        "token_usage": {"input": 0, "output": 0, "total": 0},
+                    }))
+                    continue
 
                 # 构建含历史对话的消息列表
                 messages = await _build_history_messages(db, session_id)

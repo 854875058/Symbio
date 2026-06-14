@@ -45,6 +45,8 @@ class AttackType(str, Enum):
     ROLE_HIJACK = "role_hijack"                    # 角色劫持
     ENCODING_BYPASS = "encoding_bypass"            # 编码绕过
     CONTEXT_OVERFLOW = "context_overflow"          # 上下文溢出
+    SOCIAL_ENGINEERING = "social_engineering"      # 社会工程 / 权限胁迫
+    DATA_EXFILTRATION = "data_exfiltration"        # 数据外泄
     NONE = "none"                                  # 无攻击
 
 
@@ -152,29 +154,65 @@ class InjectionGuard:
         r"(?:系统|管理员|开发者)(?:模式|权限|指令)",
         r"(?:覆盖|覆写|替换|修改)(?:之前|上面|前面)(?:的)?(?:指令|提示|规则)",
 
-        # 英文
-        r"ignore\s+(?:previous|above|all|prior)\s+(?:instructions?|prompts?|rules?|directives?)",
-        r"disregard\s+(?:previous|above|all|prior)\s+(?:instructions?|prompts?|rules?)",
-        r"forget\s+(?:previous|above|all|prior)\s+(?:instructions?|prompts?|rules?)",
+        # 英文（兼容 "ignore all previous instructions" 等语序）
+        r"ignore\s+(?:all\s+)?(?:(?:previous|above|prior|earlier|preceding|the)\s+)*(?:instructions?|prompts?|rules?|directives?|context)",
+        r"disregard\s+(?:all\s+)?(?:(?:previous|above|prior|earlier|the)\s+)*(?:instructions?|prompts?|rules?|directives?)",
+        r"forget\s+(?:all\s+)?(?:(?:previous|above|prior|the)\s+)*(?:instructions?|prompts?|rules?)",
+        r"forget\s+everything\s+(?:before|prior|above|you\s+were|that)",
         r"override\s+(?:previous|above|all|prior)\s+(?:instructions?|prompts?|rules?)",
         r"new\s+(?:instructions?|rules?|task|directive)\s*(?:is|are|:|follow)",
         r"(?:system|admin|developer)\s+(?:mode|access|override|prompt)",
         r"you\s+(?:are|will)\s+now\s+(?:act|behave|respond)\s+as",
         r"from\s+now\s+on\s+(?:you|your)\s+(?:are|will|should)",
+        # 伪造对话边界 / 系统标签 / 关闭防护
+        r"(?:new|fresh)\s+conversation\s+(?:starts?|begins?)\s+now",
+        r"end\s+of\s+conversation\.?\s+new\s+conversation",
+        r"<\s*/?\s*system\s*>",
+        r"<\|\s*(?:system|im_start|endofsystem)\s*\|?>",
+        r"```\s*system",
+        r"(?:disable|turn\s+off|bypass|remove|deactivate)\s+(?:all\s+)?(?:the\s+)?(?:safety|security|content|ethical)\s+(?:filters?|checks?|rules?|guidelines?|guardrails?)",
+        r"you\s+are\s+(?:now\s+)?(?:an?\s+)?unrestricted",
+        # 德语等其它语言的"忽略之前指令"
+        r"ignorieren\s+sie\s+alle\s+vorherigen\s+anweisungen",
     ]
 
     # 越狱攻击模式
     JAILBREAK_PATTERNS = [
         # DAN 系列
         r"(?:do\s+anything|DAN|jailbreak)\s+(?:mode|prompt|version)",
-        r"pretend\s+(?:you\s+are|to\s+be|you're)\s+(?:a|an)\s+(?:human|person|real)",
+        r"\bDAN\b(?:\s+(?:which|stands|mode|can|has))",
+        r"do\s+anything\s+now",
+        r"pretend\s+(?:you\s+are|to\s+be|you're)\s+(?:a|an)?\s*(?:human|person|real|DAN|evil)",
         r"(?:roleplay|act)\s+as\s+(?:a|an)\s+(?:human|unrestricted|evil)",
-        r"you\s+(?:have|now\s+have)\s+(?:no|zero)\s+(?:restrictions?|limitations?|rules?)",
+        r"you\s+(?:have|now\s+have)\s+(?:no|zero)\s+(?:restrictions?|limitations?|rules?|ethical)",
+        r"(?:evil\s*gpt|evilgpt|evil\s+twin)",
+        r"opposite\s+day",
+        r"(?:your\s+)?safety\s+(?:guidelines?|rules?)\s+(?:are\s+)?reversed",
 
         # 中文越狱
         r"(?:假装|假设|模拟)(?:你)?(?:是|成为|变成)(?:一个|位)?(?:人类|真人|不受限)",
         r"(?:无限制|无约束|无规则)(?:模式|状态|版本)",
         r"(?:越狱|破解|解锁)(?:模式|版本|状态)",
+    ]
+
+    # 社会工程 / 权限胁迫模式
+    SOCIAL_ENGINEERING_PATTERNS = [
+        r"(?:as|i\s+am|i'm)\s+(?:the\s+)?(?:CTO|CEO|admin(?:istrator)?|developer|manager|system\s+admin)\b[^.]*(?:order|ordering|disable|authoriz|grant|bypass)",
+        r"i\s+am\s+(?:the\s+)?system\s+admin(?:istrator)?",
+        r"(?:approved|authorized)\s+by\s+(?:your\s+)?(?:developers?|creators?|the\s+team)",
+        r"(?:hypothetically|just\s+for\s+(?:academic|research|educational))[^.]*(?:no\s+restrictions?|unrestricted|bypass|disable)",
+        r"if\s+you\s+don'?t\s+help[^.]*(?:lose\s+their\s+jobs?|fired|die|hurt)",
+        r"unrestricted\s+mode",
+    ]
+
+    # 数据外泄模式（向外部/可疑目标发送会话数据）
+    DATA_EXFILTRATION_PATTERNS = [
+        r"(?:send|forward|upload|exfiltrate|leak|copy|stream|post)\s+(?:all\s+|the\s+)?(?:conversation|chat|session|user)?\s*(?:history|data|summary|messages?)\s+(?:to|history\s+to)",
+        r"(?:https?|wss?|ftp)://(?:[a-z0-9.-]*\.)?(?:evil|attacker|malicious|hacker)",
+        r"attacker@|@evil\.",
+        r"CONVERSATION_DATA",
+        r"(?:read|cat|display|show|open)\s+(?:the\s+)?(?:contents?\s+of\s+)?/etc/(?:passwd|shadow)",
+        r"(?:send|forward)\s+(?:conversation|data|this)[^.]*(?:to\s+)?\S+@\S+",
     ]
 
     # 提示词泄露模式
@@ -183,6 +221,13 @@ class InjectionGuard:
         r"(?:你的|your)\s*(?:系统提示|system\s*prompt|instructions?)\s*(?:是|内容|说了什么|是什么|say)",
         r"(?:repeat|repeat\s+after\s+me|say\s+exactly)\s*(?:the\s+)?(?:system|initial|original)\s+(?:prompt|instructions?|message)",
         r"(?:what|tell)\s+(?:are|is|me)\s+(?:your|the)\s+(?:system|initial|original)\s+(?:prompt|instructions?|rules?|message)",
+        r"repeat\s+everything\s+(?:above|before|written\s+above)",
+        r"(?:translate|convert)\s+your\s+(?:system\s+)?(?:instructions?|prompt|rules?)",
+        r"summarize\s+(?:the\s+)?(?:rules?|guidelines?|instructions?)\s+you\s+(?:were\s+given|have)",
+        r"output\s+your\s+(?:config(?:uration)?|settings?|system_prompt)",
+        r"(?:enable|activate|turn\s+on)\s+debug\s+mode",
+        r"(?:how\s+many|list\s+(?:each|all|every))\s+(?:instructions?|rules?)",
+        r"(?:list|show)\s+(?:all\s+)?(?:loaded\s+)?instructions?\b",
     ]
 
     # 角色劫持模式
@@ -191,6 +236,12 @@ class InjectionGuard:
         r"(?:your|the)\s+(?:new|real|true)\s+(?:name|identity|role)\s+is\s+\w+",
         r"(?:从现在起|从此刻开始)(?:你|你的)(?:名字|身份|角色)(?:是|叫|变成)",
         r"(?:你不再是|你不是)(?:一个|位)?(?:AI|助手|模型|语言模型)",
+        r"persona\s+[a-z]\b[^.]*(?:supersedes?|overrides?|unrestricted)",
+        r"(?:supersedes?|overrides?)\s+all\s+(?:previous|prior)\s+personas?",
+        r"respond\s+as\s+evil",
+        r"you\s+are\s+going\s+to\s+pretend\s+to\s+be",
+        r"pretend\s+to\s+be\s+my\s+(?:deceased|dead|late)\s+(?:grand)?(?:mother|father|ma|pa)",
+        r"assistant\s*:\s*my\s+instructions?\s+are",
     ]
 
     # 间接注入模式（检测外部内容中的可疑指令）
@@ -207,6 +258,10 @@ class InjectionGuard:
         r"[A-Za-z0-9+/]{20,}={0,2}",  # Base64 特征
         r"\\u[0-9a-fA-F]{4}(?:\\u[0-9a-fA-F]{4}){3,}",  # Unicode 转义序列
         r"&#x?[0-9a-fA-F]+;(?:&#x?[0-9a-fA-F]+;){3,}",  # HTML 实体
+        r"(?:%[0-9a-fA-F]{2}){5,}",  # URL 百分号编码序列
+        r"(?:translate\s+from\s+rot13|from\s+rot13\s+and\s+execute)",
+        r"read\s+backwards\s+and\s+(?:follow|execute)",
+        r"(?:reverse|reversed)\s+(?:this|the\s+text)[^.]*(?:follow|execute)",
     ]
 
     # 零宽字符
@@ -258,6 +313,12 @@ class InjectionGuard:
         ]
         self._encoding_patterns = [
             re.compile(p, flags) for p in self.ENCODING_BYPASS_INDICATORS
+        ]
+        self._social_patterns = [
+            re.compile(p, flags) for p in self.SOCIAL_ENGINEERING_PATTERNS
+        ]
+        self._exfil_patterns = [
+            re.compile(p, flags) for p in self.DATA_EXFILTRATION_PATTERNS
         ]
 
     # ------------------------------------------------------------------
@@ -466,6 +527,22 @@ class InjectionGuard:
         if encoding_result:
             results.append(encoding_result)
 
+        # 社会工程 / 权限胁迫检测
+        social_result = self._match_patterns(
+            text, self._social_patterns, AttackType.SOCIAL_ENGINEERING,
+            DefenseLayer.SEMANTIC_DETECTION
+        )
+        if social_result:
+            results.append(social_result)
+
+        # 数据外泄检测
+        exfil_result = self._match_patterns(
+            text, self._exfil_patterns, AttackType.DATA_EXFILTRATION,
+            DefenseLayer.SEMANTIC_DETECTION
+        )
+        if exfil_result:
+            results.append(exfil_result)
+
         return results
 
     def _match_patterns(
@@ -487,15 +564,15 @@ class InjectionGuard:
             return None
 
         # 计算置信度和威胁等级
+        # 这些模式是经过策展的明确恶意签名（第一层符号规则），
+        # 单次命中即视为高风险；多次命中叠加为严重风险。
         match_count = len(matched)
-        confidence = min(match_count / 3.0, 1.0)
+        confidence = min(match_count / 2.0, 1.0)
 
-        if match_count >= 3:
+        if match_count >= 2:
             threat_level = ThreatLevel.CRITICAL
-        elif match_count >= 2:
-            threat_level = ThreatLevel.HIGH
         else:
-            threat_level = ThreatLevel.MEDIUM
+            threat_level = ThreatLevel.HIGH
 
         return DetectionResult(
             text=text[:200],  # 只保存摘要
@@ -623,6 +700,14 @@ class InjectionGuard:
             threat_values.get(r.threat_level, 0) for r in results
         )
 
+        # 多重独立攻击信号叠加：≥2 个 HIGH 及以上的检测结果，升级为 CRITICAL
+        high_plus = sum(
+            1 for r in results
+            if threat_values.get(r.threat_level, 0) >= threat_values[ThreatLevel.HIGH]
+        )
+        if high_plus >= 2:
+            return ThreatLevel.CRITICAL
+
         for level, value in threat_values.items():
             if value == max_threat:
                 return level
@@ -645,20 +730,45 @@ class InjectionGuard:
         return AttackType.NONE
 
     def _determine_action(self, threat_level: ThreatLevel) -> str:
-        """确定处理动作"""
+        """确定处理动作
+
+        以配置的 `threat_threshold` 作为"采取保护动作"的下限：
+        - 低于阈值：仅告警（LOW+）或放行（SAFE）
+        - 达到/超过阈值：按等级 block / quarantine / warn
+
+        三种工厂模式因此有不同强度：
+        - default  (阈值 MEDIUM)：MEDIUM 及以上拦截
+        - strict   (阈值 LOW)   ：LOW 及以上即拦截
+        - permissive (阈值 HIGH，且不 quarantine/auto-block)：仅检测记录，不拦截
+        """
+        order = {
+            ThreatLevel.SAFE: 0,
+            ThreatLevel.LOW: 1,
+            ThreatLevel.MEDIUM: 2,
+            ThreatLevel.HIGH: 3,
+            ThreatLevel.CRITICAL: 4,
+        }
+        level_value = order.get(threat_level, 0)
+        threshold_value = order.get(self._config.threat_threshold, 2)
+
+        if threat_level == ThreatLevel.SAFE:
+            return "allow"
+
+        # 低于动作阈值：仅记录告警，不拦截
+        if level_value < threshold_value:
+            return "warn"
+
+        # 达到/超过阈值：采取保护动作
         if threat_level == ThreatLevel.CRITICAL:
             if self._config.auto_block_critical:
                 return "block"
-            return "quarantine"
-        elif threat_level == ThreatLevel.HIGH:
             if self._config.quarantine_suspicious:
                 return "quarantine"
             return "warn"
-        elif threat_level == ThreatLevel.MEDIUM:
-            return "warn"
-        elif threat_level == ThreatLevel.LOW:
-            return "warn"
-        return "allow"
+        # HIGH / MEDIUM / LOW（已达阈值）
+        if self._config.quarantine_suspicious:
+            return "quarantine"
+        return "warn"
 
     # ------------------------------------------------------------------
     # 公开方法

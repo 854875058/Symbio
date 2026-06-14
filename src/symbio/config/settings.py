@@ -141,6 +141,16 @@ class CostConfig(BaseSettings):
     model_config = {"env_prefix": "SYMBIO_COST_"}
 
 
+class SecurityConfig(BaseSettings):
+    """Prompt Injection defense configuration (chat path)."""
+
+    enabled: bool = Field(default=True, description="Enable injection defense on chat input")
+    mode: str = Field(default="default", description="Guard mode: default / strict / permissive")
+    block_enabled: bool = Field(default=True, description="Actually block high-risk input (vs detect-only)")
+
+    model_config = {"env_prefix": "SYMBIO_SECURITY_"}
+
+
 class OtelConfig(BaseSettings):
     """OpenTelemetry tracing configuration."""
 
@@ -170,6 +180,7 @@ class Settings(BaseSettings):
     evolution: EvolutionConfig = Field(default_factory=EvolutionConfig)
     hitl: HITLConfig = Field(default_factory=HITLConfig)
     cost: CostConfig = Field(default_factory=CostConfig)
+    security: SecurityConfig = Field(default_factory=SecurityConfig)
     otel: OtelConfig = Field(default_factory=OtelConfig)
 
     model_config = {"env_prefix": "SYMBIO_"}
