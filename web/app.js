@@ -4286,10 +4286,117 @@ $('#btn-security-scan-sample')?.addEventListener('click', () => {
 // ============ Evolution Page ============
 async function loadEvolution() {
   await Promise.all([
+    loadFlywheel(),
     previewConversationExport(),
     loadEvaluationSuites(),
   ]);
 }
+
+// ============ Data Flywheel (4-stage closed loop) ============
+const FAILURE_CATEGORIES = ['logic_error','timeout','resource','external_api','input_invalid','permission','model_error','tool_error','context_overflow','unknown'];
+
+async function loadFlywheel() {
+  await Promise.all([loadFlywheelOverview(), loadFlywheelFailures(), loadFlywheelSops()]);
+}
+
+async function loadFlywheelOverview() {
+  try {
+    const res = await fetch(`${API}/flywheel/overview`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const st = data.stages || {};
+    const setText = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    const cap = st.capture || {};
+    setText('fw-capture-metric', cap.available ? `${formatNumber(cap.written || 0)} 已捕获` : '就绪');
+    const an = st.analysis || {};
+    setText('fw-analysis-metric', `${an.total_failures || 0} 失败 / ${an.total_root_causes || 0} 根因`);
+    const di = st.distillation || {};
+    setText('fw-sop-metric', `${(di.seed_count || 0) + (di.distilled_count || 0)} SOP`);
+    const fb = st.feedback || {};
+    setText('fw-feedback-metric', fb.average_rating ? `评分 ${Number(fb.average_rating).toFixed(1)}` : '评分 —');
+  } catch (e) {
+    console.warn('加载飞轮总览失败:', e.message);
+  }
+}
+
+async function loadFlywheelFailures() {
+  const container = document.getElementById('flywheel-failures');
+  if (!container) return;
+  try {
+    const res = await fetch(`${API}/flywheel/failures?limit=20`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const failures = data.failures || [];
+    const causes = data.root_causes || [];
+    if (!failures.length && !causes.length) {
+      container.innerHTML = '<div class="cost-table-empty">暂无失败记录 — 点击右上角"记录一条样例失败"体验闭环</div>';
+      return;
+    }
+    const sevColor = { low: 'var(--accent)', medium: 'var(--amber,#fbbf24)', high: '#fb923c', critical: '#f87171' };
+    let html = '';
+    if (causes.length) {
+      html += '<div class="flywheel-subhead">根因 (Root Cause)</div>';
+      html += causes.slice(0, 5).map(c => `<div class="flywheel-cause"><span class="flywheel-cat">${esc(c.category || '')}</span><span class="flywheel-cause-text">${esc(c.cause_summary || '')}</span><span class="flywheel-occ">×${c.occurrence_count || 1}</span></div>`).join('');
+    }
+    html += '<div class="flywheel-subhead">最近失败</div>';
+    html += failures.slice(0, 8).map(f => {
+      const color = sevColor[f.severity] || 'var(--text-secondary)';
+      return `<div class="flywheel-failure"><span class="security-badge" style="background:${color}22;color:${color}">${esc(f.severity || '')}</span><span class="flywheel-cat">${esc(f.category || '')}</span><span class="flywheel-failure-desc" title="${esc(f.description || '')}">${esc(f.description || f.error_message || '—')}</span></div>`;
+    }).join('');
+    container.innerHTML = html;
+  } catch (e) {
+    container.innerHTML = `<div class="cost-table-empty">加载失败分析出错: ${esc(e.message)}</div>`;
+  }
+}
+
+async function loadFlywheelSops() {
+  const container = document.getElementById('flywheel-sops');
+  if (!container) return;
+  try {
+    const res = await fetch(`${API}/flywheel/sops`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const all = [...(data.seeds || []), ...(data.distilled || [])];
+    if (!all.length) { container.innerHTML = '<div class="cost-table-empty">暂无 SOP</div>'; return; }
+    container.innerHTML = all.map(s => {
+      const isSeed = s.source === 'seed';
+      const steps = Array.isArray(s.steps) ? s.steps.length : (s.steps || 0);
+      return `<div class="flywheel-sop">
+        <div class="flywheel-sop-head">
+          <span class="flywheel-sop-name">${esc(s.name || s.task_type || 'SOP')}</span>
+          <span class="flywheel-sop-tag ${isSeed ? 'seed' : 'distilled'}">${isSeed ? '种子' : '蒸馏'}</span>
+        </div>
+        <div class="flywheel-sop-desc">${esc((s.description || '').substring(0, 80))}</div>
+        <div class="flywheel-sop-meta">${steps} 步 · 成功率 ${Math.round((s.success_rate || 0) * 100)}% · ${formatNumber(s.avg_tokens || 0)} tokens</div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    container.innerHTML = `<div class="cost-table-empty">加载 SOP 出错: ${esc(e.message)}</div>`;
+  }
+}
+
+$('#btn-record-failure-demo')?.addEventListener('click', async () => {
+  const cat = FAILURE_CATEGORIES[Math.floor(Math.random() * 4)];
+  const demos = {
+    timeout: { description: '工具调用超过 30s 未返回，任务被强制中断', severity: 'high' },
+    logic_error: { description: 'Agent 误判任务已完成，跳过了验证步骤', severity: 'medium' },
+    tool_error: { description: '调用文件写入工具时权限不足，返回 EACCES', severity: 'medium' },
+    external_api: { description: '外部 API 返回 429，重试 3 次后仍失败', severity: 'high' },
+  };
+  const d = demos[cat] || demos.timeout;
+  try {
+    const res = await fetch(`${API}/flywheel/failures`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task_id: `demo-${Date.now()}`, category: cat, severity: d.severity, description: d.description, steps_to_failure: 2 + Math.floor(Math.random() * 5) }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    toast('success', '已记录失败样例', '失效分析阶段已更新');
+    await loadFlywheelOverview();
+    await loadFlywheelFailures();
+  } catch (e) {
+    toast('error', '记录失败', e.message);
+  }
+});
 
 async function previewConversationExport() {
   return runConversationExport(true);

@@ -1096,6 +1096,95 @@ async def export_conversations(request: ConversationExportRequest):
     }
 
 
+# ============ 数据飞轮 API ============
+
+class FailureRecordRequest(BaseModel):
+    task_id: str = ""
+    trajectory_id: str = ""
+    prompt_id: str = ""
+    category: str = "unknown"
+    severity: str = "medium"
+    description: str = ""
+    error_message: str = ""
+    steps_to_failure: int = 0
+
+
+class FeedbackRequest(BaseModel):
+    session_id: str = ""
+    task_id: str = ""
+    prompt_id: str = ""
+    user_id: str = ""
+    rating: float = 0.0
+    comment: str = ""
+    tags: list[str] = []
+
+
+class DistillRequest(BaseModel):
+    trajectory_id: str = ""
+    task_type: str = "general"
+    steps: list[dict] = []
+    success: bool = True
+    token_count: int = 0
+    duration_ms: int = 0
+
+
+@app.get("/api/flywheel/overview")
+async def flywheel_overview():
+    """数据飞轮四阶段总览：捕获 / 失效分析 / SOP 蒸馏 / 反哺优化。"""
+    from symbio.evolution.flywheel import get_flywheel
+    fw = get_flywheel()
+    data = await fw.overview()
+    capture = getattr(app.state, "trajectory_capture", None)
+    data["stages"]["capture"].update(fw.trajectory_stats(capture))
+    return data
+
+
+@app.get("/api/flywheel/failures")
+async def flywheel_failures(limit: int = 50):
+    """失效分析与根因列表（阶段二）。"""
+    from symbio.evolution.flywheel import get_flywheel
+    fw = get_flywheel()
+    failures = await fw.list_failures(limit=limit)
+    root_causes = await fw.list_root_causes(limit=limit)
+    return {"failures": failures, "root_causes": root_causes,
+            "total_failures": len(failures), "total_root_causes": len(root_causes)}
+
+
+@app.post("/api/flywheel/failures")
+async def flywheel_record_failure(payload: FailureRecordRequest):
+    """记录一次失败分析（阶段二，驱动闭环）。"""
+    from symbio.evolution.flywheel import get_flywheel
+    return await get_flywheel().record_failure(payload.model_dump())
+
+
+@app.get("/api/flywheel/sops")
+async def flywheel_sops():
+    """SOP 列表：内置种子 + 已蒸馏（阶段三）。"""
+    from symbio.evolution.flywheel import get_flywheel
+    return get_flywheel().list_sops()
+
+
+@app.post("/api/flywheel/sops/distill")
+async def flywheel_distill(payload: DistillRequest):
+    """从一条成功轨迹蒸馏 SOP（阶段三）。"""
+    from symbio.evolution.flywheel import get_flywheel
+    return get_flywheel().distill_from_trajectory(payload.model_dump())
+
+
+@app.get("/api/flywheel/feedback")
+async def flywheel_feedback_stats():
+    """反馈统计（阶段四）。"""
+    from symbio.evolution.flywheel import get_flywheel
+    return await get_flywheel().feedback_stats()
+
+
+@app.post("/api/flywheel/feedback")
+async def flywheel_collect_feedback(payload: FeedbackRequest):
+    """收集一条显式反馈（阶段四）。"""
+    from symbio.evolution.flywheel import get_flywheel
+    return await get_flywheel().collect_feedback(payload.model_dump())
+
+
 @app.get("/api/evaluation/suites")
 async def list_evaluation_suites(path: str = "data/eval_suites"):
     """List local evaluation suite JSON files for the Web UI."""

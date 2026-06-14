@@ -520,6 +520,57 @@
           </div>
         </div>
         <div class="evolution-content">
+          <!-- 四阶段闭环总览 -->
+          <section class="flywheel-stages" id="flywheel-stages">
+            <div class="flywheel-stage" data-stage="capture">
+              <div class="flywheel-stage-icon">①</div>
+              <h4>轨迹捕获</h4>
+              <div class="flywheel-stage-metric" id="fw-capture-metric">运行中</div>
+              <p>记录每一步思考、动作与产物</p>
+            </div>
+            <div class="flywheel-stage" data-stage="analysis">
+              <div class="flywheel-stage-icon">②</div>
+              <h4>失效分析</h4>
+              <div class="flywheel-stage-metric" id="fw-analysis-metric">0 失败 / 0 根因</div>
+              <p>归纳失败根因，沉淀经验</p>
+            </div>
+            <div class="flywheel-stage" data-stage="distillation">
+              <div class="flywheel-stage-icon">③</div>
+              <h4>SOP 蒸馏</h4>
+              <div class="flywheel-stage-metric" id="fw-sop-metric">0 SOP</div>
+              <p>从成功轨迹蒸馏标准流程</p>
+            </div>
+            <div class="flywheel-stage" data-stage="feedback">
+              <div class="flywheel-stage-icon">④</div>
+              <h4>反哺优化</h4>
+              <div class="flywheel-stage-metric" id="fw-feedback-metric">评分 —</div>
+              <p>反馈驱动 Prompt 持续进化</p>
+            </div>
+          </section>
+
+          <div class="flywheel-detail-grid">
+            <!-- 失效分析 -->
+            <section class="evolution-panel">
+              <div class="evolution-panel-head">
+                <div><h3>失效分析与根因</h3><p>PatternAnalyzer 归纳的失败模式</p></div>
+                <button class="btn-outline" id="btn-record-failure-demo">记录一条样例失败</button>
+              </div>
+              <div class="flywheel-failures" id="flywheel-failures">
+                <div class="cost-table-empty">暂无失败记录</div>
+              </div>
+            </section>
+
+            <!-- SOP 蒸馏 -->
+            <section class="evolution-panel">
+              <div class="evolution-panel-head">
+                <div><h3>标准操作流程 (SOP)</h3><p>种子 SOP + 从成功轨迹蒸馏</p></div>
+              </div>
+              <div class="flywheel-sops" id="flywheel-sops">
+                <div class="cost-table-empty">加载中…</div>
+              </div>
+            </section>
+          </div>
+
           <section class="evolution-panel">
             <div class="evolution-panel-head">
               <div>
