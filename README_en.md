@@ -12,6 +12,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Downloads](https://static.pepy.tech/badge/symbio)](https://pepy.tech/project/symbio)
 [![GitHub Stars](https://img.shields.io/github/stars/854875058/Symbio?style=social)](https://github.com/854875058/Symbio)
 [![GitHub Forks](https://img.shields.io/github/forks/854875058/Symbio?style=social)](https://github.com/854875058/Symbio)
 

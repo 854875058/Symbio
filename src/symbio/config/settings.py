@@ -115,6 +115,11 @@ class HITLConfig(BaseSettings):
     high_risk_auto_suspend: bool = Field(default=True, description="Auto-suspend high-risk actions")
     approval_timeout: int = Field(default=300, description="Approval timeout (seconds)")
 
+    # 超时策略：reject(自动拒绝) | approve(自动通过) | escalate(转交管理员)
+    timeout_action: str = Field(default="reject", description="Default action on approval timeout")
+    escalation_target: str = Field(default="", description="Escalation target (admin id / notify channel)")
+    max_escalations: int = Field(default=1, description="Max escalations before falling back to reject")
+
     # IM notification
     notify_platform: str = Field(default="", description="Notification platform (qq/wechat/feishu)")
     notify_chat_id: str = Field(default="", description="Notification chat ID")

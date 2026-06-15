@@ -904,6 +904,7 @@
         <div class="hitl-timeout-section">
           <div class="page-header" style="padding:12px 0 8px">
             <h3 style="font-size:0.9rem">超时策略</h3>
+            <span class="hitl-timeout-hint">审批超时后自动处置，避免任务无限挂起</span>
           </div>
           <div class="sandbox-form-grid">
             <label class="sandbox-field">
@@ -913,13 +914,23 @@
             <label class="sandbox-field">
               <span>超时处理</span>
               <select id="hitl-timeout-action">
-                <option value="auto_reject">自动拒绝</option>
-                <option value="auto_approve">自动通过</option>
+                <option value="reject">自动拒绝</option>
+                <option value="approve">自动通过</option>
+                <option value="escalate">转交管理员</option>
               </select>
+            </label>
+            <label class="sandbox-field">
+              <span>转交目标 (管理员/渠道)</span>
+              <input type="text" id="hitl-escalation-target" placeholder="admin / feishu-admin">
+            </label>
+            <label class="sandbox-field">
+              <span>最大升级次数</span>
+              <input type="number" id="hitl-max-escalations" value="1" min="0" max="5">
             </label>
           </div>
           <div class="sandbox-actions" style="margin-top:8px">
-            <button class="btn-outline" id="btn-check-timeouts">检查并处理超时</button>
+            <button class="btn-primary" id="btn-save-timeout-policy">保存策略</button>
+            <button class="btn-outline" id="btn-check-timeouts">立即检查超时</button>
           </div>
           <div id="hitl-timeout-result" style="margin-top:8px"></div>
         </div>

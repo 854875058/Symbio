@@ -77,6 +77,12 @@ class ApprovalRequest(BaseModel):
     timeout_seconds: int = 3600
     auto_approve_on_timeout: bool = False
 
+    # 超时策略：reject(自动拒绝) | approve(自动通过) | escalate(转交管理员)
+    timeout_policy: str = "reject"
+    escalation_target: str = ""        # 转交目标（管理员标识 / 通知渠道）
+    escalation_level: int = 0          # 已升级次数
+    max_escalations: int = 1           # 最多升级次数，超出后落到 reject
+
     # 状态
     status: ApprovalStatus = ApprovalStatus.PENDING
     required_approvers: int = 1
@@ -308,6 +314,64 @@ class ApprovalGateway:
         await self._fire_callbacks(request)
         return request
 
+    async def escalate(
+        self,
+        request_id: str,
+        escalation_target: str = "",
+        comment: str = "",
+        extend_seconds: Optional[int] = None,
+    ) -> ApprovalRequest:
+        """Escalate a pending request to a higher-level approver / admin.
+
+        The request stays PENDING but its deadline is extended and a new timeout
+        timer is armed. When ``escalation_level`` exceeds ``max_escalations`` the
+        request falls back to its terminal action (reject) instead of looping.
+
+        Returns the (possibly resolved) request.
+        """
+        await self._ensure_storage()
+        async with self._lock:
+            request = self._pending.get(request_id)
+            if request is None:
+                raise KeyError(f"Request {request_id} not found or already resolved")
+
+            # 超过最大升级次数 -> 落到自动拒绝，避免无限转交
+            if request.escalation_level >= request.max_escalations:
+                record = ApprovalRecord(
+                    approver_id="escalation-policy",
+                    decision=ApprovalStatus.REJECTED,
+                    comment=comment or "Escalation exhausted; auto-rejected",
+                )
+                request.approvals.append(record)
+                request.status = ApprovalStatus.REJECTED
+                request.resolved_at = datetime.now()
+                del self._pending[request_id]
+                self._history.append(request)
+                exhausted = True
+            else:
+                request.escalation_level += 1
+                if escalation_target:
+                    request.escalation_target = escalation_target
+                # 延长截止时间并重新计时
+                extend = extend_seconds if extend_seconds is not None else request.timeout_seconds
+                request.created_at = datetime.now()
+                request.timeout_seconds = max(extend, 1)
+                request.metadata.setdefault("escalations", []).append({
+                    "level": request.escalation_level,
+                    "target": request.escalation_target,
+                    "comment": comment,
+                    "at": datetime.now().isoformat(),
+                })
+                exhausted = False
+
+        await self._persist_request(request)
+        if exhausted:
+            await self._fire_callbacks(request)
+        else:
+            # 重新武装超时定时器（基于新的 created_at + timeout_seconds）
+            self._schedule_timeout(request)
+        return request
+
     async def get_pending(self) -> list[ApprovalRequest]:
         """Return all pending approval requests."""
         await self._ensure_storage()
@@ -399,14 +463,33 @@ class ApprovalGateway:
         request: ApprovalRequest,
         delay_seconds: Optional[float] = None,
     ) -> None:
-        """Sleep until timeout, then resolve if still pending."""
+        """Sleep until timeout, then apply the configured timeout policy."""
         await asyncio.sleep(request.timeout_seconds if delay_seconds is None else delay_seconds)
         await self._ensure_storage()
+
+        # 决定超时策略：显式 timeout_policy 优先，兼容旧的 auto_approve_on_timeout
+        policy = request.timeout_policy or "reject"
+        if request.auto_approve_on_timeout:
+            policy = "approve"
+
+        # escalate 由 escalate() 单独处理（会重新计时或落到 reject）
+        if policy == "escalate":
+            async with self._lock:
+                if request.request_id not in self._pending:
+                    return
+            try:
+                await self.escalate(
+                    request.request_id,
+                    comment="Auto-escalated on timeout",
+                )
+            except KeyError:
+                pass
+            return
+
         async with self._lock:
             if request.request_id not in self._pending:
                 return  # already resolved
-            if request.auto_approve_on_timeout:
-                # Treat as system approval
+            if policy == "approve":
                 record = ApprovalRecord(
                     approver_id="system",
                     decision=ApprovalStatus.APPROVED,
@@ -414,7 +497,13 @@ class ApprovalGateway:
                 )
                 request.approvals.append(record)
                 request.status = ApprovalStatus.APPROVED
-            else:
+            else:  # reject (default)
+                record = ApprovalRecord(
+                    approver_id="system",
+                    decision=ApprovalStatus.REJECTED,
+                    comment="Auto-rejected on timeout",
+                )
+                request.approvals.append(record)
                 request.status = ApprovalStatus.TIMEOUT
             request.resolved_at = datetime.now()
             del self._pending[request.request_id]

@@ -4736,6 +4736,10 @@ textarea::placeholder { color:var(--text-tertiary); }
   border-top: 1px solid var(--border);
   margin-top: 16px;
 }
+.hitl-timeout-hint {
+  font-size: 0.72rem;
+  color: var(--text-tertiary);
+}
 .hitl-add-channel-form {
   background: var(--bg-secondary);
   border: 1px solid var(--border);

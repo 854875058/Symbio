@@ -13,6 +13,7 @@ Symbio 不是一个单纯的 LLM 外壳，而是一套面向真实工程任务�
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![PyPI](https://img.shields.io/pypi/v/symbio.svg)](https://pypi.org/project/symbio/)
+[![Downloads](https://static.pepy.tech/badge/symbio)](https://pepy.tech/project/symbio)
 
 </div>
 

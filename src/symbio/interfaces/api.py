@@ -3299,9 +3299,43 @@ class HITLTimeoutPolicy(BaseModel):
     comment: str = "Auto-handled: approval timeout"
 
 
+def _normalize_timeout_action(action: str) -> str:
+    """把外部传入的动作名归一化为网关识别的 reject/approve/escalate。"""
+    a = (action or "").lower().strip()
+    if a in ("auto_approve", "approve"):
+        return "approve"
+    if a in ("escalate", "transfer"):
+        return "escalate"
+    return "reject"
+
+
+async def _apply_timeout_action(gateway, request_id: str, action: str, comment: str):
+    """对单个请求应用超时动作，返回 (updated_request, resume_result)。"""
+    norm = _normalize_timeout_action(action)
+    resume_result = None
+    if norm == "approve":
+        updated = await gateway.approve(request_id, approver_id="timeout-policy", comment=comment)
+        resume_result = await _try_resume_hitl_task(request_id)
+    elif norm == "escalate":
+        settings = await _load_llm_settings()
+        target = getattr(settings.hitl, "escalation_target", "") if hasattr(settings, "hitl") else ""
+        updated = await gateway.escalate(request_id, escalation_target=target, comment=comment)
+        # 升级后若仍 pending，尝试重新发送审批通知到（可能更高优先级的）渠道
+        from symbio.core.hitl_gateway import ApprovalStatus
+        if updated.status == ApprovalStatus.PENDING:
+            try:
+                updated.metadata["escalated"] = True
+                await _notify_hitl_request(updated)
+            except Exception as e:
+                logger.warning(f"升级通知发送失败: {e}")
+    else:
+        updated = await gateway.reject(request_id, approver_id="timeout-policy", comment=comment)
+    return updated, resume_result
+
+
 @app.post("/api/hitl/{request_id}/timeout-action", tags=["hitl"])
 async def hitl_timeout_action(request_id: str, policy: HITLTimeoutPolicy):
-    """手动触发超时处理（通常由后台任务调用）。"""
+    """手动触发超时处理（通常由后台任务调用）。支持 auto_reject / auto_approve / escalate。"""
     gateway = _get_hitl_gateway()
     request = await gateway.get_request(request_id)
     if request is None:
@@ -3310,29 +3344,31 @@ async def hitl_timeout_action(request_id: str, policy: HITLTimeoutPolicy):
     if request.status != ApprovalStatus.PENDING:
         return {"skipped": True, "reason": f"Request is {request.status.value}, not pending"}
 
-    if policy.action == "auto_approve":
-        updated = await gateway.approve(request_id, approver_id="timeout-policy", comment=policy.comment)
-    else:
-        updated = await gateway.reject(request_id, approver_id="timeout-policy", comment=policy.comment)
-
-    resume_result = None
-    if policy.action == "auto_approve":
-        resume_result = await _try_resume_hitl_task(request_id)
+    updated, resume_result = await _apply_timeout_action(
+        gateway, request_id, policy.action, policy.comment,
+    )
 
     return {
         "request_id": request_id,
-        "action": policy.action,
+        "action": _normalize_timeout_action(policy.action),
         "status": updated.status.value if updated else "unknown",
+        "escalation_level": getattr(updated, "escalation_level", 0),
         "resume_result": resume_result,
     }
 
 
 @app.get("/api/hitl/timeout/check", tags=["hitl"])
-async def check_hitl_timeouts(max_age_seconds: int = 300, action: str = "auto_reject"):
-    """检查超时的审批请求并批量处理（可由外部 cron 或前端轮询调用）。"""
+async def check_hitl_timeouts(max_age_seconds: int = 300, action: str = ""):
+    """检查超时的审批请求并批量处理（可由外部 cron 或前端轮询调用）。
+
+    action 留空时使用 symbio.yaml 中配置的默认超时策略 hitl.timeout_action。
+    """
     gateway = _get_hitl_gateway()
-    from symbio.core.hitl_gateway import ApprovalStatus
     import time as _time
+
+    if not action:
+        settings = await _load_llm_settings()
+        action = getattr(settings.hitl, "timeout_action", "reject") if hasattr(settings, "hitl") else "reject"
 
     pending = await gateway.list_requests(status_filter="pending")
     now = _time.time()
@@ -3341,21 +3377,71 @@ async def check_hitl_timeouts(max_age_seconds: int = 300, action: str = "auto_re
     for req in pending:
         created_ts = None
         try:
-            from datetime import datetime, timezone
+            from datetime import datetime
             created_ts = datetime.fromisoformat(req.created_at.replace("Z", "+00:00")).timestamp()
         except Exception:
             continue
         age = now - created_ts
         if age >= max_age_seconds:
-            policy = HITLTimeoutPolicy(request_id=req.request_id, action=action,
-                                        comment=f"Auto-handled: timed out after {int(age)}s")
-            if action == "auto_approve":
-                await gateway.approve(req.request_id, approver_id="timeout-checker", comment=policy.comment)
-            else:
-                await gateway.reject(req.request_id, approver_id="timeout-checker", comment=policy.comment)
-            handled.append({"request_id": req.request_id, "age_seconds": int(age), "action": action})
+            comment = f"Auto-handled: timed out after {int(age)}s"
+            updated, _ = await _apply_timeout_action(gateway, req.request_id, action, comment)
+            handled.append({
+                "request_id": req.request_id,
+                "age_seconds": int(age),
+                "action": _normalize_timeout_action(action),
+                "status": updated.status.value if updated else "unknown",
+            })
 
-    return {"checked": len(pending), "handled": len(handled), "items": handled}
+    return {"checked": len(pending), "handled": len(handled), "action": _normalize_timeout_action(action), "items": handled}
+
+
+@app.get("/api/hitl/timeout/policy", tags=["hitl"])
+async def get_hitl_timeout_policy():
+    """读取默认超时策略配置。"""
+    settings = await _load_llm_settings()
+    hitl = settings.hitl
+    return {
+        "timeout_action": getattr(hitl, "timeout_action", "reject"),
+        "escalation_target": getattr(hitl, "escalation_target", ""),
+        "max_escalations": getattr(hitl, "max_escalations", 1),
+        "approval_timeout": getattr(hitl, "approval_timeout", 300),
+    }
+
+
+class HITLTimeoutPolicyConfig(BaseModel):
+    timeout_action: Optional[str] = None
+    escalation_target: Optional[str] = None
+    max_escalations: Optional[int] = None
+    approval_timeout: Optional[int] = None
+
+
+@app.post("/api/hitl/timeout/policy", tags=["hitl"])
+async def set_hitl_timeout_policy(update: HITLTimeoutPolicyConfig):
+    """更新默认超时策略并写入 symbio.yaml。"""
+    from symbio.config.settings import HITLConfig, Settings
+
+    config_path = Path("symbio.yaml")
+    settings = Settings.from_yaml(config_path) if config_path.exists() else Settings()
+    if getattr(settings, "hitl", None) is None:
+        settings.hitl = HITLConfig()
+
+    if update.timeout_action is not None:
+        if update.timeout_action not in ("reject", "approve", "escalate"):
+            raise HTTPException(status_code=400, detail="timeout_action 必须是 reject/approve/escalate")
+        settings.hitl.timeout_action = update.timeout_action
+    if update.escalation_target is not None:
+        settings.hitl.escalation_target = update.escalation_target
+    if update.max_escalations is not None:
+        if update.max_escalations < 0:
+            raise HTTPException(status_code=400, detail="max_escalations 不能为负")
+        settings.hitl.max_escalations = update.max_escalations
+    if update.approval_timeout is not None:
+        settings.hitl.approval_timeout = update.approval_timeout
+
+    settings.to_yaml(config_path)
+    from symbio.config.settings import get_settings
+    get_settings.cache_clear()
+    return await get_hitl_timeout_policy()
 
 
 # ============ MCP 工具网关 API ============

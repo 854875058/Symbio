@@ -170,7 +170,7 @@ async function switchPage(name) {
   if (name === 'evolution') await loadEvolution();
   if (name === 'sandbox') await loadSandbox();
   if (name === 'external-agents') await loadExternalAgents();
-  if (name === 'hitl') { await loadHitl(); await loadHitlChannels(); }
+  if (name === 'hitl') { await loadHitl(); await loadHitlChannels(); await loadHitlTimeoutPolicy(); }
   if (name === 'mcp') await loadMCP();
   if (name === 'a2a') await loadA2A();
   if (name === 'security') await loadSecurity();
@@ -5541,17 +5541,53 @@ async function deleteHitlChannel(channelId) {
 
 document.getElementById('btn-refresh-channels')?.addEventListener('click', loadHitlChannels);
 
-// Timeout check
+// 加载已保存的超时策略到表单
+async function loadHitlTimeoutPolicy() {
+  try {
+    const res = await fetch(`${API}/hitl/timeout/policy`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const set = (id, v) => { const el = document.getElementById(id); if (el != null && v != null) el.value = v; };
+    set('hitl-timeout-action', data.timeout_action);
+    set('hitl-escalation-target', data.escalation_target);
+    set('hitl-max-escalations', data.max_escalations);
+    set('hitl-timeout-seconds', data.approval_timeout);
+  } catch (e) { /* ignore */ }
+}
+
+// 保存超时策略
+document.getElementById('btn-save-timeout-policy')?.addEventListener('click', async () => {
+  const resultEl = document.getElementById('hitl-timeout-result');
+  const body = {
+    timeout_action: document.getElementById('hitl-timeout-action')?.value || 'reject',
+    escalation_target: document.getElementById('hitl-escalation-target')?.value || '',
+    max_escalations: parseInt(document.getElementById('hitl-max-escalations')?.value || '1'),
+    approval_timeout: parseInt(document.getElementById('hitl-timeout-seconds')?.value || '300'),
+  };
+  try {
+    const res = await fetch(`${API}/hitl/timeout/policy`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    toast('success', '超时策略已保存', `默认动作：${body.timeout_action}`);
+    if (resultEl) resultEl.innerHTML = '<span style="color:var(--green)">✓ 策略已写入 symbio.yaml</span>';
+  } catch (e) {
+    toast('error', '保存失败', e.message);
+  }
+});
+
+// Timeout check（立即检查超时，留空 action 时用已保存的默认策略）
 document.getElementById('btn-check-timeouts')?.addEventListener('click', async () => {
   const resultEl = document.getElementById('hitl-timeout-result');
   const seconds = parseInt(document.getElementById('hitl-timeout-seconds')?.value || '300');
-  const action = document.getElementById('hitl-timeout-action')?.value || 'auto_reject';
+  const action = document.getElementById('hitl-timeout-action')?.value || '';
   if (resultEl) resultEl.innerHTML = '<span style="color:var(--text-tertiary)">检查中...</span>';
   try {
     const res = await fetch(`${API}/hitl/timeout/check?max_age_seconds=${seconds}&action=${action}`);
     const data = await res.json();
     if (resultEl) {
-      resultEl.innerHTML = `<span style="color:var(--green)">✓ 检查了 ${data.checked} 个，处理了 ${data.handled} 个</span>`;
+      const actionLabel = { reject: '自动拒绝', approve: '自动通过', escalate: '转交管理员' }[data.action] || data.action;
+      resultEl.innerHTML = `<span style="color:var(--green)">✓ 检查 ${data.checked} 个，处理 ${data.handled} 个（${actionLabel}）</span>`;
     }
     if (data.handled > 0) await loadHitl();
   } catch (e) {
