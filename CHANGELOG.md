@@ -5,9 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.0] - 2026-06-12
+## [0.2.0] - 2026-06-15
 
 ### Added
+
+#### Token 成本五层优化接入运行时
+- 新增 `src/symbio/core/chat_pipeline.py`：把语义缓存、上下文剪枝、成本监控接进 `/api/chat` 与 `/ws/chat`
+- 语义缓存命中后零 Token 返回（HTTP 直接返回 / WS 分块回放），上下文指纹保证复用等价性，无 embedding key 时优雅降级
+- 上下文超预算时按 FULL 策略剪枝并修复 user/assistant 交替结构
+- 新增 `GET /api/costs/{summary,cache,budget,dashboard}` 与月度预算设置
+- Dashboard 新增"成本中心"面板：24h 用量、缓存命中率、节省 Token、预算进度条、按模型用量明细
+
+#### Prompt Injection 三层防火墙接入对话入口
+- 修复检测引擎：经典注入语 "ignore all previous instructions" 因语序漏匹配的 bug；单签名命中升 HIGH；让死配置 `threat_threshold` 真正作为动作阈值生效；多重高危信号聚合升 CRITICAL
+- 扩充 8 类攻击签名（直接/间接注入、越狱、泄露、角色劫持、社工胁迫、数据外泄、编码绕过）；攻击样本自检拦截率 0% → 65%，对编程话题零误伤
+- 新增 `src/symbio/security/chat_guard.py`，接进 `/api/chat`、`/ws/chat`；新增 `GET/POST /api/security/{stats,audit,scan,selftest}`
+- Web UI 新增"安全"页面：三层防御概览、威胁分布、在线扫描、红队自检、审计轨迹
+
+#### 数据飞轮四阶段闭环
+- 新增 `src/symbio/evolution/flywheel.py`：串起 捕获 → 失效分析 → SOP 蒸馏 → 反哺优化
+- 新增 `GET/POST /api/flywheel/{overview,failures,sops,sops/distill,feedback}`
+- Web UI 飞轮页升级：四阶段闭环可视化、失效分析与根因、SOP 卡片、现场记录失败驱动闭环
+
+#### HITL 审批超时策略闭环
+- 网关新增 `escalate()`：转交管理员、延长截止时间并重新计时、记录升级轨迹，超出上限自动落到拒绝
+- `_timeout_handler` 按 `timeout_policy` 分流：自动拒绝 / 自动通过 / 转交管理员
+- 新增 `GET/POST /api/hitl/timeout/policy` 读写默认策略并持久化到 `symbio.yaml`
+- Web UI 审批页新增超时策略配置（含"转交管理员"、转交目标、最大升级次数）
+
+#### Computer Use 最小闭环
+- 新增 `src/symbio/tools/computer_use.py`：浏览器会话控制、动作集（navigate/screenshot/click/type/scroll/extract_text）、启发式动作规划、审计轨迹与回放；Playwright 不可用时降级为 dry-run record-only
+- 新增 `POST /api/computer-use/sessions`、`/act`、`/plan`、`/replay`、`DELETE`
+- Web UI 新增 Computer Use 页面：会话管理、目标驱动规划执行、手动动作、审计时间线、回放
+
+#### Web UI 暖色浅底主题（Claude Code / Hermes 风格）
+- 默认主题改为浅色，重做 light 调色板为暖米白底 + 赤陶强调色 + 暖灰文字
+- 引入可主题化品牌渐变变量，全站统一；新增 `prefers-reduced-motion` 支持
+- 中英混排页面全部中文化；新增输入框回车快捷键
 
 #### A2A 协议（Agent-to-Agent）
 - 新增 `src/symbio/interfaces/a2a.py`：完整的 A2A 数据模型（AgentCard、A2ATask、A2ASession）和 A2ASessionManager
@@ -52,7 +86,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 字体换用 Inter，设计语言更专业
 
 ### Changed
-- `capabilities.py`：`a2a_protocol` 状态从 `missing` 升级为 `partial`，`mcp_gateway` 和 `observability_otel` 新增证据文件
+- `capabilities.py`：新增 `token_cost_optimization`、`prompt_injection_defense`（均 implemented）；`computer_use_loop` 从 `missing` 升级为 `partial`；新增诚实保留的 `federated_privacy`（missing）；`a2a_protocol` 从 `missing` 升级为 `partial`，`mcp_gateway` 和 `observability_otel` 新增证据文件
+- Web UI 从 14 个页面扩展到 16 个（新增"安全"与"Computer Use"）
 
 ### Fixed
 - HITL 渠道通知中 `_feishu_sign` 函数调用方式修正

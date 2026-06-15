@@ -155,28 +155,48 @@ Symbio 可以登记并控制本地 Codex、Claude Code 等外部 Agent 会话，
 - `src/symbio/tools/k8s_sandbox.py`
 - `tests/test_sandbox_runtime.py`
 
-### 10. 可观测性与 Token 成本
+### 10. Token 成本五层优化（已接入运行时）
 
-Symbio 有 trace、metric、token heatmap、执行事件和 artifact 的接口基础。目标是把每一次 Agent 决策、工具调用、审批、失败和恢复都变成可复盘的数据。
-
-相关代码：
-
-- `src/symbio/core/tracer.py`
-- `src/symbio/core/cost_monitor.py`
-- `src/symbio/tools/cost_tracker.py`
-- `tests/test_capabilities.py`
-
-### 11. 数据飞轮与进化引擎
-
-Symbio 的演进模块围绕轨迹捕获、失败分析、SOP 蒸馏、评测集、数据集导出和微调闭环展开。当前已有数据导出、SOP、eval pipeline 和 API 基础，真实训练后端仍在补。
+成本优化不再是孤立的库代码，而是真正接进了 `/api/chat` 与 `/ws/chat`：语义缓存（相似问题命中后零 Token 返回）、上下文剪枝（超预算时裁剪历史）、成本监控（每次调用持久化用量 + 月度预算与超额降级建议）。Dashboard 提供"成本中心"面板，展示用量、缓存命中率、节省 Token 与按模型用量明细。
 
 相关代码：
 
-- `src/symbio/evolution/sop_distiller.py`
-- `src/symbio/evolution/dataset_exporter.py`
-- `src/symbio/evolution/eval_pipeline.py`
-- `src/symbio/evolution/fine_tuner.py`
-- `tests/test_evolution_api.py`
+- `src/symbio/core/chat_pipeline.py`
+- `src/symbio/core/semantic_cache.py` · `context_pruner.py` · `cost_monitor.py`
+- `web/app.js`、`/api/costs/*`
+- `tests/test_chat_pipeline.py`
+
+### 11. Prompt Injection 三层防火墙（已接入对话入口）
+
+输入净化（符号规则）→ 语义检测（8 类攻击签名）→ 意图审计（综合评估）。高危输入在调用 LLM 前被拦截，攻击样本库自检拦截率约 65%，且对 `os.system`、`while True` 这类编程话题零误伤（代码执行风险交由沙箱处置，不归 prompt 防火墙）。Web UI 提供在线扫描、红队自检和审计轨迹。
+
+相关代码：
+
+- `src/symbio/core/injection_guard.py`
+- `src/symbio/security/chat_guard.py` · `attack_samples.py`
+- `web/app.js`、`/api/security/*`
+- `tests/test_chat_guard.py`
+
+### 12. 数据飞轮四阶段闭环
+
+演进模块串起 轨迹捕获 → 失效分析 → SOP 蒸馏 → 反哺优化 四个阶段，并通过 `/api/flywheel/*` 暴露成可点击的产品闭环。Web UI 飞轮页可查看失效根因、SOP 卡片，并现场记录失败来驱动闭环。真实训练后端仍在补。
+
+相关代码：
+
+- `src/symbio/evolution/flywheel.py`
+- `src/symbio/evolution/sop_distiller.py` · `analyzer.py` · `feedback.py` · `dataset_exporter.py`
+- `web/app.js`、`/api/flywheel/*`
+- `tests/test_flywheel.py`
+
+### 13. Computer Use 最小闭环
+
+浏览器会话控制 + 动作集（navigate/screenshot/click/type/scroll/extract_text）+ 启发式动作规划 + 审计轨迹与回放。Playwright 可用时执行真实浏览器操作，不可用时降级为 dry-run record-only 模式，保证闭环结构始终可用、可测。
+
+相关代码：
+
+- `src/symbio/tools/computer_use.py`
+- `web/app.js`、`/api/computer-use/*`
+- `tests/test_computer_use.py`
 
 ---
 
@@ -188,18 +208,21 @@ Symbio 的演进模块围绕轨迹捕获、失败分析、SOP 蒸馏、评测集
 |------|------|------|
 | 动态 DAG 运行时 | 已实现 | 图状态持久化、执行事件、重规划骨架 |
 | Planner/Reviewer 策略 | 已实现 | 先规划、风险审查、验证闭环 |
-| HITL + IM 审批 | 已实现 | Web、Webhook、QQ/企业微信/飞书文本审批入口 |
+| HITL + IM 多渠道审批 | 已实现 | Web/Webhook/QQ/企业微信/飞书/钉钉/Telegram/Slack + 超时升级策略（自动拒绝/通过/转交管理员） |
 | 本体记忆图谱 | 已实现 | ontology memory + API + Web UI 展示 |
 | 模型池与模型路由 | 已实现 | 模型配置、路由策略、对话模型选择 |
 | 外部 Agent 接管 | 已实现 | Codex / Claude Code 会话登记、运行、导入 transcript |
+| **Token 成本五层优化** | **已实现** | 语义缓存 + 上下文剪枝 + 成本监控接入对话链路，含成本仪表盘与月度预算 |
+| **Prompt Injection 三层防火墙** | **已实现** | 接入对话入口，攻击样本自检拦截率 65%，对编程话题零误伤 |
 | Skills 市场 | 部分实现 | 本地市场与安装记录已具备，远程生态待完善 |
 | MCP 工具网关 | 部分实现 | stdio JSON-RPC 桥接已具备，协议面待补齐 |
 | 沙箱与 K8s 路径 | 部分实现 | 本地沙箱已具备，生产级隔离待加强 |
 | OpenTelemetry 可观测 | 部分实现 | trace/token heatmap 基础已具备，部署模板待补 |
-| 数据飞轮 | 部分实现 | SOP、导出、eval 基础已具备，训练后端待补 |
+| 数据飞轮（四阶段闭环） | 部分实现 | 捕获 / 失效分析 / SOP 蒸馏 / 反哺优化已打通 API+UI，真实训练后端待补 |
 | Ray Actor 运行时 | 部分实现 | 本地 fallback 和依赖路径已有，集群调度待产品化 |
-| A2A 协议 | 规划中 | 需要 adapter、schema、handshake 和兼容测试 |
-| Computer Use Loop | 规划中 | 需要浏览器控制、截图理解、动作规划和审计 |
+| A2A 协议 | 部分实现 | AgentCard、入站/出站任务、多轮会话已具备 |
+| **Computer Use 最小闭环** | **部分实现** | 浏览器会话/动作/截图/规划/审计/回放已具备，待接 VLM 视觉规划 |
+| 隐私计算 / 联邦学习 | 规划中 | 当前仅在路线图，未进入产品闭环 |
 
 运行接口：
 
@@ -253,18 +276,24 @@ symbio export --format sharegpt --output data/exports/train.jsonl
 
 ## Web UI 能力
 
-当前 Web UI 覆盖了这些主要页面和工作流：
+当前 Web UI 覆盖 16 个页面（左侧分组侧边栏，默认暖色浅底主题，可切换深色）：
 
 - 对话：会话管理、模型选择、流式回答、历史消息持久化。
 - 任务：任务列表、状态、步骤、DAG、执行事件和 artifacts。
-- 模型：模型池配置、API Key 保存、连接测试。
-- 记忆：记忆搜索、写入、统计、本体图谱展示。
-- Skills：本地 Skill、市场浏览、导入、安装记录、文件查看与编辑。
-- HITL：审批列表、审批详情、同意/拒绝、IM channel 状态。
+- 审批（HITL）：审批列表、详情、同意/拒绝、渠道管理、超时策略配置。
 - 外部 Agent：Codex / Claude Code session 登记、运行、transcript 导入。
+- A2A：本机 AgentCard、出站会话、入站任务。
+- Skills：本地 Skill、市场浏览、导入、安装记录、文件查看与编辑。
 - 沙箱：命令执行、权限策略、审批策略、审计记录。
-- 可观测性：trace summary、token heatmap、运行指标入口。
+- MCP：MCP server 管理、工具探测。
+- **安全**：三层防火墙概览、威胁分布、在线扫描、红队自检、审计轨迹。
+- **Computer Use**：浏览器会话、目标驱动规划执行、动作审计时间线、回放。
+- 记忆：记忆搜索、写入、统计。
+- 本体图谱：实体关系可视化。
+- 仪表盘：Token 趋势、Observability 摘要、**成本中心**（用量/缓存命中率/月度预算）。
 - 能力账本：把项目宣称能力和实际证据放到前端展示。
+- 数据飞轮：四阶段闭环、失效分析、SOP、Dataset 导出、Eval 解析。
+- 模型：模型池配置、API Key 保存、连接测试。
 
 ---
 
@@ -290,6 +319,11 @@ symbio export --format sharegpt --output data/exports/train.jsonl
 | `POST /api/sandbox/execute` | 沙箱执行 |
 | `POST /api/external-agents/sessions/{session_id}/run` | 外部 Agent 执行 |
 | `POST /api/export/conversations` | 对话数据集导出 |
+| `GET /api/costs/dashboard` | 成本中心（用量 + 缓存命中率 + 预算） |
+| `GET/POST /api/security/{stats,scan,selftest}` | 防火墙统计 / 在线扫描 / 红队自检 |
+| `GET/POST /api/flywheel/{overview,failures,sops,feedback}` | 数据飞轮四阶段 |
+| `GET/POST /api/hitl/timeout/policy` | 审批超时策略 |
+| `POST /api/computer-use/sessions` | Computer Use 浏览器会话 |
 
 ---
 
@@ -370,7 +404,7 @@ pytest tests/test_dag_runtime.py
 
 ## 当前状态
 
-Symbio 仍处于 Alpha 阶段。核心调度、HITL、记忆、外部 Agent 接管、沙箱和 Web UI 已经形成可运行骨架；企业级部署、安全隔离、远程 Skill 生态、完整 MCP 协议面、A2A 和 Computer Use 还在持续实现。
+Symbio 仍处于 Alpha 阶段。核心调度、HITL（含多渠道审批与超时升级策略）、记忆、外部 Agent 接管、沙箱、Token 成本优化、Prompt Injection 防火墙、数据飞轮闭环和 Web UI 已经形成可运行能力；Computer Use 与 A2A 已具备最小闭环；企业级部署、安全隔离、远程 Skill 生态、完整 MCP 协议面、真实训练后端和隐私计算还在持续实现。
 
 这个 README 会尽量保持一个原则：已经落地的能力写成能力，部分落地的写清缺口，尚未实现的只放在路线图里。
 
