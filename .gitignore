@@ -28,6 +28,7 @@ env/
 
 # Claude Code local settings
 .claude/settings.local.json
+.claude/launch.json
 
 # One-off local helper scripts
 push_to_github.bat
@@ -64,6 +65,14 @@ data/*.log
 # Runtime local state
 data/external_agents.json
 data/skill_marketplace/
+data/computer_use/
+data/distilled_sops.json
+
+# Runtime data dirs created when the server is launched from a subdir
+src/data/
+**/data/*.db
+**/data/*.db-shm
+**/data/*.db-wal
 
 # Uploaded/generated root-level images should be moved into assets/ with a stable name.
 /*.png

@@ -578,8 +578,8 @@
           <section class="evolution-panel">
             <div class="evolution-panel-head">
               <div>
-                <h3>Dataset Export</h3>
-                <p>Conversation samples for ShareGPT, Alpaca, OpenAI, and raw JSONL.</p>
+                <h3>数据集导出</h3>
+                <p>把会话轨迹导出为 ShareGPT / Alpaca / OpenAI / 原始 JSONL 微调样本。</p>
               </div>
               <div class="evolution-actions">
                 <select class="select-input" id="export-format">
@@ -588,27 +588,27 @@
                   <option value="openai">OpenAI</option>
                   <option value="raw">Raw</option>
                 </select>
-                <button class="btn-outline" id="btn-export-preview">Preview</button>
-                <button class="btn-primary" id="btn-export-write">Write JSONL</button>
+                <button class="btn-outline" id="btn-export-preview">预览</button>
+                <button class="btn-primary" id="btn-export-write">写出 JSONL</button>
               </div>
             </div>
             <div class="evolution-export-meta" id="evolution-export-meta"></div>
-            <pre class="evolution-preview" id="evolution-export-preview">No export preview loaded.</pre>
+            <pre class="evolution-preview" id="evolution-export-preview">尚未加载导出预览。</pre>
           </section>
 
           <section class="evolution-panel">
             <div class="evolution-panel-head">
               <div>
-                <h3>Evaluation Suites</h3>
-                <p>Local JSON suites parsed by EvalPipeline.</p>
+                <h3>评测集</h3>
+                <p>由 EvalPipeline 解析的本地 JSON 评测套件。</p>
               </div>
               <div class="evolution-actions">
                 <input class="text-input" id="eval-suite-path" value="data/eval_suites">
-                <button class="btn-outline" id="btn-load-eval-suites">Load suites</button>
+                <button class="btn-outline" id="btn-load-eval-suites">加载评测集</button>
               </div>
             </div>
             <div class="evolution-suite-grid" id="evolution-suite-grid">
-              <div class="empty-state-lg"><p>No suites loaded.</p></div>
+              <div class="empty-state-lg"><p>尚未加载评测集。</p></div>
             </div>
           </section>
         </div>
@@ -617,11 +617,11 @@
       <!-- Sandbox Page -->
       <div class="page" id="page-sandbox">
         <div class="page-header">
-          <h2>Sandbox Execution</h2>
+          <h2>沙箱执行</h2>
           <div class="page-header-bar">
             <button class="btn-outline" id="btn-refresh-sandbox">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/><polyline points="21 3 21 9 15 9"/></svg>
-              Refresh
+              刷新
             </button>
           </div>
         </div>
@@ -629,18 +629,18 @@
           <section class="sandbox-panel sandbox-runner">
             <div class="sandbox-panel-head">
               <div>
-                <h3>Code Runner</h3>
-                <p>Workspace-bounded command execution with approval and audit controls.</p>
+                <h3>代码执行器</h3>
+                <p>工作区边界内的命令执行，带审批策略与审计控制。</p>
               </div>
               <div class="sandbox-policy-badges" id="sandbox-policy"></div>
             </div>
             <div class="sandbox-form-grid">
               <label class="sandbox-field sandbox-field-wide">
-                <span>Command</span>
+                <span>命令</span>
                 <textarea id="sandbox-command" spellcheck="false">python -c "print('hello from sandbox')"</textarea>
               </label>
               <label class="sandbox-field">
-                <span>Permission</span>
+                <span>权限</span>
                 <select id="sandbox-permission">
                   <option value="read_only">read_only</option>
                   <option value="write">write</option>
@@ -648,7 +648,7 @@
                 </select>
               </label>
               <label class="sandbox-field">
-                <span>Approval</span>
+                <span>审批策略</span>
                 <select id="sandbox-approval-policy">
                   <option value="on-request">on-request</option>
                   <option value="on-failure">on-failure</option>
@@ -657,7 +657,7 @@
                 </select>
               </label>
               <label class="sandbox-field">
-                <span>Access</span>
+                <span>访问模式</span>
                 <select id="sandbox-access-mode">
                   <option value="workspace-write">workspace-write</option>
                   <option value="read-only">read-only</option>
@@ -665,40 +665,40 @@
                 </select>
               </label>
               <label class="sandbox-field">
-                <span>Timeout</span>
+                <span>超时 (秒)</span>
                 <input id="sandbox-timeout" type="number" min="1" max="300" value="30">
               </label>
               <label class="sandbox-field sandbox-field-wide">
-                <span>Working directory</span>
-                <input id="sandbox-working-dir" type="text" placeholder="Default workspace root">
+                <span>工作目录</span>
+                <input id="sandbox-working-dir" type="text" placeholder="默认工作区根目录">
               </label>
               <label class="sandbox-check">
                 <input id="sandbox-approved" type="checkbox">
-                <span>Approved for write/execute</span>
+                <span>已批准写入/执行</span>
               </label>
               <label class="sandbox-check">
                 <input id="sandbox-shell" type="checkbox">
-                <span>Run through shell</span>
+                <span>通过 shell 执行</span>
               </label>
             </div>
             <div class="sandbox-actions">
-              <button class="btn-primary" id="btn-run-sandbox">Run</button>
-              <button class="btn-outline" id="btn-run-sandbox-approved">Run approved</button>
+              <button class="btn-primary" id="btn-run-sandbox">执行</button>
+              <button class="btn-outline" id="btn-run-sandbox-approved">批准后执行</button>
             </div>
             <div class="sandbox-result" id="sandbox-result">
-              <div class="empty-state-lg"><p>No command has been run yet.</p></div>
+              <div class="empty-state-lg"><p>尚未执行任何命令。</p></div>
             </div>
           </section>
 
           <section class="sandbox-panel">
             <div class="sandbox-panel-head">
               <div>
-                <h3>Audit Trail</h3>
-                <p>Every blocked, approval-required, or executed command is recorded.</p>
+                <h3>审计轨迹</h3>
+                <p>每一条被拦截、需审批或已执行的命令都会被记录。</p>
               </div>
             </div>
             <div class="sandbox-audit-list" id="sandbox-audit-list">
-              <div class="empty-state-lg"><p>No sandbox audit records.</p></div>
+              <div class="empty-state-lg"><p>暂无沙箱审计记录。</p></div>
             </div>
           </section>
         </div>

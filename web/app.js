@@ -4428,6 +4428,26 @@ document.getElementById('btn-cu-close')?.addEventListener('click', async () => {
 
 document.getElementById('btn-refresh-cu')?.addEventListener('click', loadComputerUse);
 
+// 键盘快捷键：让新页面的输入框支持回车直接触发主操作
+function bindEnter(inputId, buttonId, opts = {}) {
+  const input = document.getElementById(inputId);
+  const btn = document.getElementById(buttonId);
+  if (!input || !btn) return;
+  input.addEventListener('keydown', (e) => {
+    const wantCtrl = !!opts.ctrl;
+    if (e.key === 'Enter' && (!wantCtrl || e.ctrlKey || e.metaKey) && !e.shiftKey) {
+      e.preventDefault();
+      btn.click();
+    }
+  });
+}
+bindEnter('cost-budget-input', 'btn-set-budget');
+bindEnter('security-scan-input', 'btn-security-scan', { ctrl: true });
+bindEnter('cu-start-url', 'btn-cu-create');
+bindEnter('cu-goal', 'btn-cu-plan');
+bindEnter('cu-action-param', 'btn-cu-act');
+bindEnter('hitl-escalation-target', 'btn-save-timeout-policy');
+
 $('#btn-refresh-security')?.addEventListener('click', loadSecurity);
 $('#btn-run-selftest')?.addEventListener('click', runSecuritySelftest);
 $('#btn-security-scan')?.addEventListener('click', runSecurityScan);

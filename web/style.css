@@ -156,6 +156,16 @@ body {
   66% { transform: translate(-18px, 26px) scale(0.96); }
 }
 
+/* 尊重系统的"减少动态效果"偏好：关闭持续动画，降低 CPU/GPU 占用与晕眩风险 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .orb { animation: none; }
+}
+
 /* ============ App Root ============ */
 .app {
   display: grid;
