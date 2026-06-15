@@ -74,7 +74,8 @@
 
 - [x] BrowserTool fetch 能力 - `src/symbio/tools/registry.py`
 - [x] BrowserTool screenshot 在 Playwright 可用时截图，缺依赖时返回明确错误 - `src/symbio/tools/registry.py`
-- [ ] Computer Use 完整闭环未实现：截图理解、坐标规划、GUI 操作执行、回放审计
+- [~] Computer Use 最小闭环已实现：浏览器会话控制、动作集（navigate/screenshot/click/type/scroll/extract_text）、启发式动作规划、审计轨迹与回放；Playwright 不可用时降级为 dry-run record-only 模式 - `src/symbio/tools/computer_use.py`, `/api/computer-use/*`, `web/app.js`, `tests/test_computer_use.py`
+- [ ] 待补：截图视觉理解（VLM 定位坐标）、LLM 规划器接管、多标签/多会话生命周期硬化
 
 ### 安全 / 沙箱 / 资源
 

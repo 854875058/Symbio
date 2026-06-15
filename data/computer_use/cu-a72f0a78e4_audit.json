@@ -1,0 +1,78 @@
+{
+  "session_id": "cu-a72f0a78e4",
+  "start_url": "",
+  "current_url": "https://example.com",
+  "status": "closed",
+  "dry_run": true,
+  "created_at": "2026-06-15T02:16:38.855492+00:00",
+  "step_count": 4,
+  "steps": [
+    {
+      "index": 0,
+      "action": "navigate",
+      "params": {
+        "url": "https://example.com"
+      },
+      "success": true,
+      "result": {
+        "mode": "dry_run",
+        "navigated_to": "https://example.com"
+      },
+      "error": "",
+      "elapsed_ms": 0,
+      "url": "https://example.com",
+      "at": "2026-06-15T02:16:38.856027+00:00"
+    },
+    {
+      "index": 1,
+      "action": "screenshot",
+      "params": {},
+      "success": true,
+      "result": {
+        "mode": "dry_run",
+        "screenshot": null,
+        "note": "Playwright 未安装，未真正截图"
+      },
+      "error": "",
+      "elapsed_ms": 0,
+      "url": "https://example.com",
+      "at": "2026-06-15T02:16:38.856027+00:00"
+    },
+    {
+      "index": 2,
+      "action": "extract_text",
+      "params": {
+        "selector": "body"
+      },
+      "success": true,
+      "result": {
+        "mode": "dry_run",
+        "text": "",
+        "note": "Playwright 未安装"
+      },
+      "error": "",
+      "elapsed_ms": 0,
+      "url": "https://example.com",
+      "at": "2026-06-15T02:16:38.856027+00:00"
+    },
+    {
+      "index": 3,
+      "action": "wait",
+      "params": {
+        "ms": 100
+      },
+      "success": true,
+      "result": {
+        "mode": "dry_run",
+        "action": "wait",
+        "params": {
+          "ms": 100
+        }
+      },
+      "error": "",
+      "elapsed_ms": 0,
+      "url": "https://example.com",
+      "at": "2026-06-15T02:16:38.856027+00:00"
+    }
+  ]
+}

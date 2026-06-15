@@ -3444,6 +3444,102 @@ async def set_hitl_timeout_policy(update: HITLTimeoutPolicyConfig):
     return await get_hitl_timeout_policy()
 
 
+# ============ Computer Use API ============
+
+class ComputerUseSessionCreate(BaseModel):
+    start_url: str = ""
+    headless: bool = True
+
+
+class ComputerUseAction(BaseModel):
+    action: str
+    params: dict = {}
+
+
+class ComputerUsePlanRequest(BaseModel):
+    goal: str
+    auto_execute: bool = True
+
+
+@app.post("/api/computer-use/sessions", tags=["computer-use"])
+async def create_computer_use_session(payload: ComputerUseSessionCreate):
+    """创建一个 Computer Use 浏览器会话。"""
+    from symbio.tools.computer_use import get_computer_use_manager
+    session = get_computer_use_manager().create_session(
+        start_url=payload.start_url, headless=payload.headless,
+    )
+    return session.to_dict(include_steps=False)
+
+
+@app.get("/api/computer-use/sessions", tags=["computer-use"])
+async def list_computer_use_sessions():
+    """列出所有 Computer Use 会话。"""
+    from symbio.tools.computer_use import get_computer_use_manager
+    sessions = get_computer_use_manager().list_sessions()
+    return {"sessions": sessions, "total": len(sessions),
+            "playwright_available": not (sessions[0]["dry_run"] if sessions else _computer_use_dry_run())}
+
+
+def _computer_use_dry_run() -> bool:
+    from symbio.tools.computer_use import _playwright_available
+    return not _playwright_available()
+
+
+@app.get("/api/computer-use/sessions/{session_id}", tags=["computer-use"])
+async def get_computer_use_session(session_id: str):
+    """获取会话详情与完整审计轨迹。"""
+    from symbio.tools.computer_use import get_computer_use_manager
+    session = get_computer_use_manager().get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return session.to_dict(include_steps=True)
+
+
+@app.post("/api/computer-use/sessions/{session_id}/act", tags=["computer-use"])
+async def computer_use_act(session_id: str, payload: ComputerUseAction):
+    """在会话中执行一个动作（navigate/screenshot/click/type/scroll/extract_text/wait）。"""
+    from symbio.tools.computer_use import get_computer_use_manager
+    session = get_computer_use_manager().get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    step = await session.act(payload.action, payload.params)
+    return {"step": step, "step_count": len(session.steps)}
+
+
+@app.post("/api/computer-use/sessions/{session_id}/plan", tags=["computer-use"])
+async def computer_use_plan(session_id: str, payload: ComputerUsePlanRequest):
+    """规划朝目标的下一步动作；auto_execute 为真时直接执行。"""
+    from symbio.tools.computer_use import get_computer_use_manager, ActionPlanner
+    session = get_computer_use_manager().get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    plan = ActionPlanner.plan(payload.goal, session)
+    executed = None
+    if payload.auto_execute:
+        executed = await session.act(plan["action"], plan["params"])
+    return {"plan": plan, "executed": executed, "step_count": len(session.steps)}
+
+
+@app.post("/api/computer-use/sessions/{session_id}/replay", tags=["computer-use"])
+async def computer_use_replay(session_id: str):
+    """回放会话已记录的动作轨迹。"""
+    from symbio.tools.computer_use import get_computer_use_manager
+    session = get_computer_use_manager().get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return await session.replay()
+
+
+@app.delete("/api/computer-use/sessions/{session_id}", tags=["computer-use"])
+async def close_computer_use_session(session_id: str):
+    """关闭会话并持久化审计。"""
+    from symbio.tools.computer_use import get_computer_use_manager
+    ok = await get_computer_use_manager().close_session(session_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return {"closed": True, "session_id": session_id}
+
+
 # ============ MCP 工具网关 API ============
 
 class MCPServerAdd(BaseModel):

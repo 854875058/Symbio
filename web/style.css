@@ -3506,6 +3506,63 @@ textarea::placeholder { color:var(--text-tertiary); }
 .security-cat-bar i { display: block; height: 100%; border-radius: 4px; }
 .security-cat-count { text-align: right; font-family: var(--font-mono); font-size: 0.76rem; color: var(--text-secondary); }
 
+/* ============ Computer Use Page ============ */
+.cu-content {
+  flex: 1; min-height: 0; overflow-y: auto;
+  padding: 24px; display: flex; flex-direction: column; gap: 18px;
+}
+.cu-mode-badge {
+  font-size: 0.72rem;
+  padding: 3px 12px;
+  border-radius: 20px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+.cu-mode-badge.live { background: rgba(52,211,153,0.15); color: #34d399; }
+.cu-mode-badge.dry { background: rgba(251,191,36,0.15); color: #fbbf24; }
+.cu-create-row, .cu-goal-row, .cu-action-row {
+  display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px;
+}
+.cu-create-row .text-input, .cu-goal-row .text-input { flex: 1; min-width: 220px; }
+.cu-action-row .text-input { flex: 1; min-width: 180px; }
+.cu-sessions { display: flex; flex-direction: column; gap: 6px; }
+.cu-session-item {
+  display: grid;
+  grid-template-columns: 130px 1fr 110px;
+  gap: 10px; align-items: center;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+.cu-session-item:hover { background: var(--bg-secondary); }
+.cu-session-item.active { border-color: var(--accent); background: var(--accent-dim); }
+.cu-session-id { font-family: var(--font-mono); font-size: 0.74rem; color: var(--accent); }
+.cu-session-url { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
+.cu-session-meta { text-align: right; font-size: 0.72rem; color: var(--text-tertiary); }
+.cu-timeline-head {
+  font-size: 0.74rem; color: var(--text-tertiary);
+  text-transform: uppercase; letter-spacing: 0.04em; margin: 14px 0 8px;
+}
+.cu-timeline { display: flex; flex-direction: column; gap: 4px; max-height: 380px; overflow-y: auto; }
+.cu-step {
+  display: grid;
+  grid-template-columns: 28px 90px 1fr 90px 24px;
+  gap: 8px; align-items: center;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm, 6px);
+  font-size: 0.78rem;
+  border-left: 2px solid var(--green, #34d399);
+  background: var(--bg-secondary);
+}
+.cu-step.failed { border-left-color: #f87171; }
+.cu-step-num { font-family: var(--font-mono); color: var(--text-tertiary); }
+.cu-step-action { font-family: var(--font-mono); color: var(--accent); }
+.cu-step-detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
+.cu-step-status { text-align: right; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-tertiary); }
+.cu-step-shot { text-align: center; }
+
 /* ============ Data Flywheel ============ */
 .flywheel-stages {
   display: grid;

@@ -210,10 +210,25 @@ CAPABILITY_ITEMS: tuple[CapabilityItem, ...] = (
         "id": "computer_use_loop",
         "module": "browser",
         "claim": "Computer Use loop: screenshot understanding, coordinate planning, GUI action, replay audit.",
-        "status": "missing",
-        "evidence": ["src/symbio/tools/registry.py"],
+        "status": "partial",
+        "evidence": [
+            "src/symbio/tools/computer_use.py",
+            "src/symbio/tools/registry.py",
+            "src/symbio/interfaces/api.py",
+            "web/app.js",
+            "tests/test_computer_use.py",
+        ],
         "docs": ["README.md", "docs/features.md", "docs/feature-checklist.md"],
-        "next_step": "Add a browser session controller, screenshot analyzer interface, action planner, and audit log.",
+        "next_step": "Wire an LLM/vision planner into ActionPlanner, add coordinate grounding from screenshots, and harden multi-tab/session lifecycle.",
+    },
+    {
+        "id": "federated_privacy",
+        "module": "platform",
+        "claim": "Privacy computing, federated learning, and differential privacy for enterprise data.",
+        "status": "missing",
+        "evidence": [],
+        "docs": ["docs/feature-checklist.md", "docs/roadmap.md"],
+        "next_step": "Currently roadmap/whitepaper only; implement a federated aggregation path and DP noise injection before claiming support.",
     },
 )
 

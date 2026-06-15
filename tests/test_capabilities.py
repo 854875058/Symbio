@@ -25,7 +25,10 @@ def test_capability_report_marks_claim_statuses_and_evidence():
     assert items["hitl_im_approval"]["status"] == "implemented"
     assert "src/symbio/core/hitl_notifier.py" in items["hitl_im_approval"]["evidence"]
     assert items["a2a_protocol"]["status"] == "partial"
-    assert items["computer_use_loop"]["status"] == "missing"
+    # Computer Use 已实现最小闭环（会话/动作/截图/规划/审计/回放），状态升级为 partial
+    assert items["computer_use_loop"]["status"] == "partial"
+    # 仍保留诚实的 missing 项：隐私计算/联邦学习当前仅在路线图
+    assert items["federated_privacy"]["status"] == "missing"
 
     for item in report["items"]:
         assert item["claim"]
