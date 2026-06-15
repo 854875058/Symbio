@@ -39,7 +39,7 @@ const state = {
   evolution: { export: null, suites: [] },
   sandbox: { policy: null, audit: [], lastResult: null },
   externalAgents: { providers: [], sessions: [], transcripts: [], audit: [], activeSessionId: '', lastResult: null },
-  theme: localStorage.getItem('symbio-theme') || 'dark',
+  theme: localStorage.getItem('symbio-theme') || 'light',
   pagesLoaded: {},
   virtualScrollEnabled: false,
   executionCache: {},
@@ -144,8 +144,9 @@ const dom = {
 const PAGE_TITLES = {
   chat: '对话', tasks: '任务监控', models: '模型配置', memory: '记忆管理',
   ontology: '本体图谱', skills: 'Skills', dashboard: '仪表盘',
-  capabilities: '能力账本', evolution: '数据飞轮', sandbox: 'Sandbox',
-  'external-agents': 'External Agents', hitl: '审批中心', a2a: 'A2A 协议', mcp: 'MCP 工具网关',
+  capabilities: '能力账本', evolution: '数据飞轮', sandbox: '沙箱执行',
+  'external-agents': '外部 Agent', hitl: '审批中心', a2a: 'A2A 协议', mcp: 'MCP 工具网关',
+  security: '安全防火墙', 'computer-use': 'Computer Use',
 };
 
 async function switchPage(name) {
