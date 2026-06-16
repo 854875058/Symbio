@@ -85,10 +85,23 @@ class MCPStdioClient:
         self._proc: Optional[asyncio.subprocess.Process] = None
         self._next_id = 1
         self._lock = asyncio.Lock()
+        self.server_capabilities: dict[str, Any] = {}
+        self.server_info: dict[str, Any] = {}
+
+    async def __aenter__(self) -> "MCPStdioClient":
+        await self.start()
+        return self
+
+    async def __aexit__(self, *exc_info) -> None:
+        await self.close()
 
     @property
     def is_started(self) -> bool:
         return self._proc is not None and self._proc.returncode is None
+
+    def supports(self, capability: str) -> bool:
+        """服务器是否声明了某能力（tools / resources / prompts）。"""
+        return capability in (self.server_capabilities or {})
 
     async def start(self) -> None:
         if self.is_started:
@@ -124,10 +137,13 @@ class MCPStdioClient:
             {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {},
-                "clientInfo": {"name": "symbio", "version": "0.1.0"},
+                "clientInfo": {"name": "symbio", "version": "0.2.1"},
             },
             auto_start=False,
         )
+        if isinstance(result, dict):
+            self.server_capabilities = result.get("capabilities", {}) or {}
+            self.server_info = result.get("serverInfo", {}) or {}
         await self.notify("notifications/initialized", {})
         return result
 
@@ -154,6 +170,36 @@ class MCPStdioClient:
             "tools/call",
             {"name": tool_name, "arguments": arguments or {}},
         )
+
+    # -- resources protocol -------------------------------------------------
+
+    async def list_resources(self) -> list[dict[str, Any]]:
+        """列出服务器暴露的资源；不支持时优雅返回空列表。"""
+        await self.start()
+        try:
+            result = await self.request("resources/list", {})
+        except MCPError:
+            return []
+        return result.get("resources", []) if isinstance(result, dict) else []
+
+    async def read_resource(self, uri: str) -> Any:
+        await self.start()
+        return await self.request("resources/read", {"uri": uri})
+
+    # -- prompts protocol ---------------------------------------------------
+
+    async def list_prompts(self) -> list[dict[str, Any]]:
+        """列出服务器暴露的 prompt 模板；不支持时优雅返回空列表。"""
+        await self.start()
+        try:
+            result = await self.request("prompts/list", {})
+        except MCPError:
+            return []
+        return result.get("prompts", []) if isinstance(result, dict) else []
+
+    async def get_prompt(self, name: str, arguments: Optional[dict[str, Any]] = None) -> Any:
+        await self.start()
+        return await self.request("prompts/get", {"name": name, "arguments": arguments or {}})
 
     async def notify(self, method: str, params: Optional[dict[str, Any]] = None) -> None:
         proc = self._require_proc()
@@ -209,6 +255,77 @@ class MCPStdioClient:
         if not self._proc or self._proc.returncode is not None:
             raise RuntimeError(f"MCP server {self.name} is not running")
         return self._proc
+
+
+class MCPConnectionPool:
+    """复用 MCP stdio 连接的进程级连接池。
+
+    避免每次探测/调用都重新拉起子进程：按服务器名缓存并保活 MCPStdioClient，
+    死进程自动重建。适合 Web UI 反复探测工具/资源、以及 Agent 多次调用同一工具。
+    """
+
+    def __init__(self) -> None:
+        self._clients: dict[str, MCPStdioClient] = {}
+        self._lock = asyncio.Lock()
+
+    async def get_client(
+        self,
+        name: str,
+        command: str | list[str],
+        *,
+        cwd: Optional[str] = None,
+        env: Optional[dict[str, str]] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> MCPStdioClient:
+        async with self._lock:
+            client = self._clients.get(name)
+            if client is not None and client.is_started:
+                return client
+            # 重建（首次或进程已死）
+            if client is not None:
+                await client.close()
+            client = MCPStdioClient(command, name=name, cwd=cwd, env=env, metadata=metadata)
+            await client.start()
+            self._clients[name] = client
+            return client
+
+    def peek(self, name: str) -> Optional[MCPStdioClient]:
+        return self._clients.get(name)
+
+    async def close(self, name: str) -> bool:
+        async with self._lock:
+            client = self._clients.pop(name, None)
+        if client is None:
+            return False
+        await client.close()
+        return True
+
+    async def close_all(self) -> None:
+        async with self._lock:
+            clients = list(self._clients.values())
+            self._clients.clear()
+        for client in clients:
+            await client.close()
+
+    def active_servers(self) -> list[str]:
+        return [n for n, c in self._clients.items() if c.is_started]
+
+
+_pool: Optional[MCPConnectionPool] = None
+
+
+def get_mcp_pool() -> MCPConnectionPool:
+    global _pool
+    if _pool is None:
+        _pool = MCPConnectionPool()
+    return _pool
+
+
+async def reset_mcp_pool() -> None:
+    global _pool
+    if _pool is not None:
+        await _pool.close_all()
+    _pool = None
 
 
 class MCPTool(BaseTool):
@@ -444,6 +561,8 @@ TOOLS = [{
         "required": ["text"],
     },
 }]
+RESOURCES = [{"uri": "mem://note", "name": "note", "description": "A demo resource"}]
+PROMPTS = [{"name": "greet", "description": "Greeting prompt"}]
 
 for line in sys.stdin:
     msg = json.loads(line)
@@ -451,12 +570,21 @@ for line in sys.stdin:
         continue
     method = msg.get("method")
     if method == "initialize":
-        result = {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}}, "serverInfo": {"name": "test"}}
+        result = {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}, "resources": {}, "prompts": {}}, "serverInfo": {"name": "test"}}
     elif method == "tools/list":
         result = {"tools": TOOLS}
     elif method == "tools/call":
         args = msg.get("params", {}).get("arguments", {})
         result = {"content": [{"type": "text", "text": args.get("text", "")}]}
+    elif method == "resources/list":
+        result = {"resources": RESOURCES}
+    elif method == "resources/read":
+        uri = msg.get("params", {}).get("uri", "")
+        result = {"contents": [{"uri": uri, "text": "resource body for " + uri}]}
+    elif method == "prompts/list":
+        result = {"prompts": PROMPTS}
+    elif method == "prompts/get":
+        result = {"messages": [{"role": "user", "content": {"type": "text", "text": "hello"}}]}
     else:
         print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "error": {"code": -32601, "message": "not found"}}), flush=True)
         continue

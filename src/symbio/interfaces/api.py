@@ -3706,18 +3706,79 @@ async def delete_mcp_server(server_id: str):
     return {"deleted": server_id}
 
 
-@app.post("/api/mcp/servers/{server_id}/tools", tags=["mcp"])
-async def probe_mcp_server_tools(server_id: str):
-    """连接指定 MCP 服务器，返回可用工具列表。"""
-    servers = _load_mcp_servers()
-    srv = next((s for s in servers if s.get("id") == server_id), None)
+def _find_mcp_server(server_id: str) -> dict:
+    srv = next((s for s in _load_mcp_servers() if s.get("id") == server_id), None)
     if srv is None:
         raise HTTPException(status_code=404, detail="MCP server not found")
+    return srv
+
+
+@app.post("/api/mcp/servers/{server_id}/tools", tags=["mcp"])
+async def probe_mcp_server_tools(server_id: str):
+    """连接指定 MCP 服务器（连接池复用），返回可用工具列表与声明的能力。"""
+    srv = _find_mcp_server(server_id)
     try:
-        from symbio.tools.mcp import MCPStdioClient
+        from symbio.tools.mcp import get_mcp_pool
         cmd = [srv["command"]] + srv.get("args", [])
-        async with MCPStdioClient(cmd, name=srv["name"]) as client:
-            tools = await client.list_tools()
-        return {"server_id": server_id, "tools": [{"name": t.name, "description": t.description} for t in tools], "total": len(tools)}
+        client = await get_mcp_pool().get_client(srv["name"], cmd, env=srv.get("env") or None)
+        tools = await client.list_tools()
+        return {
+            "server_id": server_id,
+            "tools": [{"name": t.name, "description": t.description} for t in tools],
+            "total": len(tools),
+            "capabilities": list((client.server_capabilities or {}).keys()),
+            "server_info": client.server_info,
+        }
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"MCP probe failed: {exc}")
+
+
+@app.post("/api/mcp/servers/{server_id}/resources", tags=["mcp"])
+async def probe_mcp_server_resources(server_id: str):
+    """列出 MCP 服务器暴露的资源（resources/list）。"""
+    srv = _find_mcp_server(server_id)
+    try:
+        from symbio.tools.mcp import get_mcp_pool
+        cmd = [srv["command"]] + srv.get("args", [])
+        client = await get_mcp_pool().get_client(srv["name"], cmd, env=srv.get("env") or None)
+        resources = await client.list_resources()
+        return {"server_id": server_id, "resources": resources, "total": len(resources),
+                "supported": client.supports("resources")}
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"MCP resources probe failed: {exc}")
+
+
+@app.post("/api/mcp/servers/{server_id}/prompts", tags=["mcp"])
+async def probe_mcp_server_prompts(server_id: str):
+    """列出 MCP 服务器暴露的 prompt 模板（prompts/list）。"""
+    srv = _find_mcp_server(server_id)
+    try:
+        from symbio.tools.mcp import get_mcp_pool
+        cmd = [srv["command"]] + srv.get("args", [])
+        client = await get_mcp_pool().get_client(srv["name"], cmd, env=srv.get("env") or None)
+        prompts = await client.list_prompts()
+        return {"server_id": server_id, "prompts": prompts, "total": len(prompts),
+                "supported": client.supports("prompts")}
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"MCP prompts probe failed: {exc}")
+
+
+@app.post("/api/mcp/servers/{server_id}/mount", tags=["mcp"])
+async def mount_mcp_server_tools(server_id: str):
+    """把 MCP 服务器的工具挂载进全局工具注册中心，供 Agent 执行时调用。"""
+    srv = _find_mcp_server(server_id)
+    try:
+        from symbio.tools.mcp import get_mcp_pool, MCPTool
+        from symbio.tools.registry import get_tool_registry
+        cmd = [srv["command"]] + srv.get("args", [])
+        client = await get_mcp_pool().get_client(srv["name"], cmd, env=srv.get("env") or None)
+        specs = await client.list_tools()
+        registry = get_tool_registry()
+        mounted = []
+        for spec in specs:
+            tool = MCPTool(client, spec, name_prefix=srv["name"])
+            registry.register(tool)
+            mounted.append(tool.name)
+        return {"server_id": server_id, "mounted": mounted, "total": len(mounted)}
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"MCP mount failed: {exc}")
