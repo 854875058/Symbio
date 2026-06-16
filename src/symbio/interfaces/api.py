@@ -3459,6 +3459,7 @@ class ComputerUseAction(BaseModel):
 class ComputerUsePlanRequest(BaseModel):
     goal: str
     auto_execute: bool = True
+    use_llm: bool = False
 
 
 @app.post("/api/computer-use/sessions", tags=["computer-use"])
@@ -3508,12 +3509,17 @@ async def computer_use_act(session_id: str, payload: ComputerUseAction):
 
 @app.post("/api/computer-use/sessions/{session_id}/plan", tags=["computer-use"])
 async def computer_use_plan(session_id: str, payload: ComputerUsePlanRequest):
-    """规划朝目标的下一步动作；auto_execute 为真时直接执行。"""
-    from symbio.tools.computer_use import get_computer_use_manager, ActionPlanner
+    """规划朝目标的下一步动作；use_llm 为真时用 LLM 视觉/文本规划，否则启发式。
+    auto_execute 为真时直接执行。"""
+    from symbio.tools.computer_use import get_computer_use_manager, ActionPlanner, LLMActionPlanner
     session = get_computer_use_manager().get(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="会话不存在")
-    plan = ActionPlanner.plan(payload.goal, session)
+    if payload.use_llm:
+        plan = await LLMActionPlanner().plan(payload.goal, session)
+    else:
+        plan = ActionPlanner.plan(payload.goal, session)
+        plan.setdefault("planner", "heuristic")
     executed = None
     if payload.auto_execute:
         executed = await session.act(plan["action"], plan["params"])

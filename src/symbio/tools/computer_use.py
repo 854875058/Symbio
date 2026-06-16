@@ -246,6 +246,139 @@ class ActionPlanner:
                 "reason": "标准侦察序列已完成，等待目标判定"}
 
 
+_LLM_PLANNER_SYSTEM = (
+    "你是一个浏览器操作 Agent 的动作规划器。根据用户目标和当前页面状态，"
+    "决定下一步要执行的单个动作。只能从以下动作中选择：\n"
+    "- navigate(url): 打开网址\n"
+    "- click(selector | x,y): 点击元素或坐标\n"
+    "- type(text, selector?): 输入文本\n"
+    "- scroll(dy): 滚动\n"
+    "- extract_text(selector?): 提取页面文本\n"
+    "- screenshot(): 截图理解页面\n"
+    "- wait(ms): 等待\n"
+    "- done(): 目标已达成时返回\n\n"
+    "严格只输出一个 JSON 对象，格式："
+    '{"action": "<动作>", "params": {<参数>}, "reason": "<中文理由>"}。'
+    "不要输出任何额外文字或 markdown 代码块。"
+)
+
+
+class LLMActionPlanner:
+    """LLM 驱动的动作规划器。
+
+    结合目标 + 当前页面状态（URL、最近提取的文本、已执行动作）让 LLM 决定下一步。
+    通过注入 `complete`（async (system, user) -> str）便于测试与替换后端；
+    默认从 settings 构建 Anthropic 客户端。任何失败都回退到启发式 ActionPlanner，
+    保证 Computer Use 闭环永不因规划层故障而中断。
+    """
+
+    def __init__(self, complete=None, model: Optional[str] = None):
+        self._complete = complete
+        self._model = model
+
+    async def plan(self, goal: str, session: "ComputerUseSession") -> dict[str, Any]:
+        complete = self._complete or self._default_complete()
+        if complete is None:
+            result = ActionPlanner.plan(goal, session)
+            result["planner"] = "heuristic"
+            result["reason"] = "未配置 LLM，回退启发式规划：" + result.get("reason", "")
+            return result
+
+        user_prompt = self._build_prompt(goal, session)
+        try:
+            raw = await complete(_LLM_PLANNER_SYSTEM, user_prompt)
+            plan = self._parse(raw)
+            if plan is None:
+                raise ValueError(f"无法解析 LLM 规划输出: {raw[:120]}")
+            plan["planner"] = "llm"
+            return plan
+        except Exception as e:
+            logger.warning(f"LLM 规划失败，回退启发式: {e}")
+            result = ActionPlanner.plan(goal, session)
+            result["planner"] = "heuristic-fallback"
+            return result
+
+    @staticmethod
+    def _build_prompt(goal: str, session: "ComputerUseSession") -> str:
+        recent = session.steps[-4:]
+        history_lines = []
+        for s in recent:
+            res = s.get("result", {})
+            snippet = res.get("text") or res.get("navigated_to") or ""
+            history_lines.append(
+                f"- {s['action']}({s.get('params', {})}) -> "
+                f"{'成功' if s['success'] else '失败'} {str(snippet)[:100]}"
+            )
+        last_text = ""
+        for s in reversed(session.steps):
+            if s["action"] == "extract_text" and s.get("result", {}).get("text"):
+                last_text = s["result"]["text"][:1200]
+                break
+        return (
+            f"目标：{goal}\n"
+            f"当前页面 URL：{session.current_url or '(空白)'}\n"
+            f"已执行动作（最近 {len(recent)} 步）：\n"
+            + ("\n".join(history_lines) if history_lines else "(无)")
+            + (f"\n\n当前页面文本片段：\n{last_text}" if last_text else "")
+            + "\n\n请决定下一步动作（只输出 JSON）。"
+        )
+
+    @staticmethod
+    def _parse(raw: str) -> Optional[dict[str, Any]]:
+        if not raw:
+            return None
+        text = raw.strip()
+        # 容忍 ```json ... ``` 包裹
+        if text.startswith("```"):
+            text = text.strip("`")
+            if text.lower().startswith("json"):
+                text = text[4:]
+        # 抓第一个 { ... } 段
+        start = text.find("{")
+        end = text.rfind("}")
+        if start == -1 or end == -1 or end < start:
+            return None
+        try:
+            obj = json.loads(text[start:end + 1])
+        except Exception:
+            return None
+        action = str(obj.get("action", "")).lower().strip()
+        if action == "done":
+            return {"action": "wait", "params": {"ms": 0},
+                    "reason": obj.get("reason", "目标已达成"), "done": True}
+        if action not in VALID_ACTIONS:
+            return None
+        params = obj.get("params", {})
+        if not isinstance(params, dict):
+            params = {}
+        return {"action": action, "params": params,
+                "reason": str(obj.get("reason", ""))}
+
+    def _default_complete(self):
+        """从 settings 构建 Anthropic 文本补全函数；无 key 返回 None。"""
+        try:
+            from symbio.config.settings import get_settings
+            settings = get_settings()
+            api_key = settings.model.anthropic_api_key
+            if not api_key:
+                return None
+            base_url = settings.model.anthropic_base_url
+            model = self._model or settings.model.model_medium
+        except Exception:
+            return None
+
+        async def _complete(system: str, user: str) -> str:
+            import anthropic
+            client = anthropic.AsyncAnthropic(api_key=api_key, base_url=base_url)
+            resp = await client.messages.create(
+                model=model, max_tokens=512, system=system,
+                messages=[{"role": "user", "content": user}],
+            )
+            return "".join(getattr(b, "text", "") for b in resp.content)
+
+        return _complete
+
+
 class ComputerUseManager:
     """会话管理器（进程级单例）。"""
 

@@ -1298,6 +1298,9 @@
             <!-- 目标驱动 -->
             <div class="cu-goal-row">
               <input type="text" class="text-input" id="cu-goal" placeholder="目标，如：open https://example.com and read the page">
+              <label class="cu-llm-toggle" title="用 LLM 结合页面状态决定下一步动作（未配置 LLM 时回退启发式）">
+                <input type="checkbox" id="cu-use-llm"> LLM 规划
+              </label>
               <button class="btn-primary" id="btn-cu-plan">规划并执行下一步</button>
               <button class="btn-outline" id="btn-cu-replay">回放轨迹</button>
             </div>

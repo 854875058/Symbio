@@ -13,6 +13,7 @@ from symbio.tools.computer_use import (
     ActionPlanner,
     ComputerUseManager,
     ComputerUseSession,
+    LLMActionPlanner,
     get_computer_use_manager,
     reset_computer_use_manager,
 )
@@ -150,6 +151,85 @@ async def test_computer_use_api_flow():
 
         resp = await client.get(f"/api/computer-use/sessions/{sid}")
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# LLM 动作规划器
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_llm_planner_parses_structured_action():
+    async def fake_complete(system, user):
+        return '{"action": "navigate", "params": {"url": "https://symbio.ai"}, "reason": "打开目标站点"}'
+    planner = LLMActionPlanner(complete=fake_complete)
+    session = ComputerUseSession("cu-test")
+    plan = await planner.plan("打开 symbio.ai 看看", session)
+    assert plan["action"] == "navigate"
+    assert plan["params"]["url"] == "https://symbio.ai"
+    assert plan["planner"] == "llm"
+
+
+@pytest.mark.asyncio
+async def test_llm_planner_tolerates_code_fence():
+    async def fake_complete(system, user):
+        return '```json\n{"action": "screenshot", "params": {}, "reason": "看页面"}\n```'
+    planner = LLMActionPlanner(complete=fake_complete)
+    plan = await planner.plan("理解页面", ComputerUseSession("cu-test"))
+    assert plan["action"] == "screenshot"
+    assert plan["planner"] == "llm"
+
+
+@pytest.mark.asyncio
+async def test_llm_planner_done_maps_to_wait_done():
+    async def fake_complete(system, user):
+        return '{"action": "done", "reason": "目标已完成"}'
+    plan = await LLMActionPlanner(complete=fake_complete).plan("x", ComputerUseSession("cu-test"))
+    assert plan["action"] == "wait"
+    assert plan.get("done") is True
+
+
+@pytest.mark.asyncio
+async def test_llm_planner_falls_back_on_garbage():
+    async def fake_complete(system, user):
+        return "对不起我不知道怎么办"
+    session = ComputerUseSession("cu-test")
+    plan = await LLMActionPlanner(complete=fake_complete).plan("open https://x.com", session)
+    # 回退启发式：目标含 URL -> navigate
+    assert plan["action"] == "navigate"
+    assert plan["planner"] == "heuristic-fallback"
+
+
+@pytest.mark.asyncio
+async def test_llm_planner_falls_back_when_no_llm():
+    # complete=None 且默认无 anthropic key -> 回退启发式
+    from symbio.config.settings import get_settings
+    if get_settings().model.anthropic_api_key:
+        pytest.skip("环境配置了真实 anthropic key")
+    plan = await LLMActionPlanner().plan("open https://x.com", ComputerUseSession("cu-test"))
+    assert plan["action"] == "navigate"
+    assert plan["planner"] == "heuristic"
+
+
+@pytest.mark.asyncio
+async def test_plan_api_use_llm_flag(monkeypatch):
+    # 注入假的 LLM 补全，验证 /plan?use_llm 走 LLM 路径
+    import symbio.tools.computer_use as cu
+
+    async def fake_complete(system, user):
+        return '{"action": "screenshot", "params": {}, "reason": "mock"}'
+    monkeypatch.setattr(cu.LLMActionPlanner, "_default_complete", lambda self: fake_complete)
+
+    mgr = get_computer_use_manager()
+    session = mgr.create_session()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            f"/api/computer-use/sessions/{session.session_id}/plan",
+            json={"goal": "理解页面", "auto_execute": False, "use_llm": True},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["plan"]["planner"] == "llm"
+        assert resp.json()["plan"]["action"] == "screenshot"
 
 
 @pytest.mark.asyncio

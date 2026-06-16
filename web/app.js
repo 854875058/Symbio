@@ -4392,14 +4392,16 @@ document.getElementById('btn-cu-act')?.addEventListener('click', () => {
 document.getElementById('btn-cu-plan')?.addEventListener('click', async () => {
   if (!cuState.activeId) return;
   const goal = document.getElementById('cu-goal')?.value.trim() || '';
+  const useLlm = document.getElementById('cu-use-llm')?.checked || false;
   try {
     const res = await fetch(`${API}/computer-use/sessions/${cuState.activeId}/plan`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ goal, auto_execute: true }),
+      body: JSON.stringify({ goal, auto_execute: true, use_llm: useLlm }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    toast('info', `规划：${data.plan.action}`, data.plan.reason || '');
+    const tag = { llm: '🧠 LLM', 'heuristic-fallback': '↩ 回退启发式', heuristic: '启发式' }[data.plan.planner] || '';
+    toast('info', `规划：${data.plan.action} ${tag}`, data.plan.reason || '');
     await loadCuSession(cuState.activeId);
   } catch (e) { toast('error', '规划失败', e.message); }
 });

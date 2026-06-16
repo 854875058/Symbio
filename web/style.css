@@ -3548,6 +3548,11 @@ textarea::placeholder { color:var(--text-tertiary); }
   display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px;
 }
 .cu-create-row .text-input, .cu-goal-row .text-input { flex: 1; min-width: 220px; }
+.cu-llm-toggle {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 0.78rem; color: var(--text-secondary);
+  white-space: nowrap; cursor: pointer;
+}
 .cu-action-row .text-input { flex: 1; min-width: 180px; }
 .cu-sessions { display: flex; flex-direction: column; gap: 6px; }
 .cu-session-item {
