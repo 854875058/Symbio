@@ -109,30 +109,43 @@ class SemanticCacheConfig(BaseModel):
     cleanup_interval_seconds: int = 300              # 清理间隔（秒）
     prompt_cache_enabled: bool = True                # 启用 Prompt Cache 整合
     stats_reset_interval_seconds: int = 86400        # 统计重置间隔（默认每天）
+    local_embedding_fallback: bool = True            # 无 OpenAI key 时用本地 embedding（开箱即用）
+    local_embedding_dim: int = 256                   # 本地降级 embedding 维度
 
 
 # ---------------------------------------------------------------------------
 # LanceDB Schema
 # ---------------------------------------------------------------------------
 
-CACHE_TABLE_SCHEMA = pa.schema([
-    pa.field("entry_id", pa.string()),
-    pa.field("query_text", pa.string()),
-    pa.field("response_text", pa.string()),
-    pa.field("model", pa.string()),
-    pa.field("vector", pa.list_(pa.float32())),
-    pa.field("version", pa.string()),
-    pa.field("context_hash", pa.string()),
-    pa.field("ttl_seconds", pa.int64()),
-    pa.field("created_at", pa.string()),
-    pa.field("expires_at", pa.string()),
-    pa.field("prompt_cache_prefix", pa.string()),
-    pa.field("prompt_prefix_hash", pa.string()),
-    pa.field("cache_control_hint", pa.string()),
-    pa.field("hit_count", pa.int64()),
-    pa.field("last_hit_at", pa.string()),
-    pa.field("metadata_json", pa.string()),
-])
+def build_cache_schema(vector_dim: int) -> "pa.Schema":
+    """构建缓存表 schema。
+
+    vector 必须是 **FixedSizeList**（固定维度）——LanceDB 向量检索要求如此；
+    用变长 List 会在 search 时报 "Data type is not a vector"。维度随 embedding
+    后端不同（OpenAI 1536 / 本地哈希 256 / MiniLM 384），因此按实例维度构建。
+    """
+    return pa.schema([
+        pa.field("entry_id", pa.string()),
+        pa.field("query_text", pa.string()),
+        pa.field("response_text", pa.string()),
+        pa.field("model", pa.string()),
+        pa.field("vector", pa.list_(pa.float32(), vector_dim)),
+        pa.field("version", pa.string()),
+        pa.field("context_hash", pa.string()),
+        pa.field("ttl_seconds", pa.int64()),
+        pa.field("created_at", pa.string()),
+        pa.field("expires_at", pa.string()),
+        pa.field("prompt_cache_prefix", pa.string()),
+        pa.field("prompt_prefix_hash", pa.string()),
+        pa.field("cache_control_hint", pa.string()),
+        pa.field("hit_count", pa.int64()),
+        pa.field("last_hit_at", pa.string()),
+        pa.field("metadata_json", pa.string()),
+    ])
+
+
+# 向后兼容：默认 1536 维 schema（旧引用）
+CACHE_TABLE_SCHEMA = build_cache_schema(1536)
 
 
 # ---------------------------------------------------------------------------
@@ -180,6 +193,22 @@ class SemanticCacheEngine:
         if not self._config.embedding_dim:
             self._config.embedding_dim = settings.memory.embedding_dim
 
+        # 选择 embedding 后端：有 OpenAI key 用远程；否则本地降级（开箱即用）。
+        # 不同后端维度/语义不兼容，因此用不同表名隔离，避免向量混入同一索引。
+        self._use_openai = bool(settings.model.openai_api_key)
+        self._local_fallback = self._config.local_embedding_fallback
+        if self._use_openai:
+            self._embedding_backend = "openai"
+            self._effective_dim = self._config.embedding_dim or 1536
+        elif self._local_fallback:
+            self._embedding_backend = "local"
+            self._effective_dim = self._config.local_embedding_dim
+        else:
+            self._embedding_backend = "none"
+            self._effective_dim = self._config.embedding_dim or 1536
+        self._config.table_name = f"{self._config.table_name}_{self._embedding_backend}"
+        self._st_model = None  # sentence-transformers 模型缓存（若可用）
+
         self._db: Optional[lancedb.DBConnection] = None
         self._table: Optional[lancedb.table.Table] = None
 
@@ -225,11 +254,11 @@ class SemanticCacheEngine:
             )
             logger.info(f"打开已有缓存表: {self._config.table_name}, 条目数={row_count}")
         else:
-            # 创建空表
+            # 创建空表（向量列必须是固定维度，维度取决于 embedding 后端）
             self._table = await asyncio.to_thread(
                 self._db.create_table,
                 self._config.table_name,
-                schema=CACHE_TABLE_SCHEMA,
+                schema=build_cache_schema(self._effective_dim),
             )
             logger.info(f"创建缓存表: {self._config.table_name}")
 
@@ -756,16 +785,19 @@ class SemanticCacheEngine:
         if cache_key in self._embedding_cache:
             return self._embedding_cache[cache_key]
 
+        # 本地降级后端：无需任何外部 API，开箱即用
+        if self._embedding_backend == "local":
+            emb = self._local_embedding(text)
+            if len(self._embedding_cache) < self._embedding_cache_max:
+                self._embedding_cache[cache_key] = emb
+            return emb
+
         settings = get_settings()
         api_key = settings.model.openai_api_key
         base_url = settings.model.openai_base_url
         model = self._config.embedding_model
 
         if not api_key:
-            logger.warning(
-                "未配置 OpenAI API Key，无法生成 embedding，"
-                "语义缓存将使用降级模式（仅精确匹配）"
-            )
             return []
 
         try:
@@ -796,13 +828,56 @@ class SemanticCacheEngine:
             logger.error(f"Embedding API 调用失败: {e}")
             return []
 
+    def _local_embedding(self, text: str) -> list[float]:
+        """本地降级 embedding（无需外部 API）。
+
+        优先用 sentence-transformers（若已安装，真实语义向量）；
+        否则用确定性的字符 n-gram 哈希向量（词法相似度）——对完全相同 / 改写
+        的查询能命中，跨表述的同义匹配能力弱于真实 embedding，但开箱即用、零依赖。
+        """
+        # 1) sentence-transformers（更好的语义质量）
+        if self._st_model is not False:
+            try:
+                if self._st_model is None:
+                    from sentence_transformers import SentenceTransformer
+                    self._st_model = SentenceTransformer("all-MiniLM-L6-v2")
+                    self._effective_dim = int(self._st_model.get_sentence_embedding_dimension())
+                vec = self._st_model.encode(text, normalize_embeddings=True)
+                return [float(x) for x in vec]
+            except Exception:
+                # 标记不可用，后续直接走哈希降级
+                self._st_model = False
+
+        # 2) 字符 n-gram 哈希向量（零依赖，确定性，L2 归一化）
+        import hashlib
+        import math
+
+        dim = self._effective_dim
+        vec = [0.0] * dim
+        cleaned = (text or "").lower().strip()
+        if not cleaned:
+            return vec
+        tokens = []
+        for n in (1, 2, 3):
+            for i in range(len(cleaned) - n + 1):
+                tokens.append(cleaned[i:i + n])
+        for tok in tokens:
+            h = int(hashlib.md5(tok.encode("utf-8")).hexdigest(), 16)
+            idx = h % dim
+            sign = 1.0 if (h >> 8) % 2 == 0 else -1.0
+            vec[idx] += sign
+        norm = math.sqrt(sum(v * v for v in vec))
+        if norm > 0:
+            vec = [v / norm for v in vec]
+        return vec
+
     # ------------------------------------------------------------------
     # 行 <-> Entry 转换
     # ------------------------------------------------------------------
 
     def _entry_to_row(self, entry: CacheEntry) -> dict[str, Any]:
         """CacheEntry -> LanceDB row dict"""
-        dim = self._config.embedding_dim or 1536
+        dim = self._effective_dim or self._config.embedding_dim or 1536
         return {
             "entry_id": entry.entry_id,
             "query_text": entry.query_text,

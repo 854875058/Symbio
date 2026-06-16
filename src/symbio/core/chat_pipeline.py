@@ -43,9 +43,16 @@ class ChatPipeline:
     # ------------------------------------------------------------------
 
     def cache_available(self) -> bool:
-        """语义缓存依赖 embedding 接口，没有 OpenAI Key 时整层关闭。"""
-        settings = get_settings()
-        return bool(settings.model.openai_api_key) and not self._cache_init_failed
+        """语义缓存是否可用。
+
+        有 OpenAI embedding key 时用远程 embedding；没有也行——SemanticCache
+        默认带本地 embedding 降级（开箱即用）。仅当用户在配置里显式关闭
+        semantic_cache_enabled 时整层关闭。
+        """
+        if self._cache_init_failed:
+            return False
+        cost = getattr(get_settings(), "cost", None)
+        return bool(getattr(cost, "semantic_cache_enabled", True))
 
     async def _get_cache(self) -> Any:
         if not self.cache_available():

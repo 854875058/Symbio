@@ -83,19 +83,45 @@ def test_normalize_alternation_merges_and_leads_with_user():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_cache_disabled_without_embedding_key(monkeypatch):
+async def test_cache_available_by_default_with_local_fallback():
+    # 即使没有 OpenAI key，本地 embedding 降级让语义缓存默认可用
     pipeline = ChatPipeline()
-    # 默认配置下没有 openai_api_key
+    assert pipeline.cache_available() is True
+
+
+@pytest.mark.asyncio
+async def test_cache_disabled_when_semantic_cache_off():
+    from symbio.config.settings import get_settings
+    settings = get_settings()
+    prev = settings.cost.semantic_cache_enabled
+    settings.cost.semantic_cache_enabled = False
+    try:
+        pipeline = ChatPipeline()
+        assert pipeline.cache_available() is False
+        assert await pipeline.lookup_cache("任意问题", model="m", context_hash="h") is None
+    finally:
+        settings.cost.semantic_cache_enabled = prev
+
+
+@pytest.mark.asyncio
+async def test_local_cache_roundtrip(tmp_path, monkeypatch):
+    # 用临时 lancedb 路径，验证本地降级下 store -> lookup 命中
     from symbio.config.settings import get_settings
     if get_settings().model.openai_api_key:
-        pytest.skip("环境配置了真实 embedding key")
-    assert pipeline.cache_available() is False
-    assert await pipeline.lookup_cache("任意问题", model="m", context_hash="h") is None
-    # store 不应抛异常
-    await pipeline.store_cache("任意问题", "任意回答", model="m", context_hash="h")
-    stats = await pipeline.cache_stats()
-    assert stats["enabled"] is False
-    assert stats["cache_hits"] == 0
+        pytest.skip("环境配置了真实 embedding key（走远程后端）")
+    monkeypatch.setenv("SYMBIO_MEMORY_LANCEDB_PATH", str(tmp_path / "lancedb"))
+    get_settings.cache_clear()
+    try:
+        pipeline = ChatPipeline()
+        assert pipeline.cache_available() is True
+        await pipeline.store_cache("帮我写个快速排序算法", "QUICKSORT", model="m", context_hash="h")
+        hit = await pipeline.lookup_cache("帮我写个快速排序算法", model="m", context_hash="h")
+        assert hit is not None
+        assert hit["content"] == "QUICKSORT"
+        miss = await pipeline.lookup_cache("今天天气如何", model="m", context_hash="h")
+        assert miss is None
+    finally:
+        get_settings.cache_clear()
 
 
 def test_context_hash_distinguishes_history():
