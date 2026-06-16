@@ -15,7 +15,26 @@ Symbio 不是一个单纯的 LLM 外壳，而是一套面向真实工程任务�
 [![PyPI](https://img.shields.io/pypi/v/symbio.svg)](https://pypi.org/project/symbio/)
 [![Downloads](https://static.pepy.tech/badge/symbio)](https://pepy.tech/project/symbio)
 
+<img src="https://raw.githubusercontent.com/854875058/Symbio/master/assets/screenshots/ui-chat.png" width="100%" alt="Symbio Web UI">
+
 </div>
+
+---
+
+## 界面预览
+
+Web UI 共 16 个页面，默认暖色浅底主题（Claude / Hermes 风格，可一键切换深色）。
+
+<table>
+<tr>
+<td width="50%"><b>成本中心 · 仪表盘</b><br/><img src="https://raw.githubusercontent.com/854875058/Symbio/master/assets/screenshots/ui-dashboard.png" alt="Dashboard"></td>
+<td width="50%"><b>Prompt Injection 三层防火墙</b><br/><img src="https://raw.githubusercontent.com/854875058/Symbio/master/assets/screenshots/ui-security.png" alt="Security"></td>
+</tr>
+<tr>
+<td width="50%"><b>数据飞轮四阶段闭环</b><br/><img src="https://raw.githubusercontent.com/854875058/Symbio/master/assets/screenshots/ui-flywheel.png" alt="Data Flywheel"></td>
+<td width="50%"><b>Computer Use 最小闭环</b><br/><img src="https://raw.githubusercontent.com/854875058/Symbio/master/assets/screenshots/ui-computer-use.png" alt="Computer Use"></td>
+</tr>
+</table>
 
 ---
 
