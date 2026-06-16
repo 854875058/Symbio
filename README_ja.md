@@ -15,7 +15,26 @@
 [![Downloads](https://static.pepy.tech/badge/symbio)](https://pepy.tech/project/symbio)
 [![GitHub Stars](https://img.shields.io/github/stars/854875058/Symbio?style=social)](https://github.com/854875058/Symbio)
 
+<img src="https://raw.githubusercontent.com/854875058/Symbio/master/assets/screenshots/ui-chat.png" width="100%" alt="Symbio Web UI">
+
 </div>
+
+---
+
+## 🖼️ スクリーンショット
+
+全 16 ページ、デフォルトは暖色ライトテーマ（Claude / Hermes 風、ワンクリックでダークに切替）。
+
+<table>
+<tr>
+<td width="50%"><b>コストセンター · ダッシュボード</b><br/>セマンティックキャッシュ命中率・24h 使用量・月次予算<br/><img src="https://raw.githubusercontent.com/854875058/Symbio/master/assets/screenshots/ui-dashboard.png" alt="Dashboard"></td>
+<td width="50%"><b>Prompt Injection 三層ファイアウォール</b><br/>脅威分布・オンラインスキャン・レッドチーム自己診断・監査<br/><img src="https://raw.githubusercontent.com/854875058/Symbio/master/assets/screenshots/ui-security.png" alt="Security"></td>
+</tr>
+<tr>
+<td width="50%"><b>データフライホイール（4 段階）</b><br/>軌跡捕捉 → 失敗分析 → SOP 蒸留 → フィードバック<br/><img src="https://raw.githubusercontent.com/854875058/Symbio/master/assets/screenshots/ui-flywheel.png" alt="Data Flywheel"></td>
+<td width="50%"><b>Computer Use 最小ループ</b><br/>ブラウザセッション · アクション計画 · 監査リプレイ<br/><img src="https://raw.githubusercontent.com/854875058/Symbio/master/assets/screenshots/ui-computer-use.png" alt="Computer Use"></td>
+</tr>
+</table>
 
 ---
 

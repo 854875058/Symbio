@@ -16,9 +16,28 @@
 [![GitHub Stars](https://img.shields.io/github/stars/854875058/Symbio?style=social)](https://github.com/854875058/Symbio)
 [![GitHub Forks](https://img.shields.io/github/forks/854875058/Symbio?style=social)](https://github.com/854875058/Symbio)
 
+<img src="https://raw.githubusercontent.com/854875058/Symbio/master/assets/screenshots/ui-chat.png" width="100%" alt="Symbio Web UI">
+
 ---
 
 </div>
+
+## 🖼️ Screenshots
+
+16 pages, warm light theme by default (Claude / Hermes style, dark mode one click away).
+
+<table>
+<tr>
+<td width="50%"><b>Cost Center · Dashboard</b><br/>Semantic-cache hit rate, 24h usage, monthly budget<br/><img src="https://raw.githubusercontent.com/854875058/Symbio/master/assets/screenshots/ui-dashboard.png" alt="Dashboard"></td>
+<td width="50%"><b>Prompt Injection Firewall</b><br/>Threat distribution, live scan, red-team self-test, audit<br/><img src="https://raw.githubusercontent.com/854875058/Symbio/master/assets/screenshots/ui-security.png" alt="Security"></td>
+</tr>
+<tr>
+<td width="50%"><b>Data Flywheel (4 stages)</b><br/>Capture → Failure analysis → SOP distillation → Feedback<br/><img src="https://raw.githubusercontent.com/854875058/Symbio/master/assets/screenshots/ui-flywheel.png" alt="Data Flywheel"></td>
+<td width="50%"><b>Computer Use loop</b><br/>Browser session · action planning · replay audit<br/><img src="https://raw.githubusercontent.com/854875058/Symbio/master/assets/screenshots/ui-computer-use.png" alt="Computer Use"></td>
+</tr>
+</table>
+
+---
 
 ## 🚀 Why Symbio?
 
