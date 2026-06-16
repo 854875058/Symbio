@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-06-16
+
+### Changed
+- README 重构为视觉化项目主页：新增 Hero 截图与 2×2 截图画廊（成本中心 / 安全防火墙 / 数据飞轮 / Computer Use / 本体图谱），核心能力改为收益导向呈现，去掉冗长的"相关代码"文件清单
+- 图片改用绝对 raw URL，使 PyPI 详情页也能正常渲染截图
+- README_zh.md 同步加入 Hero 与截图画廊
+
+### Added
+- `tools/capture_screenshots.py`：基于 Playwright 的 Web UI 截图脚本（可复现）
+
 ## [0.2.0] - 2026-06-15
 
 ### Added
