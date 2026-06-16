@@ -1071,6 +1071,100 @@ async def observability_summary():
     return await _observability_summary()
 
 
+async def _collect_prometheus_metrics() -> str:
+    """收集 Symbio 运行指标，输出 Prometheus 文本暴露格式。
+
+    每个子系统独立 try/except，单点失败不影响整体；缺失项以 0 兜底。
+    """
+    lines: list[str] = []
+
+    def emit(name: str, value, help_text: str, mtype: str = "gauge", labels: str = ""):
+        lines.append(f"# HELP {name} {help_text}")
+        lines.append(f"# TYPE {name} {mtype}")
+        label_str = f"{{{labels}}}" if labels else ""
+        try:
+            lines.append(f"{name}{label_str} {float(value)}")
+        except (TypeError, ValueError):
+            lines.append(f"{name}{label_str} 0")
+
+    # build info
+    try:
+        from symbio import __version__ as _ver
+    except Exception:
+        _ver = "unknown"
+    emit("symbio_build_info", 1, "Symbio build info", "gauge", f'version="{_ver}"')
+
+    # 会话与消息
+    try:
+        db = await get_db()
+        sessions = await db.list_sessions()
+        emit("symbio_sessions_total", len(sessions), "Total chat sessions")
+        emit("symbio_messages_total", sum((s.get("message_count") or 0) for s in sessions),
+             "Total chat messages")
+    except Exception as e:
+        logger.debug(f"metrics sessions skipped: {e}")
+
+    # 成本 / 缓存
+    try:
+        pipeline = get_chat_pipeline()
+        summary = await pipeline.cost_summary(24)
+        if summary.get("available"):
+            emit("symbio_tokens_total_24h", summary.get("total_tokens", 0), "Tokens used in last 24h", "counter")
+            emit("symbio_llm_requests_total_24h", summary.get("total_requests", 0), "LLM requests in last 24h", "counter")
+        cache = await pipeline.cache_stats()
+        emit("symbio_cache_hits_total", cache.get("cache_hits", 0), "Semantic cache hits", "counter")
+        emit("symbio_cache_misses_total", cache.get("cache_misses", 0), "Semantic cache misses", "counter")
+        emit("symbio_cache_hit_rate", cache.get("hit_rate", 0.0), "Semantic cache hit rate")
+        emit("symbio_cache_tokens_saved", cache.get("estimated_token_saved", 0), "Estimated tokens saved by cache", "counter")
+    except Exception as e:
+        logger.debug(f"metrics cost/cache skipped: {e}")
+
+    # 安全防火墙
+    try:
+        sec = get_chat_guard().stats()
+        emit("symbio_security_analyzed_total", sec.get("total_analyzed", 0), "Inputs analyzed by firewall", "counter")
+        emit("symbio_security_block_rate", sec.get("block_rate", 0.0), "Firewall block rate")
+    except Exception as e:
+        logger.debug(f"metrics security skipped: {e}")
+
+    # HITL 待审批
+    try:
+        pending = await _get_hitl_gateway().get_pending()
+        emit("symbio_hitl_pending", len(pending), "Pending HITL approvals")
+    except Exception as e:
+        logger.debug(f"metrics hitl skipped: {e}")
+
+    # 可观测性 tracer
+    try:
+        obs = await _observability_summary()
+        emit("symbio_spans_captured", obs.get("spans", {}).get("captured", 0), "Captured trace spans")
+        emit("symbio_metric_records", obs.get("metrics", {}).get("records", 0), "Tracer metric records")
+        emit("symbio_tracer_started", 1 if obs.get("is_started") else 0, "Whether tracer is started")
+    except Exception as e:
+        logger.debug(f"metrics tracer skipped: {e}")
+
+    # 数据飞轮
+    try:
+        from symbio.evolution.flywheel import get_flywheel
+        ov = await get_flywheel().overview()
+        an = ov.get("stages", {}).get("analysis", {})
+        fb = ov.get("stages", {}).get("feedback", {})
+        emit("symbio_flywheel_failures_total", an.get("total_failures", 0), "Recorded failure analyses", "counter")
+        emit("symbio_flywheel_feedback_total", fb.get("total_explicit", 0), "Collected explicit feedback", "counter")
+    except Exception as e:
+        logger.debug(f"metrics flywheel skipped: {e}")
+
+    return "\n".join(lines) + "\n"
+
+
+@app.get("/metrics")
+async def prometheus_metrics():
+    """Prometheus 文本格式运行指标（被 config/prometheus/prometheus.yml 抓取）。"""
+    from fastapi.responses import PlainTextResponse
+    text = await _collect_prometheus_metrics()
+    return PlainTextResponse(content=text, media_type="text/plain; version=0.0.4; charset=utf-8")
+
+
 @app.post("/api/export/conversations")
 async def export_conversations(request: ConversationExportRequest):
     """Export persisted conversations as fine-tuning ready samples."""

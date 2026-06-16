@@ -1,0 +1,100 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "liveNow": false,
+  "schemaVersion": 39,
+  "tags": ["symbio"],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Symbio Overview",
+  "uid": "symbio-overview",
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Sessions",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "symbio_sessions_total", "refId": "A" } ],
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" } }, "overrides": [] }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Messages",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "symbio_messages_total", "refId": "A" } ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Pending Approvals",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "symbio_hitl_pending", "refId": "A" } ]
+    },
+    {
+      "id": 4,
+      "type": "gauge",
+      "title": "Cache Hit Rate",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "symbio_cache_hit_rate", "refId": "A" } ],
+      "fieldConfig": { "defaults": { "min": 0, "max": 1, "unit": "percentunit" }, "overrides": [] }
+    },
+    {
+      "id": 5,
+      "type": "gauge",
+      "title": "Firewall Block Rate",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "symbio_security_block_rate", "refId": "A" } ],
+      "fieldConfig": { "defaults": { "min": 0, "max": 1, "unit": "percentunit" }, "overrides": [] }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Tokens used (24h window)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "symbio_tokens_total_24h", "refId": "A", "legendFormat": "tokens" } ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Cache hits vs misses",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "symbio_cache_hits_total", "refId": "A", "legendFormat": "hits" },
+        { "expr": "symbio_cache_misses_total", "refId": "B", "legendFormat": "misses" }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Firewall analyzed / Flywheel failures",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "symbio_security_analyzed_total", "refId": "A", "legendFormat": "analyzed" },
+        { "expr": "symbio_flywheel_failures_total", "refId": "B", "legendFormat": "failures" }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Trace spans captured",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "expr": "symbio_spans_captured", "refId": "A", "legendFormat": "spans" } ]
+    }
+  ]
+}
