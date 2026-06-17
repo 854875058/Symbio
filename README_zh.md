@@ -34,6 +34,10 @@ Web UI 共 16 个页面，默认暖色浅底主题（Claude / Hermes 风格，�
 <td width="50%"><b>数据飞轮四阶段闭环</b><br/><img src="https://raw.githubusercontent.com/854875058/Symbio/master/assets/screenshots/ui-flywheel.png" alt="Data Flywheel"></td>
 <td width="50%"><b>Computer Use 最小闭环</b><br/><img src="https://raw.githubusercontent.com/854875058/Symbio/master/assets/screenshots/ui-computer-use.png" alt="Computer Use"></td>
 </tr>
+<tr>
+<td width="50%"><b>个人微信双向机器人 · 扫码绑定</b><br/><img src="https://raw.githubusercontent.com/854875058/Symbio/master/assets/screenshots/ui-wechat.png" alt="WeChat Bridge"></td>
+<td width="50%"><b>本体记忆图谱</b><br/><img src="https://raw.githubusercontent.com/854875058/Symbio/master/assets/screenshots/ui-ontology.png" alt="Ontology Graph"></td>
+</tr>
 </table>
 
 ---

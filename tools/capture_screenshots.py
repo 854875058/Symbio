@@ -28,10 +28,36 @@ PAGES = [
     ("evolution", "ui-flywheel.png", True, None),
     ("computer-use", "ui-computer-use.png", False, None),
     ("ontology", "ui-ontology.png", False, None),
+    ("wechat", "ui-wechat.png", False, None),
 ]
 
 
+def _seed_wechat_qr(base: str) -> None:
+    """生成一张演示登录二维码并 push 到 /api/wechat/login/event，让微信页有内容可截。"""
+    try:
+        import base64
+        import io
+        import json
+        import urllib.request
+        import qrcode
+
+        img = qrcode.make("https://login.weixin.qq.com/symbio-demo-bind")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        data_url = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+        body = json.dumps({"status": "waiting_scan", "qr_image": data_url}).encode()
+        req = urllib.request.Request(
+            f"{base}/api/wechat/login/event", data=body,
+            headers={"Content-Type": "application/json"},
+        )
+        urllib.request.urlopen(req, timeout=10)
+        print("seeded wechat login QR")
+    except Exception as e:
+        print(f"wechat QR seed skipped: {e}")
+
+
 def main() -> None:
+    _seed_wechat_qr(BASE)
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page(viewport={"width": 1440, "height": 900}, device_scale_factor=2)

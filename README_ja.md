@@ -34,6 +34,10 @@
 <td width="50%"><b>データフライホイール（4 段階）</b><br/>軌跡捕捉 → 失敗分析 → SOP 蒸留 → フィードバック<br/><img src="https://raw.githubusercontent.com/854875058/Symbio/master/assets/screenshots/ui-flywheel.png" alt="Data Flywheel"></td>
 <td width="50%"><b>Computer Use 最小ループ</b><br/>ブラウザセッション · アクション計画 · 監査リプレイ<br/><img src="https://raw.githubusercontent.com/854875058/Symbio/master/assets/screenshots/ui-computer-use.png" alt="Computer Use"></td>
 </tr>
+<tr>
+<td width="50%"><b>個人 WeChat 双方向ボット</b><br/>QR コードでバインド · 双方向の対話と承認（provider-agnostic）<br/><img src="https://raw.githubusercontent.com/854875058/Symbio/master/assets/screenshots/ui-wechat.png" alt="WeChat Bridge"></td>
+<td width="50%"><b>オントロジー記憶グラフ</b><br/>概念 / エンティティ / 関係の可視化、ゼロトークン推論<br/><img src="https://raw.githubusercontent.com/854875058/Symbio/master/assets/screenshots/ui-ontology.png" alt="Ontology Graph"></td>
+</tr>
 </table>
 
 ---

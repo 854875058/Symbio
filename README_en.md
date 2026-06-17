@@ -35,6 +35,10 @@
 <td width="50%"><b>Data Flywheel (4 stages)</b><br/>Capture → Failure analysis → SOP distillation → Feedback<br/><img src="https://raw.githubusercontent.com/854875058/Symbio/master/assets/screenshots/ui-flywheel.png" alt="Data Flywheel"></td>
 <td width="50%"><b>Computer Use loop</b><br/>Browser session · action planning · replay audit<br/><img src="https://raw.githubusercontent.com/854875058/Symbio/master/assets/screenshots/ui-computer-use.png" alt="Computer Use"></td>
 </tr>
+<tr>
+<td width="50%"><b>Personal WeChat two-way bot</b><br/>QR-code bind · two-way chat & approval (provider-agnostic)<br/><img src="https://raw.githubusercontent.com/854875058/Symbio/master/assets/screenshots/ui-wechat.png" alt="WeChat Bridge"></td>
+<td width="50%"><b>Ontology memory graph</b><br/>Concept / entity / relation graph with zero-token reasoning<br/><img src="https://raw.githubusercontent.com/854875058/Symbio/master/assets/screenshots/ui-ontology.png" alt="Ontology Graph"></td>
+</tr>
 </table>
 
 ---
