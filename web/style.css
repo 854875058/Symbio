@@ -3592,6 +3592,42 @@ textarea::placeholder { color:var(--text-tertiary); }
 .cu-step-status { text-align: right; font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-tertiary); }
 .cu-step-shot { text-align: center; }
 
+/* ============ WeChat Page ============ */
+.wx-content { flex: 1; min-height: 0; overflow-y: auto; padding: 24px; }
+.wx-grid { display: grid; grid-template-columns: minmax(280px, 380px) 1fr; gap: 18px; }
+@media (max-width: 900px) { .wx-grid { grid-template-columns: 1fr; } }
+.wx-status-badge {
+  font-size: 0.72rem; padding: 3px 12px; border-radius: 20px;
+  background: var(--bg-secondary); color: var(--text-secondary);
+}
+.wx-status-badge.out { background: var(--bg-secondary); color: var(--text-tertiary); }
+.wx-status-badge.wait { background: rgba(201,138,60,0.15); color: var(--amber); }
+.wx-status-badge.scan { background: var(--accent-dim); color: var(--accent); }
+.wx-status-badge.in { background: rgba(92,154,106,0.15); color: var(--green); }
+.wx-status-badge.fail { background: rgba(196,86,75,0.15); color: var(--red); }
+.wx-qr-box {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-height: 240px; padding: 20px;
+  border: 1px dashed var(--border); border-radius: var(--radius-lg);
+  background: var(--bg-secondary); text-align: center;
+}
+.wx-qr-img { width: 220px; height: 220px; border-radius: var(--radius-md); background: #fff; padding: 8px; }
+.wx-qr-empty p { color: var(--text-secondary); font-size: 0.82rem; margin: 4px 0; }
+.wx-qr-hint { color: var(--text-tertiary); font-size: 0.72rem !important; }
+.wx-qr-link { font-size: 0.74rem; color: var(--text-secondary); word-break: break-all; }
+.wx-qr-link code { font-family: var(--font-mono); font-size: 0.7rem; }
+.wx-qr-string { margin-bottom: 6px; }
+.wx-bind-status { margin-top: 12px; }
+.wx-bound { color: var(--green); font-size: 0.85rem; text-align: center; }
+.wx-flow { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }
+.wx-flow li { font-size: 0.82rem; color: var(--text-secondary); line-height: 1.5; }
+.wx-flow code { font-family: var(--font-mono); font-size: 0.74rem; background: var(--bg-tertiary, rgba(128,128,160,0.15)); padding: 1px 5px; border-radius: 4px; }
+.wx-test { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+.wx-test-head { font-size: 0.78rem; color: var(--text-tertiary); margin-bottom: 8px; }
+.wx-test-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.wx-test-row .text-input { flex: 1; min-width: 120px; }
+.wx-test-result { margin-top: 8px; font-size: 0.78rem; color: var(--text-secondary); }
+
 /* ============ Data Flywheel ============ */
 .flywheel-stages {
   display: grid;

@@ -71,6 +71,10 @@
             <span class="nav-label">A2A</span>
             <span class="nav-badge-new">NEW</span>
           </button>
+          <button class="nav-tab" data-page="wechat" title="微信机器人">
+            <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/><circle cx="9" cy="10" r="1" fill="currentColor"/><circle cx="15" cy="10" r="1" fill="currentColor"/></svg>
+            <span class="nav-label">微信</span>
+          </button>
         </div>
 
         <!-- 工具 -->
@@ -1325,6 +1329,59 @@
             <div class="cu-timeline" id="cu-timeline"><div class="cost-table-empty">还没有动作</div></div>
           </section>
 
+        </div>
+      </div>
+
+      <!-- WeChat Page -->
+      <div class="page" id="page-wechat">
+        <div class="page-header">
+          <h2>微信机器人</h2>
+          <div class="page-header-bar">
+            <span class="wx-status-badge" id="wx-status-badge">未连接</span>
+            <button class="btn-outline" id="btn-refresh-wechat">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/><polyline points="21 3 21 9 15 9"/></svg>
+              刷新
+            </button>
+          </div>
+        </div>
+        <div class="wx-content">
+          <div class="wx-grid">
+
+            <!-- 扫码绑定 -->
+            <section class="a2a-panel wx-bind-panel">
+              <div class="a2a-panel-head"><div><h3>扫码绑定个人微信</h3><p>用微信扫码登录，机器人即可以你的身份双向收发消息</p></div></div>
+              <div class="wx-qr-box" id="wx-qr-box">
+                <div class="wx-qr-empty" id="wx-qr-empty">
+                  <p>等待外部 bridge 推送登录二维码…</p>
+                  <p class="wx-qr-hint">需先部署并配置 Wechaty / 自建网关，由它把二维码 push 到 <code>/api/wechat/login/event</code></p>
+                </div>
+                <img id="wx-qr-img" class="wx-qr-img" alt="微信登录二维码" style="display:none">
+                <div class="wx-qr-link" id="wx-qr-link" style="display:none"></div>
+              </div>
+              <div class="wx-bind-status" id="wx-bind-status"></div>
+            </section>
+
+            <!-- 说明 + 测试发送 -->
+            <section class="a2a-panel">
+              <div class="a2a-panel-head"><div><h3>工作方式</h3><p>Symbio 不实现微信协议，只做编排与透出</p></div></div>
+              <ol class="wx-flow">
+                <li>部署一个外部微信 bridge（Wechaty / wechatpadpro 等），扫码登录你的个人微信</li>
+                <li>bridge 把收到的消息 POST 到 <code>/api/wechat/inbound</code></li>
+                <li>Symbio 自动分流：<b>审批指令</b>（同意/拒绝 REQ）→ HITL；<b>其它</b>→ 对话管线（防火墙+缓存+LLM）</li>
+                <li>回复随响应返回，或回推到 bridge 的 <code>send_endpoint</code></li>
+              </ol>
+              <div class="wx-test">
+                <div class="wx-test-head">测试发送</div>
+                <div class="wx-test-row">
+                  <input type="text" class="text-input" id="wx-test-user" placeholder="目标用户 wxid / 备注">
+                  <input type="text" class="text-input" id="wx-test-content" placeholder="消息内容">
+                  <button class="btn-outline" id="btn-wx-test-send">发送</button>
+                </div>
+                <div id="wx-test-result" class="wx-test-result"></div>
+              </div>
+            </section>
+
+          </div>
         </div>
       </div>
 

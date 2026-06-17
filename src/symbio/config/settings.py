@@ -146,6 +146,23 @@ class CostConfig(BaseSettings):
     model_config = {"env_prefix": "SYMBIO_COST_"}
 
 
+class WeChatConfig(BaseSettings):
+    """Personal WeChat two-way bridge (provider-agnostic).
+
+    Inbound: an external WeChat bridge (Wechaty / custom gateway) POSTs messages
+    to /api/wechat/inbound. Outbound: Symbio POSTs replies to ``send_endpoint``.
+    """
+
+    enabled: bool = Field(default=False, description="Enable WeChat two-way bridge")
+    inbound_token: str = Field(default="", description="Shared token to authenticate inbound messages")
+    send_endpoint: str = Field(default="", description="Bridge HTTP endpoint Symbio POSTs replies to")
+    send_token: str = Field(default="", description="Token sent to the outbound bridge endpoint")
+    timeout: float = Field(default=10.0, description="Outbound HTTP timeout (seconds)")
+    reply_in_response: bool = Field(default=True, description="Also return the reply text in the inbound HTTP response")
+
+    model_config = {"env_prefix": "SYMBIO_WECHAT_"}
+
+
 class SecurityConfig(BaseSettings):
     """Prompt Injection defense configuration (chat path)."""
 
@@ -186,6 +203,7 @@ class Settings(BaseSettings):
     hitl: HITLConfig = Field(default_factory=HITLConfig)
     cost: CostConfig = Field(default_factory=CostConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
+    wechat: WeChatConfig = Field(default_factory=WeChatConfig)
     otel: OtelConfig = Field(default_factory=OtelConfig)
 
     model_config = {"env_prefix": "SYMBIO_"}

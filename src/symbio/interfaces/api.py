@@ -39,6 +39,7 @@ from symbio.core.hitl_gateway import (
 from symbio.core.hitl_notifier import HITLNotifier, approval_short_code, parse_im_approval_command
 from symbio.core.chat_pipeline import get_chat_pipeline
 from symbio.security.chat_guard import get_chat_guard
+from symbio.interfaces.wechat_bridge import WeChatInbound, get_wechat_bridge
 from symbio.utils.logger import get_logger
 
 logger = get_logger("api")
@@ -2731,6 +2732,113 @@ async def hitl_im_callback(callback: IMApprovalCallback):
         raise HTTPException(status_code=404, detail="审批请求不存在或已处理")
 
     raise HTTPException(status_code=400, detail="未知审批动作")
+
+
+# ============ 个人微信双向 Bridge ============
+
+class WeChatSendRequest(BaseModel):
+    to_user: str
+    content: str
+    is_group: bool = False
+
+
+async def _wechat_route_approval(command, approver_id: str) -> dict:
+    """把微信里的审批命令路由到 HITL 网关，返回可读结果。"""
+    gateway = _get_hitl_gateway()
+    request_id = await _resolve_hitl_request_id(command.request_id)
+    try:
+        if command.action == "approve":
+            result = await gateway.approve(request_id, approver_id=approver_id, comment=command.comment)
+            resumed = None
+            if result.status == ApprovalStatus.APPROVED:
+                resumed = await _try_resume_hitl_task(request_id)
+            return {"kind": "approval", "action": "approve",
+                    "status": result.status.value, "resumed_result": resumed}
+        result = await gateway.reject(request_id, approver_id=approver_id, comment=command.comment)
+        return {"kind": "approval", "action": "reject", "status": result.status.value}
+    except KeyError:
+        raise HTTPException(status_code=404, detail="审批请求不存在或已处理")
+
+
+@app.post("/api/wechat/inbound", tags=["wechat"])
+async def wechat_inbound(inbound: WeChatInbound):
+    """接收外部微信 bridge 转发的消息：审批命令路由到 HITL，否则走对话管线。
+
+    入参为归一化的 WeChatInbound（from_user/content/...）。返回 reply 文本，
+    并在配置了 send_endpoint 时主动回推给 bridge。
+    """
+    settings = await _load_llm_settings()
+    wcfg = getattr(settings, "wechat", None)
+    if wcfg is not None and not getattr(wcfg, "enabled", False):
+        raise HTTPException(status_code=403, detail="微信 bridge 未启用（symbio.yaml: wechat.enabled）")
+    expected = getattr(wcfg, "inbound_token", "") if wcfg else ""
+    if expected and inbound.token != expected:
+        raise HTTPException(status_code=401, detail="无效的微信 inbound token")
+
+    bridge = get_wechat_bridge()
+    kind, parsed = bridge.classify(inbound.content)
+
+    if kind == "approval":
+        approver_id = inbound.from_user or "wechat-user"
+        routed = await _wechat_route_approval(parsed, approver_id)
+        reply = (f"✅ 已{'通过' if routed['action'] == 'approve' else '拒绝'}审批 "
+                 f"{parsed.request_id}（{routed['status']}）")
+        result = routed
+    else:
+        # 走完整对话管线（防火墙 + 语义缓存 + LLM + 持久化），会话按微信用户隔离
+        session_id = f"wechat-{inbound.group_id or inbound.from_user}"
+        resp = await chat(ChatRequest(message=inbound.content, session_id=session_id))
+        reply = resp.content
+        result = {"kind": "chat", "cached": getattr(resp, "cached", False),
+                  "session_id": session_id, "success": resp.success}
+
+    # 出站回推（异步 bridge）；同步 bridge 用响应里的 reply
+    delivery = await bridge.send(inbound.from_user, reply, is_group=inbound.is_group)
+
+    out = {"ok": True, "result": result, "delivery": delivery.get("delivery_status")}
+    if wcfg is None or getattr(wcfg, "reply_in_response", True):
+        out["reply"] = reply
+    return out
+
+
+@app.post("/api/wechat/send", tags=["wechat"])
+async def wechat_send(req: WeChatSendRequest):
+    """主动通过微信 bridge 发送一条消息（测试 / Agent 主动通知用）。"""
+    delivery = await get_wechat_bridge().send(req.to_user, req.content, is_group=req.is_group)
+    return delivery
+
+
+class WeChatLoginEvent(BaseModel):
+    status: str                  # logged_out / waiting_scan / scanned / logged_in / failed
+    qr: str = ""                 # 二维码内容（URL/字符串）
+    qr_image: str = ""           # 二维码图片 data URL
+    user: str = ""               # 绑定的微信账号
+    token: str = ""
+
+
+@app.post("/api/wechat/login/event", tags=["wechat"])
+async def wechat_login_event(event: WeChatLoginEvent):
+    """外部 bridge 推送扫码登录事件（二维码 / 已扫码 / 登录成功）。"""
+    settings = await _load_llm_settings()
+    wcfg = getattr(settings, "wechat", None)
+    expected = getattr(wcfg, "inbound_token", "") if wcfg else ""
+    if expected and event.token != expected:
+        raise HTTPException(status_code=401, detail="无效的微信 inbound token")
+    state = get_wechat_bridge().update_login(
+        event.status, qr=event.qr, qr_image=event.qr_image, user=event.user,
+    )
+    return {"ok": True, "login": state}
+
+
+@app.get("/api/wechat/login/status", tags=["wechat"])
+async def wechat_login_status():
+    """返回当前微信扫码绑定状态（供 Web UI 显示二维码与登录态）。"""
+    settings = await _load_llm_settings()
+    wcfg = getattr(settings, "wechat", None)
+    state = get_wechat_bridge().login_state()
+    state["enabled"] = bool(getattr(wcfg, "enabled", False)) if wcfg else False
+    state["send_endpoint_configured"] = bool(getattr(wcfg, "send_endpoint", "")) if wcfg else False
+    return state
 
 
 @app.post("/api/hitl/webhook")

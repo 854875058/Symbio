@@ -146,7 +146,7 @@ const PAGE_TITLES = {
   ontology: '本体图谱', skills: 'Skills', dashboard: '仪表盘',
   capabilities: '能力账本', evolution: '数据飞轮', sandbox: '沙箱执行',
   'external-agents': '外部 Agent', hitl: '审批中心', a2a: 'A2A 协议', mcp: 'MCP 工具网关',
-  security: '安全防火墙', 'computer-use': 'Computer Use',
+  security: '安全防火墙', 'computer-use': 'Computer Use', wechat: '微信机器人',
 };
 
 async function switchPage(name) {
@@ -176,6 +176,8 @@ async function switchPage(name) {
   if (name === 'a2a') await loadA2A();
   if (name === 'security') await loadSecurity();
   if (name === 'computer-use') await loadComputerUse();
+  if (name === 'wechat') await loadWeChat();
+  if (name !== 'wechat' && wxState.pollTimer) { clearInterval(wxState.pollTimer); wxState.pollTimer = null; }
 }
 
 dom.navTabs.forEach(tab => {
@@ -4430,6 +4432,95 @@ document.getElementById('btn-cu-close')?.addEventListener('click', async () => {
 });
 
 document.getElementById('btn-refresh-cu')?.addEventListener('click', loadComputerUse);
+
+// ============ WeChat Bridge Page ============
+const wxState = { pollTimer: null };
+const WX_STATUS = {
+  logged_out:   { label: '未连接',       cls: 'out' },
+  waiting_scan: { label: '待扫码',       cls: 'wait' },
+  scanned:      { label: '已扫码待确认', cls: 'scan' },
+  logged_in:    { label: '已绑定',       cls: 'in' },
+  failed:       { label: '绑定失败',     cls: 'fail' },
+};
+
+async function loadWeChat() {
+  await refreshWeChatStatus();
+  // 未绑定时轮询登录态，方便扫码后自动刷新
+  if (wxState.pollTimer) clearInterval(wxState.pollTimer);
+  wxState.pollTimer = setInterval(async () => {
+    const active = document.getElementById('page-wechat')?.classList.contains('active');
+    if (!active) { clearInterval(wxState.pollTimer); wxState.pollTimer = null; return; }
+    await refreshWeChatStatus();
+  }, 3000);
+}
+
+async function refreshWeChatStatus() {
+  try {
+    const res = await fetch(`${API}/wechat/login/status`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    renderWeChatLogin(await res.json());
+  } catch (e) {
+    console.warn('加载微信状态失败:', e.message);
+  }
+}
+
+function renderWeChatLogin(state) {
+  const meta = WX_STATUS[state.status] || WX_STATUS.logged_out;
+  const badge = document.getElementById('wx-status-badge');
+  if (badge) { badge.textContent = meta.label + (state.user ? ` · ${state.user}` : ''); badge.className = `wx-status-badge ${meta.cls}`; }
+
+  const empty = document.getElementById('wx-qr-empty');
+  const img = document.getElementById('wx-qr-img');
+  const link = document.getElementById('wx-qr-link');
+  const bindStatus = document.getElementById('wx-bind-status');
+
+  const show = (el, on) => { if (el) el.style.display = on ? '' : 'none'; };
+
+  if (state.status === 'logged_in') {
+    show(empty, false); show(img, false); show(link, false);
+    if (bindStatus) bindStatus.innerHTML = `<div class="wx-bound">✅ 已绑定微信账号：<b>${esc(state.user || '(未知)')}</b></div>`;
+    return;
+  }
+  if (bindStatus) bindStatus.innerHTML = '';
+
+  if (state.qr_image) {
+    show(empty, false); show(link, false);
+    if (img) { img.src = state.qr_image; show(img, true); }
+  } else if (state.qr) {
+    show(empty, false); show(img, false);
+    if (link) {
+      link.innerHTML = `<div class="wx-qr-string">登录二维码内容（请用客户端渲染或由 bridge 提供图片）：</div><code>${esc(state.qr)}</code>`;
+      show(link, true);
+    }
+  } else {
+    show(img, false); show(link, false); show(empty, true);
+    if (!state.enabled && empty) {
+      empty.querySelector('.wx-qr-hint').textContent = '微信 bridge 未启用：在 symbio.yaml 设置 wechat.enabled=true 并部署外部 bridge';
+    }
+  }
+}
+
+document.getElementById('btn-refresh-wechat')?.addEventListener('click', refreshWeChatStatus);
+
+document.getElementById('btn-wx-test-send')?.addEventListener('click', async () => {
+  const to = document.getElementById('wx-test-user')?.value.trim();
+  const content = document.getElementById('wx-test-content')?.value.trim();
+  const resEl = document.getElementById('wx-test-result');
+  if (!to || !content) { toast('error', '请填写完整', '目标用户和消息内容都要填'); return; }
+  try {
+    const res = await fetch(`${API}/wechat/send`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to_user: to, content }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (resEl) resEl.textContent = data.delivery_status === 'sent'
+      ? '✓ 已通过 bridge 发送'
+      : '已就绪（未配置 send_endpoint，内容随响应返回）';
+  } catch (e) {
+    if (resEl) resEl.textContent = '发送失败: ' + e.message;
+  }
+});
 
 // 键盘快捷键：让新页面的输入框支持回车直接触发主操作
 function bindEnter(inputId, buttonId, opts = {}) {
