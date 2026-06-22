@@ -195,6 +195,8 @@ SOP 蒸馏、异步轨迹捕获、DatasetExporter，支持 ShareGPT/Alpaca/OpenA
 | 本体记忆图谱 | ✅ 已实现 | ontology memory + API + Web UI |
 | 模型池与模型路由 | ✅ 已实现 | 模型配置、路由策略、对话模型选择 |
 | 外部 Agent 接管 | ✅ 已实现 | Codex / Claude Code 会话登记、运行 |
+| Agent 接入 Claude/Codex | ✅ 已实现 | 单 Agent 委托本地 Claude Code / Codex CLI 执行（ExternalBackedAgent） |
+| 个人微信扫码绑定机器人 | ✅ 已实现 | 内置 iLink Bot 直连，扫码登录 + 双向收发 + 审批/对话分流 |
 | Token 成本五层优化 | ✅ 已实现 | 语义缓存 + 上下文剪枝 + 成本监控接入对话链路，含成本仪表盘与月度预算 |
 | Prompt Injection 三层防火墙 | ✅ 已实现 | 接入对话入口，攻击样本自检拦截率 65%，编程话题零误伤 |
 | A2A 协议 | 🔧 部分实现 | AgentCard、入站/出站任务、多轮会话 |

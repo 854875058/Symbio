@@ -103,6 +103,8 @@ symbio export --format sharegpt --output data/exports/train.jsonl
 - **数据飞轮四阶段闭环** —— 轨迹捕获 → 失效分析（根因归纳）→ SOP 蒸馏 → 反哺优化，全部暴露成可点击的 `/api/flywheel/*`。
 
 **接入与工具**
+- **Agent 接入 Claude Code / Codex** —— 单个 Symbio Agent 可把任务委托给本地 Claude Code / Codex CLI 执行（`ExternalBackedAgent`），编排、审批、沙箱、审计仍由 Symbio 掌控。
+- **个人微信扫码绑定机器人** —— 内置 iLink Bot 直连，Web UI 点「开始扫码登录」即出二维码，扫码后双向收发；消息自动分流（审批指令→HITL / 其它→对话管线）。无需任何外部部署，也兼容 Wechaty 等外部 bridge。
 - **外部 Agent 接管** —— 登记并控制本地 Codex / Claude Code 会话，导入 transcript，纳入统一审批 / 沙箱 / 审计控制面。
 - **Codex 风格沙箱** —— `read-only` / `workspace-write` / `danger-full-access` 三种访问模式 + 审批策略 + 工作区边界 + 审计。
 - **Computer Use 最小闭环** —— 浏览器会话控制、动作集、启发式规划、审计回放；Playwright 不可用时降级 dry-run。
@@ -122,6 +124,8 @@ symbio export --format sharegpt --output data/exports/train.jsonl
 | 本体记忆图谱 | ✅ 已实现 | ontology memory + API + Web UI |
 | 模型池与模型路由 | ✅ 已实现 | 模型配置、路由策略、对话模型选择 |
 | 外部 Agent 接管 | ✅ 已实现 | Codex / Claude Code 会话登记、运行、导入 transcript |
+| Agent 接入 Claude/Codex | ✅ 已实现 | 单 Agent 委托本地 Claude Code / Codex CLI 执行（ExternalBackedAgent） |
+| 个人微信扫码绑定机器人 | ✅ 已实现 | 内置 iLink Bot 直连，扫码登录 + 双向收发 + 审批/对话分流 |
 | **Token 成本五层优化** | ✅ 已实现 | 语义缓存 + 上下文剪枝 + 成本监控接入对话链路 + 成本仪表盘 |
 | **Prompt Injection 三层防火墙** | ✅ 已实现 | 接入对话入口，攻击样本自检拦截率 65%，编程话题零误伤 |
 | Skills 市场 | 🔧 部分实现 | 本地市场与安装记录已具备，远程生态待完善 |

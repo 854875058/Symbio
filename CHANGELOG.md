@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-06-17
+
+### Added
+
+#### 单个 Agent 接入 Claude Code / Codex
+- 新增 `ExternalBackedAgent`：BaseAgent 子类，execute() 委托本地 Claude Code / Codex CLI 执行，复用 ExternalAgentController 的发现/会话/审计能力
+- 注册 `claude-code` / `codex` 两个内置 Agent；controller 可注入便于测试，CLI 未安装时优雅失败
+- 会话跨多次 execute 复用；复用 workflow_guidance / memory_context 拼 prompt
+
+#### 微信扫码绑定（内置 iLink Bot 直连 / clawbot）
+- 新增 `ilink_client.py`：原生 iLink Bot API 客户端（get_qr / poll_qr_status / get_updates 长轮询 / send_message），无需外部 bridge
+- Web UI「微信」页点「开始扫码登录」直接拉取微信二维码（前端 vendored qrcodejs 渲染），后台轮询登录态，登录后长轮询收发消息并经统一分流（审批→HITL / 其它→对话管线）
+- 新增 `POST /api/wechat/login/start`、`/api/wechat/logout`；保留外部 bridge 兼容模式
+- WeChatConfig 增加 ilink_base_url；内置 `web/qrcode.min.js`（不依赖运行时 CDN）
+
+### Fixed
+- 微信 inbound 端点装饰器误套到辅助函数，导致请求体被当查询参数（422）——已修复
+
 ## [0.2.1] - 2026-06-16
 
 ### Changed

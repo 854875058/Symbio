@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "symbio"
-version = "0.2.1"
+version = "0.2.2"
 description = "AI Infra-level Multi-Agent Orchestration Framework with Self-Evolution Capabilities."
 readme = "README.md"
 license = { text = "MIT" }
