@@ -1,20 +1,20 @@
-"""个人微信双向机器人 bridge（provider-agnostic）。
+"""个人微信双向机器人 bridge。
 
-设计为不绑定任何具体微信实现：外部 bridge（Wechaty / padlocal / 自建 Go-bot 等）
-把收到的微信消息以统一 schema POST 到 /api/wechat/inbound；Symbio 处理后既可在
-HTTP 响应里直接带回复（同步 bridge 直接转发即可），也可通过配置的 send_endpoint
-主动把回复 POST 回 bridge（异步 bridge）。
+两种接入模式：
+1. 内置 iLink Bot 客户端（推荐，即 clawbot）：点"扫码绑定"直接拉出微信官方 iLink
+   二维码，扫码登录后由 Symbio 后台长轮询收发消息，无需任何外部部署。
+2. 外部 bridge（兼容）：第三方网关（Wechaty 等）把消息 POST 到 /api/wechat/inbound，
+   Symbio 处理后回推到 send_endpoint。
 
-消息路由：
-- 先尝试解析为 HITL 审批命令（同意/拒绝 REQ-CODE）→ 路由到审批网关
+消息路由（两种模式共用）：
+- 先解析为 HITL 审批命令（同意/拒绝 REQ-CODE）→ 路由到审批网关
 - 否则当作普通对话 → 走完整对话管线（防火墙 + 语义缓存 + LLM + 持久化）
-
-所有出站发送失败都降级为 "prepared"（与 HITL notifier 一致），不抛异常打断流程。
 """
 
 from __future__ import annotations
 
-from typing import Any, Optional
+import asyncio
+from typing import Any, Awaitable, Callable, Optional
 
 from pydantic import BaseModel, Field
 
@@ -55,6 +55,22 @@ class WeChatBridge:
             "user": "",        # 绑定成功后的微信账号名
             "updated_at": "",
         }
+        # 内置 iLink 模式运行态
+        self._client: Any = None              # ILinkClient
+        self._login_task: Optional[asyncio.Task] = None
+        self._recv_task: Optional[asyncio.Task] = None
+        self._qrcode_id: str = ""             # 当前二维码 id（轮询登录状态用）
+        self._sync_buf: str = ""              # getupdates 增量游标
+        # 消息处理回调：由 api 层注入，签名 async (from_user, content, is_group) -> reply
+        self._handler: Optional[Callable[[str, str, bool], Awaitable[str]]] = None
+
+    def set_message_handler(self, handler: Callable[[str, str, bool], Awaitable[str]]) -> None:
+        """注入入站消息处理回调（内置 iLink 模式收到消息后调用）。"""
+        self._handler = handler
+
+    @property
+    def is_logged_in(self) -> bool:
+        return self._login.get("status") == "logged_in"
 
     # -- 扫码登录态 ---------------------------------------------------------
 
@@ -85,6 +101,117 @@ class WeChatBridge:
 
     def login_state(self) -> dict[str, Any]:
         return dict(self._login)
+
+    # -- 内置 iLink 扫码登录（clawbot）-------------------------------------
+
+    async def start_ilink_login(self) -> dict[str, Any]:
+        """发起 iLink 扫码登录：拉二维码并在后台轮询登录状态。
+
+        返回当前登录态（含二维码内容）。已登录则直接返回。
+        """
+        if self.is_logged_in:
+            return self.login_state()
+        from symbio.interfaces.ilink_client import ILinkClient
+
+        cfg = getattr(get_settings(), "wechat", None)
+        base_url = getattr(cfg, "ilink_base_url", "") or "https://ilinkai.weixin.qq.com"
+        self._client = ILinkClient(base_url=base_url)
+        qr = await self._client.get_qr()
+        if not qr:
+            self.update_login("failed")
+            return self.login_state()
+        self._qrcode_id = qr["qrcode"]
+        self.update_login("waiting_scan", qr=qr["qr_content"])
+        # 后台轮询登录状态，避免阻塞请求
+        if self._login_task is None or self._login_task.done():
+            self._login_task = asyncio.create_task(self._poll_login_loop())
+        return self.login_state()
+
+    async def _poll_login_loop(self, max_seconds: int = 300) -> None:
+        """后台轮询扫码状态，确认后启动收消息循环。"""
+        client = self._client
+        if client is None:
+            return
+        waited = 0
+        while waited < max_seconds:
+            await asyncio.sleep(2)
+            waited += 2
+            try:
+                st = await client.poll_qr_status(self._qrcode_id)
+            except Exception as e:  # pragma: no cover - 网络异常
+                logger.warning(f"轮询扫码状态异常: {e}")
+                continue
+            status = st.get("status")
+            if status == "scaned" and self._login.get("status") != "scanned":
+                self.update_login("scanned")
+            elif status == "confirmed":
+                client.token = st.get("token", "")
+                client.account_id = st.get("account_id", "")
+                if st.get("base_url"):
+                    client.base_url = st["base_url"].rstrip("/")
+                self.update_login("logged_in", user=st.get("account_id") or "微信账号")
+                self._start_recv_loop()
+                return
+            elif status == "expired":
+                self.update_login("failed")
+                return
+        # 超时
+        if not self.is_logged_in:
+            self.update_login("failed")
+
+    def _start_recv_loop(self) -> None:
+        if self._recv_task is None or self._recv_task.done():
+            self._recv_task = asyncio.create_task(self._recv_loop())
+
+    async def _recv_loop(self) -> None:
+        """登录后长轮询收消息，分流处理后回复。"""
+        from symbio.interfaces.ilink_client import extract_text
+        client = self._client
+        if client is None:
+            return
+        logger.info("微信 iLink 收消息循环已启动")
+        while self.is_logged_in and client.token:
+            try:
+                data = await client.get_updates(self._sync_buf)
+            except Exception as e:  # pragma: no cover - 网络异常
+                logger.warning(f"getupdates 异常: {e}")
+                await asyncio.sleep(2)
+                continue
+            self._sync_buf = data.get("get_updates_buf") or data.get("next_buf") or self._sync_buf
+            for msg in data.get("msg_list") or data.get("message_list") or []:
+                sender = str(msg.get("from_user_id") or "").strip()
+                if not sender or sender == client.account_id:
+                    continue
+                text = extract_text(msg.get("item_list") or [])
+                if not text:
+                    continue
+                ctx_token = str(msg.get("context_token") or "")
+                try:
+                    reply = await self._dispatch(sender, text)
+                    if reply:
+                        await client.send_message(sender, reply, context_token=ctx_token)
+                except Exception as e:  # pragma: no cover
+                    logger.error(f"处理微信消息失败: {e}")
+        logger.info("微信 iLink 收消息循环已退出")
+
+    async def _dispatch(self, from_user: str, content: str, is_group: bool = False) -> str:
+        """调用注入的 handler 处理消息；未注入时回退到本地分类提示。"""
+        if self._handler is not None:
+            return await self._handler(from_user, content, is_group)
+        kind, _ = self.classify(content)
+        return "（未配置消息处理器）" if kind == "chat" else "（审批命令已收到）"
+
+    async def logout(self) -> dict[str, Any]:
+        """登出并停止后台任务。"""
+        for task in (self._login_task, self._recv_task):
+            if task and not task.done():
+                task.cancel()
+        self._login_task = None
+        self._recv_task = None
+        self._client = None
+        self._qrcode_id = ""
+        self._sync_buf = ""
+        return self.update_login("logged_out")
 
     def classify(self, content: str) -> tuple[str, Any]:
         """把入站文本分类为 'approval' 或 'chat'。

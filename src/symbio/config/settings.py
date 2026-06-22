@@ -159,6 +159,7 @@ class WeChatConfig(BaseSettings):
     send_token: str = Field(default="", description="Token sent to the outbound bridge endpoint")
     timeout: float = Field(default=10.0, description="Outbound HTTP timeout (seconds)")
     reply_in_response: bool = Field(default=True, description="Also return the reply text in the inbound HTTP response")
+    ilink_base_url: str = Field(default="https://ilinkai.weixin.qq.com", description="iLink Bot API base URL (built-in clawbot QR-login mode)")
 
     model_config = {"env_prefix": "SYMBIO_WECHAT_"}
 

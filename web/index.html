@@ -9,6 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script src="/static/qrcode.min.js"></script>
 </head>
 <body>
   <div class="app">
@@ -1349,26 +1350,31 @@
 
             <!-- 扫码绑定 -->
             <section class="a2a-panel wx-bind-panel">
-              <div class="a2a-panel-head"><div><h3>扫码绑定个人微信</h3><p>用微信扫码登录，机器人即可以你的身份双向收发消息</p></div></div>
+              <div class="a2a-panel-head"><div><h3>扫码绑定个人微信</h3><p>点下方按钮拉取微信二维码，手机扫码即可绑定，机器人以你的身份双向收发</p></div></div>
               <div class="wx-qr-box" id="wx-qr-box">
                 <div class="wx-qr-empty" id="wx-qr-empty">
-                  <p>等待外部 bridge 推送登录二维码…</p>
-                  <p class="wx-qr-hint">需先部署并配置 Wechaty / 自建网关，由它把二维码 push 到 <code>/api/wechat/login/event</code></p>
+                  <p>点击「开始扫码登录」拉取微信二维码</p>
+                  <p class="wx-qr-hint">内置 iLink Bot（clawbot）直连，无需部署任何外部网关</p>
                 </div>
+                <div id="wx-qr-canvas" class="wx-qr-img" style="display:none"></div>
                 <img id="wx-qr-img" class="wx-qr-img" alt="微信登录二维码" style="display:none">
                 <div class="wx-qr-link" id="wx-qr-link" style="display:none"></div>
+              </div>
+              <div class="wx-bind-actions">
+                <button class="btn-primary" id="btn-wx-login">开始扫码登录</button>
+                <button class="btn-outline" id="btn-wx-logout" style="display:none">登出</button>
               </div>
               <div class="wx-bind-status" id="wx-bind-status"></div>
             </section>
 
             <!-- 说明 + 测试发送 -->
             <section class="a2a-panel">
-              <div class="a2a-panel-head"><div><h3>工作方式</h3><p>Symbio 不实现微信协议，只做编排与透出</p></div></div>
+              <div class="a2a-panel-head"><div><h3>工作方式</h3><p>内置 iLink Bot 直连，也兼容外部 bridge</p></div></div>
               <ol class="wx-flow">
-                <li>部署一个外部微信 bridge（Wechaty / wechatpadpro 等），扫码登录你的个人微信</li>
-                <li>bridge 把收到的消息 POST 到 <code>/api/wechat/inbound</code></li>
-                <li>Symbio 自动分流：<b>审批指令</b>（同意/拒绝 REQ）→ HITL；<b>其它</b>→ 对话管线（防火墙+缓存+LLM）</li>
-                <li>回复随响应返回，或回推到 bridge 的 <code>send_endpoint</code></li>
+                <li>点「开始扫码登录」，Symbio 调用微信 <code>iLink Bot</code> 拉取二维码</li>
+                <li>手机微信扫码确认，Symbio 后台长轮询收发消息（无需公网回调）</li>
+                <li>自动分流：<b>审批指令</b>（同意/拒绝 REQ）→ HITL；<b>其它</b>→ 对话管线（防火墙+缓存+LLM）</li>
+                <li>也兼容外部 bridge：POST 消息到 <code>/api/wechat/inbound</code> 即可复用同一套分流</li>
               </ol>
               <div class="wx-test">
                 <div class="wx-test-head">测试发送</div>

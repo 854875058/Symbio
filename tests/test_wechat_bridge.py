@@ -211,3 +211,148 @@ def _areturn(value):
     async def _fn(*args, **kwargs):
         return value
     return _fn
+
+
+# ---------------------------------------------------------------------------
+# 内置 iLink 扫码登录（clawbot）
+# ---------------------------------------------------------------------------
+
+class _FakeILinkClient:
+    """假 iLink 客户端：可编排扫码状态序列与一批入站消息。"""
+
+    def __init__(self, *, status_seq=None, updates=None):
+        self.base_url = "https://fake.ilink"
+        self.token = ""
+        self.account_id = ""
+        self._status_seq = list(status_seq or ["confirmed"])
+        self._updates = updates or {}
+        self.sent: list[tuple[str, str]] = []
+        self._got_updates = False
+
+    async def get_qr(self):
+        return {"qrcode": "QR-123", "qr_content": "https://login.weixin.qq.com/QR-123"}
+
+    async def poll_qr_status(self, qrcode):
+        st = self._status_seq.pop(0) if self._status_seq else "confirmed"
+        if st == "confirmed":
+            return {"status": "confirmed", "account_id": "bot_me", "token": "tok-xyz", "base_url": self.base_url}
+        return {"status": st}
+
+    async def get_updates(self, sync_buf="", timeout_ms=0):
+        if self._got_updates:
+            # 第二次起阻塞，避免收消息循环空转刷屏
+            import asyncio
+            await asyncio.sleep(3600)
+        self._got_updates = True
+        return self._updates
+
+    async def send_message(self, to_user, text, context_token=""):
+        self.sent.append((to_user, text))
+        return {"ok": True}
+
+
+@pytest.mark.asyncio
+async def test_ilink_login_confirmed_sets_logged_in(monkeypatch):
+    import symbio.interfaces.ilink_client as ilink
+    fake = _FakeILinkClient(status_seq=["scaned", "confirmed"])
+    monkeypatch.setattr(ilink, "ILinkClient", lambda **kw: fake)
+
+    bridge = WeChatBridge()
+    state = await bridge.start_ilink_login()
+    assert state["status"] == "waiting_scan"
+    assert state["qr"].endswith("QR-123")
+
+    # 等后台轮询确认登录
+    import asyncio
+    for _ in range(60):
+        await asyncio.sleep(0.1)
+        if bridge.is_logged_in:
+            break
+    assert bridge.is_logged_in
+    assert bridge.login_state()["user"] == "bot_me"
+    await bridge.logout()
+
+
+@pytest.mark.asyncio
+async def test_ilink_login_expired_fails(monkeypatch):
+    import symbio.interfaces.ilink_client as ilink
+    fake = _FakeILinkClient(status_seq=["expired"])
+    monkeypatch.setattr(ilink, "ILinkClient", lambda **kw: fake)
+
+    bridge = WeChatBridge()
+    await bridge.start_ilink_login()
+    import asyncio
+    for _ in range(40):
+        await asyncio.sleep(0.1)
+        if bridge.login_state()["status"] == "failed":
+            break
+    assert bridge.login_state()["status"] == "failed"
+    await bridge.logout()
+
+
+@pytest.mark.asyncio
+async def test_ilink_recv_loop_dispatches_and_replies(monkeypatch):
+    import symbio.interfaces.ilink_client as ilink
+    updates = {"msg_list": [
+        {"from_user_id": "friend1", "context_token": "ctx1",
+         "item_list": [{"type": 1, "text_item": {"text": "你好机器人"}}]},
+    ]}
+    fake = _FakeILinkClient(status_seq=["confirmed"], updates=updates)
+    monkeypatch.setattr(ilink, "ILinkClient", lambda **kw: fake)
+
+    bridge = WeChatBridge()
+    captured = []
+
+    async def handler(from_user, content, is_group):
+        captured.append((from_user, content))
+        return f"收到:{content}"
+
+    bridge.set_message_handler(handler)
+    await bridge.start_ilink_login()
+
+    import asyncio
+    for _ in range(60):
+        await asyncio.sleep(0.1)
+        if fake.sent:
+            break
+    assert captured == [("friend1", "你好机器人")]
+    assert fake.sent == [("friend1", "收到:你好机器人")]
+    await bridge.logout()
+
+
+@pytest.mark.asyncio
+async def test_ilink_login_start_endpoint(monkeypatch):
+    import symbio.interfaces.ilink_client as ilink
+    fake = _FakeILinkClient(status_seq=["confirmed"])
+    monkeypatch.setattr(ilink, "ILinkClient", lambda **kw: fake)
+    monkeypatch.setattr(api, "_load_llm_settings", _areturn(_enabled_settings()))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/api/wechat/login/start")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["login"]["status"] == "waiting_scan"
+    assert body["login"]["qr"].endswith("QR-123")
+    await get_wechat_bridge().logout()
+
+
+@pytest.mark.asyncio
+async def test_ilink_get_qr_none_marks_failed(monkeypatch):
+    import symbio.interfaces.ilink_client as ilink
+
+    class _NoQR(_FakeILinkClient):
+        async def get_qr(self):
+            return None
+
+    monkeypatch.setattr(ilink, "ILinkClient", lambda **kw: _NoQR())
+    bridge = WeChatBridge()
+    state = await bridge.start_ilink_login()
+    assert state["status"] == "failed"
+
+
+def test_extract_text_prefers_text_then_voice():
+    from symbio.interfaces.ilink_client import extract_text
+    assert extract_text([{"type": 1, "text_item": {"text": "hi"}}]) == "hi"
+    assert extract_text([{"type": 3, "voice_item": {"text": "语音转写"}}]) == "语音转写"
+    assert extract_text([]) == ""

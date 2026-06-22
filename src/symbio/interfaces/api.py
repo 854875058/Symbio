@@ -2760,6 +2760,29 @@ async def _wechat_route_approval(command, approver_id: str) -> dict:
         raise HTTPException(status_code=404, detail="审批请求不存在或已处理")
 
 
+async def _wechat_dispatch(from_user: str, content: str, group_id: str = "", is_group: bool = False) -> tuple[str, dict]:
+    """处理一条入站微信消息：审批命令路由到 HITL，否则走对话管线。
+
+    返回 (reply 文本, result dict)。供 inbound 端点与内置 iLink 收消息循环共用。
+    """
+    bridge = get_wechat_bridge()
+    kind, parsed = bridge.classify(content)
+
+    if kind == "approval":
+        approver_id = from_user or "wechat-user"
+        routed = await _wechat_route_approval(parsed, approver_id)
+        reply = (f"✅ 已{'通过' if routed['action'] == 'approve' else '拒绝'}审批 "
+                 f"{parsed.request_id}（{routed['status']}）")
+        return reply, routed
+
+    # 走完整对话管线（防火墙 + 语义缓存 + LLM + 持久化），会话按微信用户隔离
+    session_id = f"wechat-{group_id or from_user}"
+    resp = await chat(ChatRequest(message=content, session_id=session_id))
+    result = {"kind": "chat", "cached": getattr(resp, "cached", False),
+              "session_id": session_id, "success": resp.success}
+    return resp.content, result
+
+
 @app.post("/api/wechat/inbound", tags=["wechat"])
 async def wechat_inbound(inbound: WeChatInbound):
     """接收外部微信 bridge 转发的消息：审批命令路由到 HITL，否则走对话管线。
@@ -2776,21 +2799,9 @@ async def wechat_inbound(inbound: WeChatInbound):
         raise HTTPException(status_code=401, detail="无效的微信 inbound token")
 
     bridge = get_wechat_bridge()
-    kind, parsed = bridge.classify(inbound.content)
-
-    if kind == "approval":
-        approver_id = inbound.from_user or "wechat-user"
-        routed = await _wechat_route_approval(parsed, approver_id)
-        reply = (f"✅ 已{'通过' if routed['action'] == 'approve' else '拒绝'}审批 "
-                 f"{parsed.request_id}（{routed['status']}）")
-        result = routed
-    else:
-        # 走完整对话管线（防火墙 + 语义缓存 + LLM + 持久化），会话按微信用户隔离
-        session_id = f"wechat-{inbound.group_id or inbound.from_user}"
-        resp = await chat(ChatRequest(message=inbound.content, session_id=session_id))
-        reply = resp.content
-        result = {"kind": "chat", "cached": getattr(resp, "cached", False),
-                  "session_id": session_id, "success": resp.success}
+    reply, result = await _wechat_dispatch(
+        inbound.from_user, inbound.content, group_id=inbound.group_id, is_group=inbound.is_group,
+    )
 
     # 出站回推（异步 bridge）；同步 bridge 用响应里的 reply
     delivery = await bridge.send(inbound.from_user, reply, is_group=inbound.is_group)
@@ -2839,6 +2850,36 @@ async def wechat_login_status():
     state["enabled"] = bool(getattr(wcfg, "enabled", False)) if wcfg else False
     state["send_endpoint_configured"] = bool(getattr(wcfg, "send_endpoint", "")) if wcfg else False
     return state
+
+
+@app.post("/api/wechat/login/start", tags=["wechat"])
+async def wechat_login_start():
+    """发起内置 iLink 扫码登录（clawbot）：拉取微信二维码并后台轮询登录态。
+
+    返回登录态，前端拿到 qr 后渲染二维码，再轮询 /login/status 等待 logged_in。
+    """
+    bridge = get_wechat_bridge()
+    # 注入消息处理器：登录后收到的微信消息走统一分流
+    bridge.set_message_handler(_wechat_dispatch_reply)
+    try:
+        state = await bridge.start_ilink_login()
+    except Exception as e:
+        logger.error(f"发起微信扫码登录失败: {e}")
+        raise HTTPException(status_code=502, detail=f"无法连接微信 iLink 服务: {e}")
+    return {"ok": True, "login": state}
+
+
+async def _wechat_dispatch_reply(from_user: str, content: str, is_group: bool) -> str:
+    """供内置 iLink 收消息循环调用的消息处理器，返回回复文本。"""
+    reply, _ = await _wechat_dispatch(from_user, content, is_group=is_group)
+    return reply
+
+
+@app.post("/api/wechat/logout", tags=["wechat"])
+async def wechat_logout():
+    """登出微信并停止后台收发任务。"""
+    state = await get_wechat_bridge().logout()
+    return {"ok": True, "login": state}
 
 
 @app.post("/api/hitl/webhook")

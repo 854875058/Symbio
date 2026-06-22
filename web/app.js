@@ -4458,11 +4458,25 @@ async function refreshWeChatStatus() {
   try {
     const res = await fetch(`${API}/wechat/login/status`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    renderWeChatLogin(await res.json());
+    const state = await res.json();
+    renderWeChatLogin(state);
+    return state;
   } catch (e) {
     console.warn('加载微信状态失败:', e.message);
+    return null;
   }
 }
+
+// 二维码渲染适配器（基于本地 vendored qrcodejs）
+window.QRCanvas = {
+  render(el, text, size) {
+    if (!el || !window.QRCode) return;
+    el.innerHTML = '';
+    try {
+      new window.QRCode(el, { text, width: size, height: size, correctLevel: window.QRCode.CorrectLevel.M });
+    } catch (e) { console.warn('QR 渲染失败:', e.message); }
+  },
+};
 
 function renderWeChatLogin(state) {
   const meta = WX_STATUS[state.status] || WX_STATUS.logged_out;
@@ -4471,34 +4485,90 @@ function renderWeChatLogin(state) {
 
   const empty = document.getElementById('wx-qr-empty');
   const img = document.getElementById('wx-qr-img');
+  const canvas = document.getElementById('wx-qr-canvas');
   const link = document.getElementById('wx-qr-link');
   const bindStatus = document.getElementById('wx-bind-status');
+  const loginBtn = document.getElementById('btn-wx-login');
+  const logoutBtn = document.getElementById('btn-wx-logout');
 
   const show = (el, on) => { if (el) el.style.display = on ? '' : 'none'; };
 
   if (state.status === 'logged_in') {
-    show(empty, false); show(img, false); show(link, false);
-    if (bindStatus) bindStatus.innerHTML = `<div class="wx-bound">✅ 已绑定微信账号：<b>${esc(state.user || '(未知)')}</b></div>`;
+    show(empty, false); show(img, false); show(canvas, false); show(link, false);
+    show(loginBtn, false); show(logoutBtn, true);
+    if (bindStatus) bindStatus.innerHTML = `<div class="wx-bound">✅ 已绑定微信账号：<b>${esc(state.user || '(未知)')}</b> · 后台正在收发消息</div>`;
     return;
   }
-  if (bindStatus) bindStatus.innerHTML = '';
+  show(logoutBtn, false);
+  show(loginBtn, true);
+  if (loginBtn) loginBtn.textContent = (state.status === 'waiting_scan' || state.status === 'scanned') ? '重新拉取二维码' : '开始扫码登录';
+  if (bindStatus) {
+    if (state.status === 'scanned') bindStatus.innerHTML = '<div class="wx-scanned">📱 已扫码，请在手机上确认登录…</div>';
+    else if (state.status === 'failed') bindStatus.innerHTML = '<div class="wx-failed">⚠️ 登录失败或二维码过期，请重试</div>';
+    else bindStatus.innerHTML = '';
+  }
 
   if (state.qr_image) {
-    show(empty, false); show(link, false);
+    // 外部 bridge 直接给图
+    show(empty, false); show(link, false); show(canvas, false);
     if (img) { img.src = state.qr_image; show(img, true); }
   } else if (state.qr) {
-    show(empty, false); show(img, false);
-    if (link) {
-      link.innerHTML = `<div class="wx-qr-string">登录二维码内容（请用客户端渲染或由 bridge 提供图片）：</div><code>${esc(state.qr)}</code>`;
+    // 内置 iLink：拿到二维码内容字符串，前端渲染成二维码
+    show(empty, false); show(img, false); show(link, false);
+    if (canvas && window.QRCanvas) {
+      show(canvas, true);
+      window.QRCanvas.render(canvas, state.qr, 220);
+    } else if (link) {
+      link.innerHTML = `<div class="wx-qr-string">二维码内容：</div><code>${esc(state.qr)}</code>`;
       show(link, true);
     }
   } else {
-    show(img, false); show(link, false); show(empty, true);
-    if (!state.enabled && empty) {
-      empty.querySelector('.wx-qr-hint').textContent = '微信 bridge 未启用：在 symbio.yaml 设置 wechat.enabled=true 并部署外部 bridge';
-    }
+    show(img, false); show(canvas, false); show(link, false); show(empty, true);
   }
 }
+
+let _wxPollTimer = null;
+function startWeChatLoginPoll() {
+  if (_wxPollTimer) clearInterval(_wxPollTimer);
+  _wxPollTimer = setInterval(async () => {
+    const state = await refreshWeChatStatus();
+    // 终态停止轮询
+    if (state && (state.status === 'logged_in' || state.status === 'failed')) {
+      clearInterval(_wxPollTimer); _wxPollTimer = null;
+    }
+  }, 2500);
+}
+
+document.getElementById('btn-wx-login')?.addEventListener('click', async () => {
+  const btn = document.getElementById('btn-wx-login');
+  if (btn) { btn.disabled = true; btn.textContent = '拉取中…'; }
+  try {
+    const res = await fetch(`${API}/wechat/login/start`, { method: 'POST' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${res.status}`);
+    }
+    const body = await res.json();
+    renderWeChatLogin(body.login || {});
+    startWeChatLoginPoll();
+    toast('success', '已拉取二维码', '请用微信扫码并在手机确认');
+  } catch (e) {
+    toast('error', '扫码登录失败', e.message);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+});
+
+document.getElementById('btn-wx-logout')?.addEventListener('click', async () => {
+  try {
+    await fetch(`${API}/wechat/logout`, { method: 'POST' });
+    if (_wxPollTimer) { clearInterval(_wxPollTimer); _wxPollTimer = null; }
+    await refreshWeChatStatus();
+    toast('success', '已登出', '微信收发已停止');
+  } catch (e) {
+    toast('error', '登出失败', e.message);
+  }
+});
 
 document.getElementById('btn-refresh-wechat')?.addEventListener('click', refreshWeChatStatus);
 

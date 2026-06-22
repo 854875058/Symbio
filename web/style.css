@@ -3611,14 +3611,18 @@ textarea::placeholder { color:var(--text-tertiary); }
   border: 1px dashed var(--border); border-radius: var(--radius-lg);
   background: var(--bg-secondary); text-align: center;
 }
-.wx-qr-img { width: 220px; height: 220px; border-radius: var(--radius-md); background: #fff; padding: 8px; }
+.wx-qr-img { width: 236px; height: 236px; border-radius: var(--radius-md); background: #fff; padding: 8px; display: flex; align-items: center; justify-content: center; }
+.wx-qr-img canvas, .wx-qr-img img { width: 220px !important; height: 220px !important; }
 .wx-qr-empty p { color: var(--text-secondary); font-size: 0.82rem; margin: 4px 0; }
 .wx-qr-hint { color: var(--text-tertiary); font-size: 0.72rem !important; }
 .wx-qr-link { font-size: 0.74rem; color: var(--text-secondary); word-break: break-all; }
 .wx-qr-link code { font-family: var(--font-mono); font-size: 0.7rem; }
 .wx-qr-string { margin-bottom: 6px; }
-.wx-bind-status { margin-top: 12px; }
-.wx-bound { color: var(--green); font-size: 0.85rem; text-align: center; }
+.wx-bind-actions { margin-top: 14px; display: flex; gap: 10px; justify-content: center; }
+.wx-bind-status { margin-top: 12px; text-align: center; }
+.wx-bound { color: var(--green); font-size: 0.85rem; }
+.wx-scanned { color: var(--accent); font-size: 0.85rem; }
+.wx-failed { color: var(--red); font-size: 0.85rem; }
 .wx-flow { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }
 .wx-flow li { font-size: 0.82rem; color: var(--text-secondary); line-height: 1.5; }
 .wx-flow code { font-family: var(--font-mono); font-size: 0.74rem; background: var(--bg-tertiary, rgba(128,128,160,0.15)); padding: 1px 5px; border-radius: 4px; }
