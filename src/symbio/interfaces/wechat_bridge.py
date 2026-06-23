@@ -177,8 +177,21 @@ class WeChatBridge:
                 logger.warning(f"getupdates 异常: {e}")
                 await asyncio.sleep(2)
                 continue
-            self._sync_buf = data.get("get_updates_buf") or data.get("next_buf") or self._sync_buf
-            for msg in data.get("msg_list") or data.get("message_list") or []:
+            # iLink 错误码处理（-14=会话过期）
+            ret = data.get("ret") or 0
+            errcode = data.get("errcode") or 0
+            if ret or errcode:
+                logger.warning(f"getupdates 返回错误 ret={ret} errcode={errcode}")
+                if ret == -14 or errcode == -14:
+                    self.update_login("failed")
+                    break
+                await asyncio.sleep(2)
+                continue
+            # 更新增量游标（响应里回传同名字段 get_updates_buf）
+            new_buf = str(data.get("get_updates_buf") or "")
+            if new_buf:
+                self._sync_buf = new_buf
+            for msg in data.get("msgs") or []:
                 sender = str(msg.get("from_user_id") or "").strip()
                 if not sender or sender == client.account_id:
                     continue
@@ -227,21 +240,32 @@ class WeChatBridge:
             logger.debug(f"审批命令解析跳过: {e}")
         return "chat", None
 
-    async def send(self, to_user: str, content: str, *, is_group: bool = False) -> dict[str, Any]:
-        """把回复 POST 回外部 bridge 的 send_endpoint。
+    async def send(self, to_user: str, content: str, *, is_group: bool = False,
+                   context_token: str = "") -> dict[str, Any]:
+        """发送一条微信消息。
 
-        未配置 send_endpoint 时返回 prepared（同步 bridge 用 HTTP 响应里的 reply 即可）。
+        优先级：内置 iLink 已登录 → 直接调 iLink sendmessage；
+        否则有外部 send_endpoint → POST 回外部 bridge；都没有 → prepared。
         """
+        payload = {"to_user": to_user, "content": content, "is_group": is_group}
+
+        # 1) 内置 iLink 模式（已扫码登录）
+        if self.is_logged_in and self._client is not None and getattr(self._client, "token", ""):
+            try:
+                resp = await self._client.send_message(to_user, content, context_token=context_token)
+                ok = not (resp.get("ret") or resp.get("errcode"))
+                return {"delivery_status": "sent" if ok else "error", "via": "ilink",
+                        "payload": payload, "response": resp}
+            except Exception as e:
+                logger.warning(f"iLink 发送失败: {e}")
+                return {"delivery_status": "error", "via": "ilink", "payload": payload, "error": str(e)}
+
+        # 2) 外部 bridge 模式
         cfg = getattr(get_settings(), "wechat", None)
         endpoint = getattr(cfg, "send_endpoint", "") if cfg else ""
-        payload = {
-            "to_user": to_user,
-            "content": content,
-            "is_group": is_group,
-        }
         if not endpoint:
             return {"delivery_status": "prepared", "payload": payload,
-                    "reason": "未配置 send_endpoint，回复随 HTTP 响应返回"}
+                    "reason": "未登录 iLink 且未配置 send_endpoint，回复随 HTTP 响应返回"}
         try:
             import httpx
             headers = {"Content-Type": "application/json"}

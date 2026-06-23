@@ -3628,6 +3628,7 @@ textarea::placeholder { color:var(--text-tertiary); }
 .wx-flow code { font-family: var(--font-mono); font-size: 0.74rem; background: var(--bg-tertiary, rgba(128,128,160,0.15)); padding: 1px 5px; border-radius: 4px; }
 .wx-test { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
 .wx-test-head { font-size: 0.78rem; color: var(--text-tertiary); margin-bottom: 8px; }
+.wx-test-hint { font-size: 0.7rem; color: var(--text-tertiary); margin-left: 6px; }
 .wx-test-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .wx-test-row .text-input { flex: 1; min-width: 120px; }
 .wx-test-result { margin-top: 8px; font-size: 0.78rem; color: var(--text-secondary); }

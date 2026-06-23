@@ -4584,9 +4584,15 @@ document.getElementById('btn-wx-test-send')?.addEventListener('click', async () 
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    if (resEl) resEl.textContent = data.delivery_status === 'sent'
-      ? '✓ 已通过 bridge 发送'
-      : '已就绪（未配置 send_endpoint，内容随响应返回）';
+    if (resEl) {
+      if (data.delivery_status === 'sent') {
+        resEl.textContent = data.via === 'ilink' ? '✓ 已通过微信 iLink 发送' : '✓ 已通过 bridge 发送';
+      } else if (data.delivery_status === 'error') {
+        resEl.textContent = '✗ iLink 发送失败：' + (data.error || JSON.stringify(data.response || {}));
+      } else {
+        resEl.textContent = '已就绪（未登录 iLink 且未配置 send_endpoint，内容随响应返回）';
+      }
+    }
   } catch (e) {
     if (resEl) resEl.textContent = '发送失败: ' + e.message;
   }

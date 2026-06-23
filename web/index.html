@@ -1377,9 +1377,9 @@
                 <li>也兼容外部 bridge：POST 消息到 <code>/api/wechat/inbound</code> 即可复用同一套分流</li>
               </ol>
               <div class="wx-test">
-                <div class="wx-test-head">测试发送</div>
+                <div class="wx-test-head">测试发送 <span class="wx-test-hint">需填真实 user_id（非昵称/备注）；最稳妥是让好友先给机器人发消息，自动回复即可验证</span></div>
                 <div class="wx-test-row">
-                  <input type="text" class="text-input" id="wx-test-user" placeholder="目标用户 wxid / 备注">
+                  <input type="text" class="text-input" id="wx-test-user" placeholder="目标 user_id（如 xxxx@im.bot）">
                   <input type="text" class="text-input" id="wx-test-content" placeholder="消息内容">
                   <button class="btn-outline" id="btn-wx-test-send">发送</button>
                 </div>

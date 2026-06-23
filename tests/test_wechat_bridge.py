@@ -293,7 +293,8 @@ async def test_ilink_login_expired_fails(monkeypatch):
 @pytest.mark.asyncio
 async def test_ilink_recv_loop_dispatches_and_replies(monkeypatch):
     import symbio.interfaces.ilink_client as ilink
-    updates = {"msg_list": [
+    # iLink getupdates 真实字段是 "msgs"（不是 msg_list）
+    updates = {"msgs": [
         {"from_user_id": "friend1", "context_token": "ctx1",
          "item_list": [{"type": 1, "text_item": {"text": "你好机器人"}}]},
     ]}
@@ -317,6 +318,27 @@ async def test_ilink_recv_loop_dispatches_and_replies(monkeypatch):
             break
     assert captured == [("friend1", "你好机器人")]
     assert fake.sent == [("friend1", "收到:你好机器人")]
+    await bridge.logout()
+
+
+@pytest.mark.asyncio
+async def test_send_uses_ilink_when_logged_in(monkeypatch):
+    import symbio.interfaces.ilink_client as ilink
+    fake = _FakeILinkClient(status_seq=["confirmed"])
+    monkeypatch.setattr(ilink, "ILinkClient", lambda **kw: fake)
+
+    bridge = WeChatBridge()
+    await bridge.start_ilink_login()
+    import asyncio
+    for _ in range(60):
+        await asyncio.sleep(0.1)
+        if bridge.is_logged_in:
+            break
+    # 已登录 -> send 直接走 iLink，而不是返回 prepared
+    result = await bridge.send("friend2", "你好")
+    assert result["delivery_status"] == "sent"
+    assert result["via"] == "ilink"
+    assert ("friend2", "你好") in fake.sent
     await bridge.logout()
 
 
