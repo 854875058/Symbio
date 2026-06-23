@@ -702,12 +702,18 @@ function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
   localStorage.setItem('symbio-theme', theme);
   state.theme = theme;
+  // 图标反映当前主题：浅色显示月亮（点→去深色），深色显示太阳（点→去浅色）
+  const light = theme === 'light';
+  document.querySelectorAll('.icon-sun').forEach(el => { el.style.display = light ? 'none' : ''; });
+  document.querySelectorAll('.icon-moon').forEach(el => { el.style.display = light ? '' : 'none'; });
 }
 
-dom.themeToggle?.addEventListener('click', () => {
-  const newTheme = state.theme === 'dark' ? 'light' : 'dark';
-  applyTheme(newTheme);
-});
+function toggleTheme() {
+  applyTheme(state.theme === 'dark' ? 'light' : 'dark');
+}
+
+dom.themeToggle?.addEventListener('click', toggleTheme);
+document.getElementById('topbar-theme-toggle')?.addEventListener('click', toggleTheme);
 
 // Apply saved theme on load
 applyTheme(state.theme);

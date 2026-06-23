@@ -443,6 +443,8 @@ body {
   border-radius: var(--radius-sm); transition: all 140ms;
 }
 .topbar-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
+.topbar-theme { color: var(--accent); }
+.topbar-theme:hover { color: var(--accent); background: var(--accent-dim); }
 
 /* ============ Main Content (page area) ============ */
 .main-content {
