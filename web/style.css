@@ -252,6 +252,7 @@ body {
 /* Nav */
 .sidebar-nav {
   flex: 1;
+  min-height: 0;          /* 关键：让 nav 内部滚动，而不是撑高把底部 footer 顶出可视区 */
   overflow-y: auto;
   overflow-x: hidden;
   padding: 10px 8px;
@@ -259,6 +260,7 @@ body {
   flex-direction: column;
   gap: 4px;
 }
+.sidebar-footer { flex-shrink: 0; }   /* footer 不被压缩，始终钉在底部 */
 .sidebar-nav::-webkit-scrollbar { width: 3px; }
 
 .nav-group {
