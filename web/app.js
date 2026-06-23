@@ -4445,13 +4445,43 @@ const WX_STATUS = {
 
 async function loadWeChat() {
   await refreshWeChatStatus();
-  // 未绑定时轮询登录态，方便扫码后自动刷新
+  await refreshWeChatMessages();
+  // 轮询登录态 + 消息流，扫码后/收发时自动刷新
   if (wxState.pollTimer) clearInterval(wxState.pollTimer);
   wxState.pollTimer = setInterval(async () => {
     const active = document.getElementById('page-wechat')?.classList.contains('active');
     if (!active) { clearInterval(wxState.pollTimer); wxState.pollTimer = null; return; }
     await refreshWeChatStatus();
+    await refreshWeChatMessages();
   }, 3000);
+}
+
+async function refreshWeChatMessages() {
+  const container = document.getElementById('wx-stream');
+  const countEl = document.getElementById('wx-stream-count');
+  if (!container) return;
+  try {
+    const res = await fetch(`${API}/wechat/messages?limit=40`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const msgs = data.messages || [];
+    if (countEl) countEl.textContent = `${data.total || msgs.length} 条`;
+    if (!msgs.length) {
+      container.innerHTML = '<div class="cost-table-empty">还没有消息 —— 让好友给机器人发一条试试</div>';
+      return;
+    }
+    container.innerHTML = msgs.map(m => {
+      const inbound = m.direction === 'in';
+      const t = (m.at || '').slice(11, 19);
+      const kind = m.kind ? `<span class="wx-msg-kind">${esc(m.kind)}</span>` : '';
+      return `<div class="wx-msg ${inbound ? 'in' : 'out'}">
+        <div class="wx-msg-meta"><span class="wx-msg-dir">${inbound ? '收' : '发'}</span><span class="wx-msg-user" title="${esc(m.user)}">${esc(m.user)}</span>${kind}<span class="wx-msg-time">${t}</span></div>
+        <div class="wx-msg-text">${esc(m.text)}</div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    if (countEl) countEl.textContent = '加载失败';
+  }
 }
 
 async function refreshWeChatStatus() {

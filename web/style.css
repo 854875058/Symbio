@@ -3632,6 +3632,20 @@ textarea::placeholder { color:var(--text-tertiary); }
 .wx-test-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .wx-test-row .text-input { flex: 1; min-width: 120px; }
 .wx-test-result { margin-top: 8px; font-size: 0.78rem; color: var(--text-secondary); }
+.wx-stream-panel { margin-top: 18px; }
+.wx-stream-count { font-size: 0.72rem; color: var(--text-tertiary); }
+.wx-stream { display: flex; flex-direction: column; gap: 8px; max-height: 360px; overflow-y: auto; }
+.wx-msg { max-width: 78%; padding: 8px 12px; border-radius: var(--radius-md); }
+.wx-msg.in { align-self: flex-start; background: var(--bg-secondary); border: 1px solid var(--border); }
+.wx-msg.out { align-self: flex-end; background: var(--accent-dim); border: 1px solid var(--border-accent); }
+.wx-msg-meta { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; font-size: 0.68rem; color: var(--text-tertiary); }
+.wx-msg-dir { font-weight: 600; color: var(--text-secondary); }
+.wx-msg.in .wx-msg-dir { color: var(--accent); }
+.wx-msg.out .wx-msg-dir { color: var(--green); }
+.wx-msg-user { font-family: var(--font-mono); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wx-msg-kind { padding: 0 6px; border-radius: 10px; background: var(--purple-dim); color: var(--purple); }
+.wx-msg-time { margin-left: auto; font-family: var(--font-mono); }
+.wx-msg-text { font-size: 0.82rem; color: var(--text-primary); line-height: 1.5; word-break: break-word; }
 
 /* ============ Data Flywheel ============ */
 .flywheel-stages {

@@ -373,6 +373,59 @@ async def test_ilink_get_qr_none_marks_failed(monkeypatch):
     assert state["status"] == "failed"
 
 
+@pytest.mark.asyncio
+async def test_recv_loop_records_message_stream(monkeypatch):
+    import symbio.interfaces.ilink_client as ilink
+    updates = {"msgs": [
+        {"from_user_id": "friendX", "item_list": [{"type": 1, "text_item": {"text": "在吗"}}]},
+    ]}
+    fake = _FakeILinkClient(status_seq=["confirmed"], updates=updates)
+    monkeypatch.setattr(ilink, "ILinkClient", lambda **kw: fake)
+
+    bridge = WeChatBridge()
+
+    async def handler(u, c, g):
+        return "在的"
+
+    bridge.set_message_handler(handler)
+    await bridge.start_ilink_login()
+    import asyncio
+    for _ in range(60):
+        await asyncio.sleep(0.1)
+        if fake.sent:
+            break
+    msgs = bridge.recent_messages()
+    # 最近在前：先是 out(在的) 再是 in(在吗)
+    assert len(msgs) == 2
+    assert msgs[0]["direction"] == "out" and msgs[0]["text"] == "在的"
+    assert msgs[1]["direction"] == "in" and msgs[1]["text"] == "在吗"
+    await bridge.logout()
+
+
+@pytest.mark.asyncio
+async def test_messages_endpoint(monkeypatch):
+    reset_wechat_bridge()
+    b = get_wechat_bridge()
+    b.record_message("in", "u1", "hi")
+    b.record_message("out", "u1", "hello", kind="chat")
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/api/wechat/messages")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] == 2
+    assert data["messages"][0]["text"] == "hello"  # 最近在前
+
+
+def test_record_message_ring_buffer_caps():
+    b = WeChatBridge()
+    b._messages_max = 5
+    for i in range(12):
+        b.record_message("in", "u", f"m{i}")
+    msgs = b.recent_messages(100)
+    assert len(msgs) == 5
+    assert msgs[0]["text"] == "m11"  # 最新
+
+
 def test_extract_text_prefers_text_then_voice():
     from symbio.interfaces.ilink_client import extract_text
     assert extract_text([{"type": 1, "text_item": {"text": "hi"}}]) == "hi"

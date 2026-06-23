@@ -63,10 +63,29 @@ class WeChatBridge:
         self._sync_buf: str = ""              # getupdates 增量游标
         # 消息处理回调：由 api 层注入，签名 async (from_user, content, is_group) -> reply
         self._handler: Optional[Callable[[str, str, bool], Awaitable[str]]] = None
+        # 实时消息流环形缓冲（收/发），供 UI 展示是否真正收发通了
+        self._messages: list[dict[str, Any]] = []
+        self._messages_max = 60
 
     def set_message_handler(self, handler: Callable[[str, str, bool], Awaitable[str]]) -> None:
         """注入入站消息处理回调（内置 iLink 模式收到消息后调用）。"""
         self._handler = handler
+
+    def record_message(self, direction: str, user: str, text: str, kind: str = "") -> None:
+        """记录一条收/发消息到实时消息流（direction: in / out）。"""
+        from datetime import datetime, timezone
+        self._messages.append({
+            "direction": direction,
+            "user": user,
+            "text": (text or "")[:300],
+            "kind": kind,
+            "at": datetime.now(timezone.utc).isoformat(),
+        })
+        if len(self._messages) > self._messages_max:
+            self._messages = self._messages[-self._messages_max:]
+
+    def recent_messages(self, limit: int = 40) -> list[dict[str, Any]]:
+        return list(reversed(self._messages[-limit:]))
 
     @property
     def is_logged_in(self) -> bool:
@@ -199,10 +218,12 @@ class WeChatBridge:
                 if not text:
                     continue
                 ctx_token = str(msg.get("context_token") or "")
+                self.record_message("in", sender, text)
                 try:
                     reply = await self._dispatch(sender, text)
                     if reply:
                         await client.send_message(sender, reply, context_token=ctx_token)
+                        self.record_message("out", sender, reply)
                 except Exception as e:  # pragma: no cover
                     logger.error(f"处理微信消息失败: {e}")
         logger.info("微信 iLink 收消息循环已退出")

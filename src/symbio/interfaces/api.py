@@ -2799,9 +2799,11 @@ async def wechat_inbound(inbound: WeChatInbound):
         raise HTTPException(status_code=401, detail="无效的微信 inbound token")
 
     bridge = get_wechat_bridge()
+    bridge.record_message("in", inbound.from_user, inbound.content)
     reply, result = await _wechat_dispatch(
         inbound.from_user, inbound.content, group_id=inbound.group_id, is_group=inbound.is_group,
     )
+    bridge.record_message("out", inbound.from_user, reply, kind=result.get("kind", ""))
 
     # 出站回推（异步 bridge）；同步 bridge 用响应里的 reply
     delivery = await bridge.send(inbound.from_user, reply, is_group=inbound.is_group)
@@ -2880,6 +2882,13 @@ async def wechat_logout():
     """登出微信并停止后台收发任务。"""
     state = await get_wechat_bridge().logout()
     return {"ok": True, "login": state}
+
+
+@app.get("/api/wechat/messages", tags=["wechat"])
+async def wechat_messages(limit: int = 40):
+    """返回最近的收/发消息流（供 Web UI 实时展示收发是否通畅）。"""
+    msgs = get_wechat_bridge().recent_messages(limit)
+    return {"messages": msgs, "total": len(msgs)}
 
 
 @app.post("/api/hitl/webhook")
