@@ -64,6 +64,7 @@ data/*.log
 
 # Runtime local state
 data/external_agents.json
+data/external_live_sessions.json
 data/skill_marketplace/
 data/computer_use/
 data/distilled_sops.json

@@ -5044,6 +5044,7 @@ async function loadExternalAgents() {
     loadExternalAgentSessions(),
     loadExternalAgentTranscripts(),
     loadExternalAgentAudit(),
+    loadLiveSessions(),
   ]);
 }
 
@@ -5344,6 +5345,225 @@ $('#btn-refresh-external-agents')?.addEventListener('click', loadExternalAgents)
 $('#btn-create-external-agent')?.addEventListener('click', createExternalAgentSession);
 $('#btn-run-external-agent-dry')?.addEventListener('click', () => runExternalAgent(true));
 $('#btn-run-external-agent')?.addEventListener('click', () => runExternalAgent(false));
+
+// ============ External Agent: 实时双向会话 + 互相调用接力（批次17） ============
+state.externalAgents.live = { sessions: [], activeId: '', messagesById: {}, pollTimer: null };
+
+async function loadLiveSessions() {
+  const list = $('#live-session-list');
+  try {
+    const res = await fetch(`${API}/external-agents/live`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    const live = state.externalAgents.live;
+    live.sessions = data.sessions || [];
+    if (!live.activeId && live.sessions[0]) live.activeId = live.sessions[0].session_id;
+    renderLiveSessions();
+    if (live.activeId) startLivePolling();
+  } catch (e) {
+    if (list) list.innerHTML = `<div class="empty-state-lg"><p>${esc(e.message)}</p></div>`;
+  }
+}
+
+function renderLiveSessions() {
+  const live = state.externalAgents.live;
+  const list = $('#live-session-list');
+  const sessions = live.sessions || [];
+  if (list) {
+    list.innerHTML = sessions.length ? sessions.map(s => `
+      <button class="external-live-session ${s.session_id === live.activeId ? 'active' : ''}" data-live-id="${esc(s.session_id)}">
+        <span class="external-live-session-main">${esc(s.label || s.external_session_id)}</span>
+        <span class="external-live-session-sub">${esc(s.provider)} · ${esc(s.external_session_id)}</span>
+      </button>`).join('') : `<div class="empty-state-lg"><p>还没有接管任何会话。</p></div>`;
+  }
+  const active = sessions.find(s => s.session_id === live.activeId);
+  const hint = $('#live-active-hint');
+  if (hint) hint.textContent = active ? `${active.provider} · ${active.external_session_id}` : '未选择会话';
+  renderLiveStream();
+}
+
+function renderLiveStream() {
+  const stream = $('#live-stream');
+  if (!stream) return;
+  const live = state.externalAgents.live;
+  if (!live.activeId) {
+    stream.innerHTML = `<div class="empty-state-lg"><p>接管会话后，这里实时显示双向消息。</p></div>`;
+    return;
+  }
+  const msgs = live.messagesById[live.activeId] || [];
+  if (!msgs.length) {
+    stream.innerHTML = `<div class="empty-state-lg"><p>等待消息…（发送一句，或在终端里继续该会话）</p></div>`;
+    return;
+  }
+  stream.innerHTML = msgs.map(m => `
+    <div class="external-live-msg role-${esc(m.role)}">
+      <span class="external-live-msg-role">${esc(m.role)}</span>
+      <div class="external-live-msg-body">${esc(m.content)}</div>
+    </div>`).join('');
+  stream.scrollTop = stream.scrollHeight;
+}
+
+async function attachLiveSession() {
+  const provider = $('#live-provider')?.value || 'claude-code';
+  const externalId = ($('#live-session-id')?.value || '').trim();
+  const path = ($('#live-transcript-path')?.value || '').trim();
+  const fromStart = $('#live-from-start')?.checked ?? true;
+  if (!externalId && !path) { toast('error', '接管失败', '请填外部会话 ID 或 transcript 路径'); return; }
+  try {
+    const res = await fetch(`${API}/external-agents/live/attach`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider, external_session_id: externalId, transcript_path: path, from_start: fromStart }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    const live = state.externalAgents.live;
+    live.activeId = data.session.session_id;
+    live.messagesById[live.activeId] = [];
+    await loadLiveSessions();
+    await pollLiveSession();
+    startLivePolling();
+    toast('success', '已接管会话', `${data.session.provider} · ${data.session.external_session_id}`);
+  } catch (e) { toast('error', '接管会话失败', e.message); }
+}
+
+async function pollLiveSession() {
+  const live = state.externalAgents.live;
+  const activeId = live.activeId;
+  if (!activeId) return;
+  const page = document.getElementById('page-external-agents');
+  if (page && !page.classList.contains('active')) return; // 仅在该页面可见时轮询
+  try {
+    const res = await fetch(`${API}/external-agents/live/${encodeURIComponent(activeId)}/poll`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    const incoming = data.messages || [];
+    if (incoming.length) {
+      const bucket = live.messagesById[activeId] || (live.messagesById[activeId] = []);
+      bucket.push(...incoming);
+      renderLiveStream();
+    }
+  } catch (e) { /* 轮询期间静默 */ }
+}
+
+function startLivePolling() {
+  stopLivePolling();
+  state.externalAgents.live.pollTimer = setInterval(pollLiveSession, 3000);
+}
+function stopLivePolling() {
+  const live = state.externalAgents.live;
+  if (live.pollTimer) { clearInterval(live.pollTimer); live.pollTimer = null; }
+}
+
+async function sendLiveMessage() {
+  const live = state.externalAgents.live;
+  const activeId = live.activeId;
+  if (!activeId) { toast('error', '发送失败', '请先接管一个会话'); return; }
+  const input = $('#live-input');
+  const prompt = (input?.value || '').trim();
+  if (!prompt) return;
+  const hint = $('#live-active-hint');
+  const prevHint = hint ? hint.textContent : '';
+  if (hint) hint.textContent = '发送中，等待回应…';
+  if (input) input.value = '';
+  try {
+    const res = await fetch(`${API}/external-agents/live/${encodeURIComponent(activeId)}/send`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    const newMsgs = (data.result && data.result.new_messages) || [];
+    if (newMsgs.length) {
+      const bucket = live.messagesById[activeId] || (live.messagesById[activeId] = []);
+      bucket.push(...newMsgs);
+      renderLiveStream();
+    }
+    toast(data.success ? 'success' : 'error', '已发送',
+      (data.result && data.result.error) ? data.result.error : `exit=${data.result ? data.result.exit_code : '?'}`);
+  } catch (e) {
+    toast('error', '发送失败', e.message);
+  } finally {
+    if (hint) hint.textContent = prevHint;
+  }
+}
+
+async function detachLiveSession() {
+  const live = state.externalAgents.live;
+  const activeId = live.activeId;
+  if (!activeId) return;
+  try {
+    const res = await fetch(`${API}/external-agents/live/${encodeURIComponent(activeId)}`, { method: 'DELETE' });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || `HTTP ${res.status}`); }
+    delete live.messagesById[activeId];
+    live.activeId = '';
+    stopLivePolling();
+    await loadLiveSessions();
+    toast('success', '已停止接管', '');
+  } catch (e) { toast('error', '停止接管失败', e.message); }
+}
+
+async function runRelay() {
+  const turnsEl = $('#relay-turns');
+  const btn = $('#btn-run-relay');
+  const payload = {
+    seed_prompt: ($('#relay-seed')?.value || '').trim(),
+    provider_a: $('#relay-provider-a')?.value || 'codex',
+    provider_b: $('#relay-provider-b')?.value || 'claude-code',
+    rounds: Math.max(1, Math.min(12, Number($('#relay-rounds')?.value) || 3)),
+    role_a: ($('#relay-role-a')?.value || '').trim(),
+    role_b: ($('#relay-role-b')?.value || '').trim(),
+    dry_run: $('#relay-dry-run')?.checked || false,
+  };
+  if (!payload.seed_prompt) { toast('error', '接力失败', '请填写初始任务'); return; }
+  if (turnsEl) turnsEl.innerHTML = `<div class="empty-state-lg"><p>接力进行中…</p></div>`;
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch(`${API}/external-agents/relay`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    renderRelay(data.result);
+    toast(data.success ? 'success' : 'error', '接力完成', `${(data.result.turns || []).length} 轮`);
+  } catch (e) {
+    toast('error', '接力失败', e.message);
+    if (turnsEl) turnsEl.innerHTML = `<div class="empty-state-lg"><p>${esc(e.message)}</p></div>`;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function renderRelay(result) {
+  const el = $('#relay-turns');
+  if (!el) return;
+  const turns = (result && result.turns) || [];
+  if (!turns.length) { el.innerHTML = `<div class="empty-state-lg"><p>没有产生任何轮次。</p></div>`; return; }
+  el.innerHTML = turns.map(t => `
+    <article class="external-relay-turn ${t.success ? '' : 'failed'}">
+      <div class="external-relay-turn-head">
+        <span class="external-relay-turn-idx">#${t.index + 1}</span>
+        <span class="external-relay-turn-provider">${esc(t.provider)}</span>
+        <span class="sandbox-result-status ${t.success ? 'success' : 'failed'}">${t.success ? `exit ${t.exit_code}` : 'failed'}</span>
+      </div>
+      ${t.error ? `<div class="sandbox-error">${esc(t.error)}</div>` : ''}
+      <div class="external-relay-turn-body">${esc(t.output || '(无输出)')}</div>
+    </article>`).join('');
+}
+
+$('#btn-refresh-live-sessions')?.addEventListener('click', loadLiveSessions);
+$('#btn-attach-live')?.addEventListener('click', attachLiveSession);
+$('#btn-send-live')?.addEventListener('click', sendLiveMessage);
+$('#btn-detach-live')?.addEventListener('click', detachLiveSession);
+$('#btn-run-relay')?.addEventListener('click', runRelay);
+$('#live-input')?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendLiveMessage(); }
+});
+$('#live-session-list')?.addEventListener('click', (e) => {
+  const b = e.target.closest('.external-live-session');
+  if (!b) return;
+  state.externalAgents.live.activeId = b.dataset.liveId || '';
+  renderLiveSessions();
+  pollLiveSession();
+});
 
 // ============ Capabilities Page ============
 async function loadCapabilities() {

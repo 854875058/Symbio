@@ -805,6 +805,103 @@
             </div>
           </section>
 
+          <section class="sandbox-panel external-live-panel">
+            <div class="sandbox-panel-head">
+              <div>
+                <h3>实时双向会话</h3>
+                <p>接管一个正在进行的 Codex / Claude Code 对话：实时看到新消息（含你在终端里敲的），也能直接发话续写同一会话。</p>
+              </div>
+              <button class="btn-outline" id="btn-refresh-live-sessions" type="button">刷新</button>
+            </div>
+            <div class="sandbox-form-grid">
+              <label class="sandbox-field">
+                <span>Provider</span>
+                <select id="live-provider">
+                  <option value="claude-code">claude-code</option>
+                  <option value="codex">codex</option>
+                </select>
+              </label>
+              <label class="sandbox-field">
+                <span>外部会话 ID</span>
+                <input id="live-session-id" type="text" placeholder="留空则用下方路径">
+              </label>
+              <label class="sandbox-field sandbox-field-wide">
+                <span>Transcript 路径（可选）</span>
+                <input id="live-transcript-path" type="text" placeholder="~/.claude/projects/.../&lt;id&gt;.jsonl">
+              </label>
+            </div>
+            <div class="sandbox-actions">
+              <label class="live-toggle"><input type="checkbox" id="live-from-start" checked> 从头加载历史</label>
+              <button class="btn-primary" id="btn-attach-live" type="button">接管会话</button>
+            </div>
+            <div class="external-live-layout">
+              <div class="external-live-sidebar" id="live-session-list">
+                <div class="empty-state-lg"><p>还没有接管任何会话。</p></div>
+              </div>
+              <div class="external-live-main">
+                <div class="external-live-stream" id="live-stream">
+                  <div class="empty-state-lg"><p>接管会话后，这里实时显示双向消息。</p></div>
+                </div>
+                <div class="external-live-compose">
+                  <textarea id="live-input" placeholder="输入要发给该会话的话，回车发送（Shift+Enter 换行）" spellcheck="false"></textarea>
+                  <div class="external-live-compose-actions">
+                    <span class="external-live-hint" id="live-active-hint">未选择会话</span>
+                    <button class="btn-outline" id="btn-detach-live" type="button">停止接管</button>
+                    <button class="btn-primary" id="btn-send-live" type="button">发送</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="sandbox-panel external-relay-panel">
+            <div class="sandbox-panel-head">
+              <div>
+                <h3>互相调用接力</h3>
+                <p>让两个编码 Agent 轮流对话：A 写、B 审、A 改……Symbio 负责把上一轮输出喂给下一轮。</p>
+              </div>
+            </div>
+            <div class="sandbox-form-grid">
+              <label class="sandbox-field">
+                <span>Agent A</span>
+                <select id="relay-provider-a">
+                  <option value="codex">codex</option>
+                  <option value="claude-code">claude-code</option>
+                </select>
+              </label>
+              <label class="sandbox-field">
+                <span>Agent B</span>
+                <select id="relay-provider-b">
+                  <option value="claude-code">claude-code</option>
+                  <option value="codex">codex</option>
+                </select>
+              </label>
+              <label class="sandbox-field">
+                <span>轮数</span>
+                <input id="relay-rounds" type="number" min="1" max="12" value="3">
+              </label>
+              <label class="sandbox-field">
+                <span>A 的角色</span>
+                <input id="relay-role-a" type="text" placeholder="例如：你负责编写代码">
+              </label>
+              <label class="sandbox-field">
+                <span>B 的角色</span>
+                <input id="relay-role-b" type="text" placeholder="例如：你负责审查并改进">
+              </label>
+              <label class="sandbox-field sandbox-field-wide">
+                <span>初始任务</span>
+                <textarea id="relay-seed" spellcheck="false">实现一个快速排序函数并补充单元测试</textarea>
+              </label>
+            </div>
+            <div class="sandbox-actions">
+              <label class="live-toggle"><input type="checkbox" id="relay-dry-run"> 仅预览命令（dry-run）</label>
+              <button class="btn-primary" id="btn-run-relay" type="button">开始接力</button>
+            </div>
+            <div class="external-relay-turns" id="relay-turns">
+              <div class="empty-state-lg"><p>还没有接力记录。</p></div>
+            </div>
+          </section>
+
           <section class="sandbox-panel">
             <div class="sandbox-panel-head">
               <div>
