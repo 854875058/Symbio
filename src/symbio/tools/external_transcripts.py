@@ -157,6 +157,40 @@ def parse_external_transcript(
     )
 
 
+def parse_transcript_lines(
+    lines: Any,
+    *,
+    provider: str,
+) -> list[ExternalTranscriptMessage]:
+    """Parse an iterable of raw JSONL lines into normalized chat messages.
+
+    Used by the live-session tail to incrementally consume only the new lines
+    appended to a transcript since the last poll. Mirrors the per-line logic of
+    :func:`parse_external_transcript` but without touching the filesystem or
+    tracking session/title metadata, so it is safe to call on partial slices.
+    """
+    normalized_provider = _normalize_provider(provider)
+    if normalized_provider not in SUPPORTED_TRANSCRIPT_PROVIDERS:
+        raise ValueError(f"Unsupported transcript provider: {provider}")
+
+    messages: list[ExternalTranscriptMessage] = []
+    for raw_line in lines:
+        text = raw_line.strip() if isinstance(raw_line, str) else ""
+        if not text:
+            continue
+        try:
+            record = json.loads(text)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(record, dict):
+            continue
+        timestamp = _extract_timestamp(record)
+        message = _extract_message(record, normalized_provider, timestamp)
+        if message is not None:
+            messages.append(message)
+    return messages
+
+
 def _extract_message(
     record: dict[str, Any],
     provider: str,
