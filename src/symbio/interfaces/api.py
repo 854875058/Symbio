@@ -408,6 +408,20 @@ class ExternalLiveSendRequest(BaseModel):
     timeout: int = 300
 
 
+class ExternalRelayApiRequest(BaseModel):
+    seed_prompt: str
+    provider_a: str = "codex"
+    provider_b: str = "claude-code"
+    rounds: int = 2
+    workspace: str = "."
+    model_a: str = ""
+    model_b: str = ""
+    role_a: str = ""
+    role_b: str = ""
+    timeout: int = 300
+    dry_run: bool = False
+
+
 def _json_safe(value: Any) -> Any:
     """Convert internal ontology values to JSON-friendly primitives."""
     if isinstance(value, Enum):
@@ -1104,6 +1118,22 @@ async def external_live_detach(session_id: str):
     if not manager.detach(session_id):
         raise HTTPException(status_code=404, detail="Live session not found")
     return {"success": True}
+
+
+@app.post("/api/external-agents/relay")
+async def external_agent_relay(request: ExternalRelayApiRequest):
+    """Run a turn-by-turn relay between two external coding agents (互相调用)."""
+    from symbio.tools.external_relay import ExternalRelayOrchestrator, RelayConfig
+
+    orchestrator = ExternalRelayOrchestrator(
+        controller=_get_external_agent_controller(),
+        workspace_root=str(_project_root()),
+    )
+    try:
+        result = await orchestrator.run(RelayConfig(**request.model_dump()))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"success": result.success, "result": result.model_dump(mode="json")}
 
 
 async def _maybe_await(value):
