@@ -150,6 +150,22 @@ def _get_external_agent_controller():
     return controller
 
 
+def _get_external_live_manager():
+    manager = getattr(app.state, "external_live_manager", None)
+    if manager is not None:
+        return manager
+
+    from symbio.tools.external_live_session import ExternalLiveSessionManager
+
+    manager = ExternalLiveSessionManager(
+        controller=_get_external_agent_controller(),
+        state_path=Path("data") / "external_live_sessions.json",
+        workspace_root=_project_root(),
+    )
+    app.state.external_live_manager = manager
+    return manager
+
+
 def _get_external_transcript_roots() -> dict[str, Path]:
     configured = getattr(app.state, "external_transcript_roots", None)
     if configured:
@@ -374,6 +390,22 @@ class ExternalTranscriptImportRequest(BaseModel):
     provider: str
     path: str
     title: str = ""
+
+
+class ExternalLiveAttachRequest(BaseModel):
+    provider: str
+    transcript_path: str = ""
+    external_session_id: str = ""
+    workspace: str = "."
+    label: str = ""
+    from_start: bool = True
+
+
+class ExternalLiveSendRequest(BaseModel):
+    prompt: str
+    dry_run: bool = False
+    model: str = ""
+    timeout: int = 300
 
 
 def _json_safe(value: Any) -> Any:
@@ -994,6 +1026,84 @@ async def import_external_agent_transcript(request: ExternalTranscriptImportRequ
         "imported_messages": len(transcript.messages),
         "transcript": transcript.summary().model_dump(mode="json"),
     }
+
+
+@app.get("/api/external-agents/live")
+async def external_live_sessions():
+    """List live two-way-synced external-agent conversations."""
+    manager = _get_external_live_manager()
+    return {
+        "sessions": [session.model_dump(mode="json") for session in manager.list_sessions()],
+    }
+
+
+@app.post("/api/external-agents/live/attach")
+async def external_live_attach(request: ExternalLiveAttachRequest):
+    """Attach to a Codex/Claude Code conversation for live two-way sync."""
+    from symbio.tools.external_agents import ExternalAgentSessionCreate
+
+    provider = ExternalAgentSessionCreate(provider=request.provider).provider
+    manager = _get_external_live_manager()
+    transcript_path = request.transcript_path
+    try:
+        if transcript_path:
+            transcript_path = str(_validate_external_transcript_path(provider, transcript_path))
+        session = manager.attach(
+            provider=provider,
+            transcript_path=transcript_path or None,
+            external_session_id=request.external_session_id,
+            workspace=request.workspace,
+            label=request.label,
+            from_start=request.from_start,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return {"success": True, "session": session.model_dump(mode="json")}
+
+
+@app.post("/api/external-agents/live/{session_id}/poll")
+async def external_live_poll(session_id: str):
+    """Tail new turns appended to the conversation since the last poll (inbound sync)."""
+    manager = _get_external_live_manager()
+    try:
+        messages = manager.poll(session_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Live session not found")
+    session = manager.get_session(session_id)
+    return {
+        "messages": [message.model_dump(mode="json") for message in messages],
+        "byte_offset": session.byte_offset if session else 0,
+    }
+
+
+@app.post("/api/external-agents/live/{session_id}/send")
+async def external_live_send(session_id: str, request: ExternalLiveSendRequest):
+    """Inject a prompt into the conversation via --resume (outbound sync)."""
+    manager = _get_external_live_manager()
+    try:
+        result = await manager.send(
+            session_id,
+            request.prompt,
+            dry_run=request.dry_run,
+            model=request.model,
+            timeout=request.timeout,
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Live session not found")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    return {"success": result.success, "result": result.model_dump(mode="json")}
+
+
+@app.delete("/api/external-agents/live/{session_id}")
+async def external_live_detach(session_id: str):
+    """Stop tracking a live conversation."""
+    manager = _get_external_live_manager()
+    if not manager.detach(session_id):
+        raise HTTPException(status_code=404, detail="Live session not found")
+    return {"success": True}
 
 
 async def _maybe_await(value):
