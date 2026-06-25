@@ -237,3 +237,51 @@ async def test_wechat_dispatch_approves_without_space(monkeypatch):
     assert routed["kind"] == "approval" and routed["action"] == "approve"
     got = await gw.get_request(rid)
     assert got.status == ApprovalStatus.APPROVED
+
+
+# --------------------------------------------------------------------------
+# 单条待审批时裸"同意/拒绝"（不用记码）
+# --------------------------------------------------------------------------
+
+def test_parse_bare_command():
+    from symbio.core.hitl_notifier import parse_im_approval_command as parse
+
+    assert parse("同意").action == "approve"
+    assert parse("同意").request_id == ""
+    r = parse("拒绝 太危险")
+    assert r.action == "reject" and r.request_id == "" and r.comment == "太危险"
+    assert parse("approve").action == "approve" and parse("approve").request_id == ""
+    # 正常中文句子不误判
+    assert parse("同意了这个方案吧") is None
+    assert parse("通过这个路口") is None
+
+
+async def test_bare_approve_single_pending(monkeypatch):
+    _install(monkeypatch, approver="wxid_admin")
+    gw = app.state.hitl_gateway
+    rid = await gw.submit_request(
+        ApprovalRequest(task_id="only-one", risk_level=RiskLevel.MEDIUM, timeout_seconds=9999)
+    )
+    reply, routed = await _wechat_dispatch("wxid_admin", "同意")  # 裸，无短码
+    assert routed.get("ok") is True and routed["action"] == "approve"
+    assert (await gw.get_request(rid)).status == ApprovalStatus.APPROVED
+
+
+async def test_bare_no_pending_gives_friendly_reply(monkeypatch):
+    _install(monkeypatch, approver="wxid_admin")
+    reply, routed = await _wechat_dispatch("wxid_admin", "同意")
+    assert routed.get("ok") is False
+    assert "没有待审批" in reply
+
+
+async def test_bare_multiple_pending_asks_for_code(monkeypatch):
+    _install(monkeypatch, approver="wxid_admin")
+    gw = app.state.hitl_gateway
+    a = await gw.submit_request(ApprovalRequest(task_id="a", risk_level=RiskLevel.MEDIUM, timeout_seconds=9999))
+    b = await gw.submit_request(ApprovalRequest(task_id="b", risk_level=RiskLevel.MEDIUM, timeout_seconds=9999))
+    reply, routed = await _wechat_dispatch("wxid_admin", "同意")
+    assert routed.get("ok") is False
+    assert "待审批" in reply  # 提示有多条、要带短码
+    # 两条都还在 pending
+    assert (await gw.get_request(a)).status == ApprovalStatus.PENDING
+    assert (await gw.get_request(b)).status == ApprovalStatus.PENDING

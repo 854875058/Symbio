@@ -2953,19 +2953,38 @@ class WeChatSendRequest(BaseModel):
 
 
 async def _wechat_route_approval(command, approver_id: str) -> dict:
-    """把微信里的审批命令路由到 HITL 网关，返回可读结果。"""
+    """把微信里的审批命令路由到 HITL 网关，返回可读结果。
+
+    带短码 → 解析该请求；裸"同意/拒绝"（无短码）→ 仅当只有一条待审批时生效，
+    0 条或多条时返回 ok=False + 友好提示（由 _wechat_dispatch 直接回给用户）。
+    """
     gateway = _get_hitl_gateway()
-    request_id = await _resolve_hitl_request_id(command.request_id)
+    if command.request_id:
+        request_id = await _resolve_hitl_request_id(command.request_id)
+    else:
+        pending = await gateway.get_pending()
+        if not pending:
+            return {"kind": "approval", "ok": False, "reply": "当前没有待审批的请求。"}
+        if len(pending) > 1:
+            codes = "、".join(approval_short_code(p.request_id) for p in pending[:5])
+            first = approval_short_code(pending[0].request_id)
+            return {"kind": "approval", "ok": False,
+                    "reply": f"当前有 {len(pending)} 条待审批，请指定短码，例如「同意 {first}」。待审批短码：{codes}"}
+        request_id = pending[0].request_id
+
     try:
         if command.action == "approve":
             result = await gateway.approve(request_id, approver_id=approver_id, comment=command.comment)
             resumed = None
             if result.status == ApprovalStatus.APPROVED:
                 resumed = await _try_resume_hitl_task(request_id)
-            return {"kind": "approval", "action": "approve",
+            return {"kind": "approval", "ok": True, "action": "approve",
+                    "request_id": request_id, "short_code": approval_short_code(request_id),
                     "status": result.status.value, "resumed_result": resumed}
         result = await gateway.reject(request_id, approver_id=approver_id, comment=command.comment)
-        return {"kind": "approval", "action": "reject", "status": result.status.value}
+        return {"kind": "approval", "ok": True, "action": "reject",
+                "request_id": request_id, "short_code": approval_short_code(request_id),
+                "status": result.status.value}
     except KeyError:
         raise HTTPException(status_code=404, detail="审批请求不存在或已处理")
 
@@ -2981,8 +3000,11 @@ async def _wechat_dispatch(from_user: str, content: str, group_id: str = "", is_
     if kind == "approval":
         approver_id = from_user or "wechat-user"
         routed = await _wechat_route_approval(parsed, approver_id)
+        if not routed.get("ok", True):
+            return routed.get("reply", "该审批指令无法处理。"), routed
+        code = routed.get("short_code") or parsed.request_id
         reply = (f"✅ 已{'通过' if routed['action'] == 'approve' else '拒绝'}审批 "
-                 f"{parsed.request_id}（{routed['status']}）")
+                 f"{code}（{routed['status']}）")
         return reply, routed
 
     # 走完整对话管线（防火墙 + 语义缓存 + LLM + 持久化），会话按微信用户隔离

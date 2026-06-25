@@ -666,13 +666,31 @@ def parse_im_approval_command(text: str) -> Optional[IMApprovalCommand]:
         )
 
     match = _COMMAND_RE.match(text or "")
-    if not match:
-        return None
+    if match:
+        raw_action = match.group("action").lower()
+        action = "reject" if raw_action in {"拒绝", "驳回", "reject", "no"} else "approve"
+        return IMApprovalCommand(
+            action=action,
+            request_id=match.group("request_id"),
+            comment=(match.group("comment") or "").strip(),
+        )
 
-    raw_action = match.group("action").lower()
-    action = "reject" if raw_action in {"拒绝", "驳回", "reject", "no"} else "approve"
-    return IMApprovalCommand(
-        action=action,
-        request_id=match.group("request_id"),
-        comment=(match.group("comment") or "").strip(),
+    # 裸"同意/拒绝"（不带短码）：只有一条待审批时直接生效，request_id 留空由上层解析。
+    # 只认明确的动作词，排除 yes/no/ok 等口语，避免"no problem"/"ok 收到"被误判；
+    # 且动作后必须是结尾或空格，"同意了这个方案"这类正常句子不会命中。
+    bare_match = re.match(
+        r"^\s*(?P<action>同意|通过|批准|拒绝|驳回|approve|reject)"
+        r"(?:\s+(?P<comment>.*\S))?\s*$",
+        text or "",
+        re.IGNORECASE,
     )
+    if bare_match:
+        raw_action = bare_match.group("action").lower()
+        action = "reject" if raw_action in {"拒绝", "驳回", "reject"} else "approve"
+        return IMApprovalCommand(
+            action=action,
+            request_id="",
+            comment=(bare_match.group("comment") or "").strip(),
+        )
+
+    return None
