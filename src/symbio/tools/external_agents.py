@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shutil
 import uuid
 from datetime import datetime
@@ -19,6 +20,28 @@ from pydantic import BaseModel, Field, field_validator
 
 
 ExternalAgentProviderId = Literal["codex", "claude-code"]
+
+
+# 宿主（如 Symbio 自身运行在 Claude Code / 某 Agent 运行时下）会向环境注入这些
+# Anthropic 凭据/端点/模型变量。直接传给被 Symbio 拉起的 `claude` 子进程会让它
+# 误用宿主的会话 token（401 Invalid bearer token）或错误端点/模型。剥离它们，
+# 让外部编码 Agent CLI 用自己的登录态运行。
+_HOST_AUTH_CONFLICT_ENV = (
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_MODEL",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+)
+
+
+def _clean_subprocess_env() -> dict[str, str]:
+    """复制当前环境，剥离会破坏被拉起的外部 CLI 的宿主注入凭据/端点/模型变量。"""
+    env = dict(os.environ)
+    for key in _HOST_AUTH_CONFLICT_ENV:
+        env.pop(key, None)
+    return env
 
 
 class ExternalAgentProvider(BaseModel):
@@ -234,6 +257,7 @@ class ExternalAgentController:
                 cwd=str(cwd),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env=_clean_subprocess_env(),
             )
             try:
                 stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
@@ -348,9 +372,12 @@ def build_external_agent_command(
     prompt = request.prompt.strip()
     if not prompt:
         raise ValueError("Prompt is required")
+    # 用 shutil.which 解析出的完整路径（含扩展名）作为可执行文件：Windows 上 npm
+    # 装的 CLI 是 claude.CMD/codex.CMD，裸名 "claude" 经 CreateProcess 找不到。
+    executable = provider.path or provider.executable
     if provider.provider_id == "codex":
         command = [
-            provider.executable,
+            executable,
             "exec",
             "--cd",
             session.workspace,
@@ -368,7 +395,7 @@ def build_external_agent_command(
         return command
 
     if provider.provider_id == "claude-code":
-        command = [provider.executable, "-p", prompt]
+        command = [executable, "-p", prompt]
         model = request.model or session.model
         if model:
             command.extend(["--model", model])

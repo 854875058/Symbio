@@ -13,7 +13,26 @@ from symbio.tools.external_agents import (
     ExternalAgentProvider,
     ExternalAgentRunRequest,
     ExternalAgentSessionCreate,
+    _clean_subprocess_env,
 )
+
+
+def test_clean_subprocess_env_strips_host_auth(monkeypatch):
+    # 模拟宿主（Claude Code 运行时）注入的会破坏子 CLI 的变量
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "host-session-token")
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
+    monkeypatch.setenv("ANTHROPIC_MODEL", "claude-opus-4-6")
+    monkeypatch.setenv("ANTHROPIC_DEFAULT_OPUS_MODEL", "claude-opus-4-6")
+    monkeypatch.setenv("PATH_KEEP_ME", "yes")
+
+    env = _clean_subprocess_env()
+
+    assert "ANTHROPIC_AUTH_TOKEN" not in env
+    assert "ANTHROPIC_BASE_URL" not in env
+    assert "ANTHROPIC_MODEL" not in env
+    assert "ANTHROPIC_DEFAULT_OPUS_MODEL" not in env
+    # 其它环境变量保留，外部 CLI 仍能正常运行
+    assert env.get("PATH_KEEP_ME") == "yes"
 
 
 def test_external_agent_controller_registers_existing_codex_session(tmp_path):
@@ -121,6 +140,33 @@ async def test_external_agent_claude_dry_run_command_uses_registered_session(tmp
     assert "claude-session-1" in result.command
     assert result.session_id == session.session_id
     assert controller.list_audit()[0].provider == "claude-code"
+
+
+@pytest.mark.asyncio
+async def test_command_uses_resolved_full_path_when_available(tmp_path):
+    # 发现到的 CLI 带完整路径（Windows 上是 claude.CMD）→ 命令用完整路径，
+    # 否则 CreateProcess 找不到裸名 "claude"
+    controller = ExternalAgentController(
+        state_path=tmp_path / "external-agents.json",
+        workspace_root=tmp_path,
+        providers=[
+            ExternalAgentProvider(
+                provider_id="claude-code",
+                display_name="Claude Code",
+                executable="claude",
+                path=r"C:\Users\x\AppData\Roaming\npm\claude.CMD",
+                installed=True,
+            )
+        ],
+    )
+    session = controller.create_session(
+        ExternalAgentSessionCreate(provider="claude-code", workspace=str(tmp_path))
+    )
+    result = await controller.run_session(
+        session.session_id, ExternalAgentRunRequest(prompt="hi", dry_run=True)
+    )
+    assert result.command[0] == r"C:\Users\x\AppData\Roaming\npm\claude.CMD"
+    assert result.command[1] == "-p"
 
 
 @pytest.mark.asyncio
