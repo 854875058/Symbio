@@ -5661,7 +5661,7 @@ async function wbCreateNewPane() {
     state.workbench.panes.push({
       id: `pane-${state.workbench.seq}`, provider, mode: 'new',
       sessionId: data.session.session_id, subtitle: workspace,
-      history: [], messages: [], draft: '', busy: false,
+      messages: [], draft: '', busy: false,
     });
     renderWorkbench();
   } catch (e) { toast('error', '新建窗格失败', e.message); }
@@ -5690,14 +5690,6 @@ async function wbAttachPane() {
   } catch (e) { toast('error', '接管会话失败', e.message); }
 }
 
-function wbBuildPrompt(history, latest) {
-  if (!history.length) return latest;
-  const lines = ['以下是你和用户到目前为止的对话：', ''];
-  for (const m of history) lines.push(`${m.role === 'user' ? '用户' : '你'}：${m.content}`);
-  lines.push('', `用户最新一条：${latest}`, '请回应。');
-  return lines.join('\n');
-}
-
 async function wbSend(paneId, text) {
   const p = wbPane(paneId);
   if (!p || p.busy || !text.trim()) return;
@@ -5709,17 +5701,17 @@ async function wbSend(paneId, text) {
   if (input) input.value = '';
   try {
     if (p.mode === 'new') {
-      const prompt = wbBuildPrompt(p.history, text);
-      p.history.push({ role: 'user', content: text });
+      // 直接把指令发给 claude -p：实测它对"对话记录+请回应"式提示常答非所问、
+      // 对直接祈使句执行更好。每条指令请尽量自包含；真正的多轮记忆走"接管会话"
+      // 模式（--resume，原生记忆）。
       const res = await fetch(`${API}/external-agents/sessions/${encodeURIComponent(p.sessionId)}/run`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, approved: true, timeout: 300 }),
+        body: JSON.stringify({ prompt: text, approved: true, timeout: 300 }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
       const r = data.result || {};
       const out = (r.stdout || r.error || '(无输出)').trim();
-      p.history.push({ role: 'assistant', content: out });
       p.messages.push({ role: 'assistant', content: out });
     } else {
       const res = await fetch(`${API}/external-agents/live/${encodeURIComponent(p.liveId)}/send`, {
