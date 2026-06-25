@@ -2808,14 +2808,22 @@ async def _resolve_hitl_request_id(request_ref: str) -> str:
     if await gateway.get_request(request_ref):
         return request_ref
 
-    matches = []
-    for request in [*(await gateway.get_pending()), *(await gateway.get_history())]:
-        if approval_short_code(request.request_id).lower() == request_ref.lower():
-            matches.append(request.request_id)
+    ref = request_ref.lower()
 
-    if len(matches) == 1:
-        return matches[0]
-    if len(matches) > 1:
+    def _match(requests) -> list[str]:
+        return [r.request_id for r in requests if approval_short_code(r.request_id).lower() == ref]
+
+    # 短码优先在待审批里解析：历史里的同码（短码空间小、随时间增多）不应挡住当前请求
+    pending_matches = _match(await gateway.get_pending())
+    if len(pending_matches) == 1:
+        return pending_matches[0]
+    if len(pending_matches) > 1:
+        raise HTTPException(status_code=409, detail="审批短码冲突，请使用完整 request_id")
+
+    all_matches = pending_matches + _match(await gateway.get_history())
+    if len(all_matches) == 1:
+        return all_matches[0]
+    if len(all_matches) > 1:
         raise HTTPException(status_code=409, detail="审批短码冲突，请使用完整 request_id")
     raise HTTPException(status_code=404, detail="审批请求不存在")
 

@@ -277,7 +277,7 @@ class TestHITLShortCodeAPI:
         submitted = submit_resp.json()
         request_id = submitted["request_id"]
         code = submitted["request"]["code"]
-        assert len(code) == 8
+        assert len(code) == 4 and code.isdigit()
 
         callback_resp = await client.post(
             "/api/hitl/im-callback",

@@ -238,9 +238,13 @@ def test_render_message_uses_short_code_for_im_commands():
         risk_level=RiskLevel.MEDIUM,
     )
     notifier = HITLNotifier([])
+    code = approval_short_code(request.request_id)
 
     message = notifier.render_message(request)
 
-    assert "Code: 123E4567" in message
-    assert " 123E4567" in message
-    assert " 123e4567-e89b-12d3-a456-426614174000" not in message
+    # 短码：4 位数字，好记好打
+    assert code.isdigit() and len(code) == 4
+    assert f"Code: {code}" in message
+    assert f" {code}" in message
+    # 用短码，而非完整 request_id
+    assert "123e4567-e89b-12d3-a456-426614174000" not in message

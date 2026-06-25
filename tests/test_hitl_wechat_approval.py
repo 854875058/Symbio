@@ -26,7 +26,7 @@ from symbio.core.hitl_gateway import (
 )
 from symbio.core.hitl_notifier import HITLNotifier, approval_short_code
 from symbio.interfaces import api as api_module
-from symbio.interfaces.api import app, _wechat_dispatch
+from symbio.interfaces.api import app, _wechat_dispatch, _resolve_hitl_request_id
 
 
 class StubBridge:
@@ -166,3 +166,38 @@ async def test_wechat_reply_reject_short_code(monkeypatch):
     assert "拒绝" in reply
     got = await gw.get_request(rid)
     assert got.status == ApprovalStatus.REJECTED
+
+
+# --------------------------------------------------------------------------
+# 短码：要短、好记（4 位数字），且按 pending 优先解析
+# --------------------------------------------------------------------------
+
+def test_short_code_is_short_and_numeric():
+    code = approval_short_code("f483f8b7-53e4-4462-9494-bde0fa989be0")
+    assert len(code) == 4
+    assert code.isdigit()
+    # 同一请求恒定映射到同一短码
+    assert code == approval_short_code("f483f8b7-53e4-4462-9494-bde0fa989be0")
+    # 微信审批命令能解析这个短码
+    from symbio.core.hitl_notifier import parse_im_approval_command
+
+    parsed = parse_im_approval_command(f"同意 {code}")
+    assert parsed is not None and parsed.request_id == code
+
+
+async def test_resolve_prefers_pending_when_short_code_collides(monkeypatch):
+    gw = ApprovalGateway()
+    app.state.hitl_gateway = gw
+    # 强制两个请求短码相同，验证解析优先选 pending（历史里的同码不挡当前待审批）
+    monkeypatch.setattr(api_module, "approval_short_code", lambda rid, length=4: "0001")
+
+    old = await gw.submit_request(
+        ApprovalRequest(task_id="old", risk_level=RiskLevel.MEDIUM, timeout_seconds=9999)
+    )
+    await gw.approve(old, approver_id="someone")  # 进入历史（approved）
+    new = await gw.submit_request(
+        ApprovalRequest(task_id="new", risk_level=RiskLevel.MEDIUM, timeout_seconds=9999)
+    )
+
+    resolved = await _resolve_hitl_request_id("0001")
+    assert resolved == new  # 命中当前 pending，而不是历史里的同码

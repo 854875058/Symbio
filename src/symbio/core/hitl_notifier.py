@@ -70,10 +70,16 @@ class IMApprovalCommand(BaseModel):
     comment: str = ""
 
 
-def approval_short_code(request_id: str, length: int = 8) -> str:
-    """Return a short human-facing approval code."""
-    compact = "".join(ch for ch in request_id if ch.isalnum()).upper()
-    return compact[:length]
+def approval_short_code(request_id: str, length: int = 4) -> str:
+    """Return a short, easy-to-read numeric approval code (default 4 digits).
+
+    Derived deterministically from the request id (same request → same code), and
+    digit-only so it is easy to read, type, and remember in an IM reply
+    ("同意 3927") instead of an 8-char hex string.
+    """
+    digest = hashlib.sha1((request_id or "").encode("utf-8")).hexdigest()
+    modulo = 10 ** max(length, 1)
+    return str(int(digest, 16) % modulo).zfill(length)
 
 
 class HITLNotifier:

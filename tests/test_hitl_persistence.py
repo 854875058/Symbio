@@ -10,7 +10,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from symbio.core.hitl_gateway import ApprovalGateway, ApprovalRequest, RiskLevel
-from symbio.core.hitl_notifier import HITLNotifier, HITLNotificationTarget
+from symbio.core.hitl_notifier import HITLNotifier, HITLNotificationTarget, approval_short_code
 from symbio.core.orchestrator import Orchestrator
 from symbio.interfaces.api import _hitl_request_payload
 from symbio.utils.types import Message, MessageSource, Result
@@ -214,7 +214,7 @@ async def test_hitl_notification_audit_payload_persists_with_request(tmp_path):
     assert notification["platform"] == "wechat"
     assert notification["recipient"] == "ops-mobile"
     assert notification["request_id"] == request_id
-    assert notification["short_code"] == request_id.replace("-", "").upper()[:8]
+    assert notification["short_code"] == approval_short_code(request_id)
     assert notification["approve_command"].startswith("approve ")
     assert notification["reject_command"].startswith("reject ")
     assert notification["api_path"] == "/api/hitl/im-callback"
