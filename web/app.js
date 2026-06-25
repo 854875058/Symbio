@@ -147,6 +147,7 @@ const PAGE_TITLES = {
   capabilities: '能力账本', evolution: '数据飞轮', sandbox: '沙箱执行',
   'external-agents': '外部 Agent', hitl: '审批中心', a2a: 'A2A 协议', mcp: 'MCP 工具网关',
   security: '安全防火墙', 'computer-use': 'Computer Use', wechat: '微信机器人',
+  workbench: 'Agent 工作台',
 };
 
 async function switchPage(name) {
@@ -171,6 +172,7 @@ async function switchPage(name) {
   if (name === 'evolution') await loadEvolution();
   if (name === 'sandbox') await loadSandbox();
   if (name === 'external-agents') await loadExternalAgents();
+  if (name === 'workbench') await loadWorkbench();
   if (name === 'hitl') { await loadHitl(); await loadHitlChannels(); await loadHitlTimeoutPolicy(); }
   if (name === 'mcp') await loadMCP();
   if (name === 'a2a') await loadA2A();
@@ -5564,6 +5566,237 @@ $('#live-session-list')?.addEventListener('click', (e) => {
   renderLiveSessions();
   pollLiveSession();
 });
+
+// ============ Agent 工作台（多开平铺，批次C1） ============
+state.workbench = { panes: [], seq: 0, pollTimer: null, wired: false, transcripts: [] };
+
+async function loadWorkbench() {
+  await wbLoadTranscripts();
+  wbWireOnce();
+  renderWorkbench();
+  wbStartPolling();
+}
+
+async function wbLoadTranscripts() {
+  const sel = $('#wb-transcript');
+  try {
+    const res = await fetch(`${API}/external-agents/transcripts`);
+    const data = await res.json();
+    state.workbench.transcripts = data.transcripts || [];
+  } catch (e) {
+    state.workbench.transcripts = [];
+  }
+  if (sel) {
+    const items = state.workbench.transcripts;
+    sel.innerHTML = items.length
+      ? items.map((t, i) => `<option value="${i}">${esc((t.provider || '') + ' · ' + (t.title || t.external_session_id || t.path))}</option>`).join('')
+      : `<option value="">（未发现可接管的会话）</option>`;
+  }
+}
+
+function wbGridCols(n) {
+  if (n <= 1) return 1;
+  if (n <= 4) return 2;   // 2→分屏，3-4→2×2
+  if (n <= 9) return 3;   // 5-6→2×3 …
+  return 4;
+}
+
+function renderWorkbench() {
+  const grid = $('#wb-grid');
+  const countEl = $('#wb-count');
+  if (!grid) return;
+  const panes = state.workbench.panes;
+  if (countEl) countEl.textContent = `${panes.length} 个窗格`;
+  if (!panes.length) {
+    grid.style.gridTemplateColumns = '';
+    grid.innerHTML = `<div class="empty-state-lg"><p>还没有窗格</p><span class="empty-hint">「+ 新任务窗格」开一个新 agent，或选一个已有会话「接管」。多开后自动平铺。</span></div>`;
+    return;
+  }
+  grid.style.gridTemplateColumns = `repeat(${wbGridCols(panes.length)}, minmax(0, 1fr))`;
+  grid.innerHTML = panes.map(p => `
+    <div class="wb-pane" data-pane="${p.id}">
+      <div class="wb-pane-head">
+        <span class="wb-pane-title">${esc(p.provider)} · ${p.mode === 'new' ? '新任务' : '接管'}</span>
+        <span class="wb-pane-sub">${esc(p.subtitle || '')}</span>
+        <button class="wb-pane-close" data-pane="${p.id}" title="关闭窗格">✕</button>
+      </div>
+      <div class="wb-pane-stream" data-stream="${p.id}">${wbStreamHtml(p)}</div>
+      <div class="wb-pane-compose">
+        <textarea class="wb-pane-input" data-pane="${p.id}" rows="2" placeholder="给这个 agent 下任务，回车发送（Shift+Enter 换行）"${p.busy ? ' disabled' : ''}>${esc(p.draft || '')}</textarea>
+      </div>
+    </div>`).join('');
+}
+
+function wbStreamHtml(p) {
+  if (p.busy && !p.messages.length) return `<div class="wb-pane-empty">运行中…</div>`;
+  if (!p.messages.length) return `<div class="wb-pane-empty">${p.mode === 'attached' ? '等待消息…' : '输入任务开始'}</div>`;
+  const body = p.messages.map(m => `
+    <div class="wb-msg role-${esc(m.role)}">
+      <span class="wb-msg-role">${esc(m.role)}</span>
+      <div class="wb-msg-body">${esc(m.content)}</div>
+    </div>`).join('');
+  return body + (p.busy ? `<div class="wb-pane-empty">运行中…</div>` : '');
+}
+
+function wbUpdateStream(p) {
+  const el = document.querySelector(`.wb-pane-stream[data-stream="${p.id}"]`);
+  if (el) { el.innerHTML = wbStreamHtml(p); el.scrollTop = el.scrollHeight; }
+  const input = document.querySelector(`.wb-pane-input[data-pane="${p.id}"]`);
+  if (input) input.disabled = !!p.busy;
+}
+
+function wbPane(id) { return state.workbench.panes.find(p => p.id === id); }
+
+async function wbCreateNewPane() {
+  const provider = $('#wb-provider')?.value || 'claude-code';
+  const workspace = ($('#wb-workspace')?.value || '.').trim() || '.';
+  try {
+    const res = await fetch(`${API}/external-agents/sessions`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider, workspace, label: `${provider} 工作台` }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    state.workbench.seq += 1;
+    state.workbench.panes.push({
+      id: `pane-${state.workbench.seq}`, provider, mode: 'new',
+      sessionId: data.session.session_id, subtitle: workspace,
+      history: [], messages: [], draft: '', busy: false,
+    });
+    renderWorkbench();
+  } catch (e) { toast('error', '新建窗格失败', e.message); }
+}
+
+async function wbAttachPane() {
+  const idx = $('#wb-transcript')?.value;
+  const t = state.workbench.transcripts[Number(idx)];
+  if (!t) { toast('error', '接管失败', '没有可接管的会话'); return; }
+  try {
+    const res = await fetch(`${API}/external-agents/live/attach`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: t.provider, transcript_path: t.path, from_start: true }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    state.workbench.seq += 1;
+    const pane = {
+      id: `pane-${state.workbench.seq}`, provider: t.provider, mode: 'attached',
+      liveId: data.session.session_id, subtitle: t.external_session_id || '',
+      messages: [], draft: '', busy: false,
+    };
+    state.workbench.panes.push(pane);
+    renderWorkbench();
+    wbPollOne(pane);  // 立刻拉一次历史
+  } catch (e) { toast('error', '接管会话失败', e.message); }
+}
+
+function wbBuildPrompt(history, latest) {
+  if (!history.length) return latest;
+  const lines = ['以下是你和用户到目前为止的对话：', ''];
+  for (const m of history) lines.push(`${m.role === 'user' ? '用户' : '你'}：${m.content}`);
+  lines.push('', `用户最新一条：${latest}`, '请回应。');
+  return lines.join('\n');
+}
+
+async function wbSend(paneId, text) {
+  const p = wbPane(paneId);
+  if (!p || p.busy || !text.trim()) return;
+  p.draft = '';
+  p.messages.push({ role: 'user', content: text });
+  p.busy = true;
+  wbUpdateStream(p);
+  const input = document.querySelector(`.wb-pane-input[data-pane="${paneId}"]`);
+  if (input) input.value = '';
+  try {
+    if (p.mode === 'new') {
+      const prompt = wbBuildPrompt(p.history, text);
+      p.history.push({ role: 'user', content: text });
+      const res = await fetch(`${API}/external-agents/sessions/${encodeURIComponent(p.sessionId)}/run`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, approved: true, timeout: 300 }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+      const r = data.result || {};
+      const out = (r.stdout || r.error || '(无输出)').trim();
+      p.history.push({ role: 'assistant', content: out });
+      p.messages.push({ role: 'assistant', content: out });
+    } else {
+      const res = await fetch(`${API}/external-agents/live/${encodeURIComponent(p.liveId)}/send`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: text }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+      const news = (data.result && data.result.new_messages) || [];
+      if (news.length) p.messages.push(...news);
+    }
+  } catch (e) {
+    p.messages.push({ role: 'assistant', content: `⚠ 出错：${e.message}` });
+  } finally {
+    p.busy = false;
+    wbUpdateStream(p);
+  }
+}
+
+async function wbPollOne(p) {
+  if (!p || p.mode !== 'attached' || p.busy) return;
+  try {
+    const res = await fetch(`${API}/external-agents/live/${encodeURIComponent(p.liveId)}/poll`, { method: 'POST' });
+    const data = await res.json();
+    if (res.ok && (data.messages || []).length) {
+      p.messages.push(...data.messages);
+      wbUpdateStream(p);
+    }
+  } catch (e) { /* 静默 */ }
+}
+
+function wbStartPolling() {
+  wbStopPolling();
+  state.workbench.pollTimer = setInterval(() => {
+    const page = document.getElementById('page-workbench');
+    if (page && !page.classList.contains('active')) return;
+    for (const p of state.workbench.panes) wbPollOne(p);
+  }, 3000);
+}
+function wbStopPolling() {
+  if (state.workbench.pollTimer) { clearInterval(state.workbench.pollTimer); state.workbench.pollTimer = null; }
+}
+
+async function wbClosePane(paneId) {
+  const p = wbPane(paneId);
+  state.workbench.panes = state.workbench.panes.filter(x => x.id !== paneId);
+  renderWorkbench();
+  if (p && p.mode === 'attached' && p.liveId) {
+    try { await fetch(`${API}/external-agents/live/${encodeURIComponent(p.liveId)}`, { method: 'DELETE' }); } catch (e) {}
+  }
+}
+
+function wbWireOnce() {
+  if (state.workbench.wired) return;
+  state.workbench.wired = true;
+  $('#wb-new-task')?.addEventListener('click', wbCreateNewPane);
+  $('#wb-attach')?.addEventListener('click', wbAttachPane);
+  const grid = $('#wb-grid');
+  grid?.addEventListener('keydown', (e) => {
+    const input = e.target.closest('.wb-pane-input');
+    if (!input) return;
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      wbSend(input.dataset.pane, input.value);
+    }
+  });
+  grid?.addEventListener('input', (e) => {
+    const input = e.target.closest('.wb-pane-input');
+    if (!input) return;
+    const p = wbPane(input.dataset.pane);
+    if (p) p.draft = input.value;
+  });
+  grid?.addEventListener('click', (e) => {
+    const close = e.target.closest('.wb-pane-close');
+    if (close) wbClosePane(close.dataset.pane);
+  });
+}
 
 // ============ Capabilities Page ============
 async function loadCapabilities() {

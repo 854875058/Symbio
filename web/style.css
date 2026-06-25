@@ -4951,6 +4951,76 @@ textarea::placeholder { color:var(--text-tertiary); }
 .hitl-channel-badge.disabled { background: var(--bg-hover); color: var(--text-tertiary); }
 .hitl-channel-actions { display: flex; gap: 6px; flex-shrink: 0; }
 
+/* ===== Agent 工作台：多开平铺（批次C1） ===== */
+.wb-count { font-size: 0.78rem; color: var(--text-tertiary); margin-left: 4px; }
+#page-workbench .page-header-bar { flex-wrap: wrap; gap: 8px; }
+
+.workbench-grid {
+  display: grid;
+  gap: 12px;
+  height: calc(100vh - 170px);
+  min-height: 360px;
+  grid-auto-rows: minmax(0, 1fr);
+}
+.workbench-grid > .empty-state-lg { grid-column: 1 / -1; }
+
+.wb-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+  overflow: hidden;
+}
+.wb-pane-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 11px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  flex-shrink: 0;
+}
+.wb-pane-title { font-size: 0.8rem; font-weight: 600; color: var(--text-primary); }
+.wb-pane-sub {
+  font-size: 0.68rem; color: var(--text-tertiary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;
+}
+.wb-pane-close {
+  border: none; background: transparent; color: var(--text-tertiary);
+  cursor: pointer; font-size: 0.9rem; line-height: 1; padding: 2px 5px; border-radius: var(--radius-sm);
+}
+.wb-pane-close:hover { background: var(--red-dim); color: var(--red); }
+
+.wb-pane-stream {
+  flex: 1; min-height: 0; overflow-y: auto;
+  padding: 10px; display: flex; flex-direction: column; gap: 8px;
+}
+.wb-pane-empty { font-size: 0.78rem; color: var(--text-tertiary); margin: auto; }
+.wb-msg { display: flex; flex-direction: column; gap: 2px; }
+.wb-msg-role {
+  font-size: 0.6rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--text-tertiary);
+}
+.wb-msg-body {
+  white-space: pre-wrap; word-break: break-word; font-size: 0.8rem; line-height: 1.5;
+  padding: 7px 10px; border-radius: var(--radius-md);
+  background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border);
+}
+.wb-msg.role-user { align-items: flex-end; }
+.wb-msg.role-user .wb-msg-body { background: var(--accent-dim); border-color: var(--border-accent); }
+
+.wb-pane-compose { padding: 8px; border-top: 1px solid var(--border); flex-shrink: 0; }
+.wb-pane-compose textarea {
+  width: 100%; box-sizing: border-box; resize: none;
+  padding: 7px 9px; border: 1px solid var(--border); border-radius: var(--radius-md);
+  background: var(--bg-primary); color: var(--text-primary); font: inherit; font-size: 0.82rem;
+}
+.wb-pane-compose textarea:focus { outline: none; border-color: var(--border-accent); }
+.wb-pane-compose textarea:disabled { opacity: 0.6; }
+
 /* ===== External Agent: 实时双向会话 + 接力（批次17） ===== */
 .live-toggle {
   display: inline-flex; align-items: center; gap: 6px;

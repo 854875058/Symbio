@@ -67,6 +67,10 @@
             <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 20h8"/><path d="M12 18v2"/><path d="M8 9l3 3-3 3"/><path d="M14 15h3"/></svg>
             <span class="nav-label">Agents</span>
           </button>
+          <button class="nav-tab" data-page="workbench" title="Agent 工作台（多开平铺）">
+            <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+            <span class="nav-label">工作台</span>
+          </button>
           <button class="nav-tab" data-page="a2a" title="A2A 协议">
             <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="12" r="3"/><circle cx="18" cy="12" r="3"/><path d="M9 12h6"/><path d="M6 9V6a2 2 0 012-2h8a2 2 0 012 2v3"/><path d="M6 15v3a2 2 0 002 2h8a2 2 0 002-2v-3"/></svg>
             <span class="nav-label">A2A</span>
@@ -913,6 +917,31 @@
               <div class="empty-state-lg"><p>No external agent audit records.</p></div>
             </div>
           </section>
+        </div>
+      </div>
+
+      <!-- Workbench Page（Agent 多开平铺工作台） -->
+      <div class="page" id="page-workbench">
+        <div class="page-header">
+          <h2>Agent 工作台</h2>
+          <div class="page-header-bar">
+            <select class="select-input" id="wb-provider">
+              <option value="claude-code">claude-code</option>
+              <option value="codex">codex</option>
+            </select>
+            <input class="select-input" id="wb-workspace" type="text" placeholder="工作区（默认 .）" style="width:160px">
+            <button class="btn-primary" id="wb-new-task" type="button">+ 新任务窗格</button>
+            <select class="select-input" id="wb-transcript" title="选择一个已有会话来接管"></select>
+            <button class="btn-outline" id="wb-attach" type="button">+ 接管该会话</button>
+            <span class="wb-count" id="wb-count">0 个窗格</span>
+          </div>
+        </div>
+        <div class="workbench-grid" id="wb-grid">
+          <div class="empty-state-lg">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+            <p>还没有窗格</p>
+            <span class="empty-hint">「+ 新任务窗格」开一个新 agent，或选一个已有会话「接管」。多开后自动平铺。</span>
+          </div>
         </div>
       </div>
 
