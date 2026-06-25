@@ -4541,6 +4541,39 @@ textarea::placeholder { color:var(--text-tertiary); }
   background: var(--red-dim);
   transform: translateY(-1px);
 }
+.hitl-card-actions .btn-repush {
+  flex: 1;
+  padding: 8px 16px;
+  border: 1px solid var(--border-hover);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: all 200ms;
+}
+.hitl-card-actions .btn-repush:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-accent);
+  color: var(--text-primary);
+  transform: translateY(-1px);
+}
+
+/* 审批卡推送投递状态徽章 */
+.hitl-notify-badge {
+  font-size: 0.66rem;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: var(--radius-full);
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.hitl-notify-badge.notify-sent { background: var(--green-dim); color: var(--green); }
+.hitl-notify-badge.notify-prepared { background: var(--amber-dim); color: var(--amber); }
+.hitl-notify-badge.notify-failed { background: var(--red-dim); color: var(--red); }
+.hitl-notify-badge.notify-none { background: var(--bg-hover); color: var(--text-tertiary); }
 
 /* ============ Toast Icons ============ */
 .toast-icon {

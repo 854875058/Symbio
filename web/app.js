@@ -5704,6 +5704,7 @@ function renderHitl() {
       <div class="hitl-card-meta">
         <span>${esc(item.agent || item.source || 'system')}</span>
         <span>${formatTime(item.created_at || item.timestamp)}</span>
+        ${hitlNotifyBadge(item.notification_status)}
       </div>
       <div class="hitl-evidence-stack">
         ${renderPlannerReviewerControls(item)}
@@ -5715,6 +5716,7 @@ function renderHitl() {
         <div class="hitl-card-actions">
           <button class="btn-approve" data-id="${item.id}">通过</button>
           <button class="btn-reject" data-id="${item.id}">拒绝</button>
+          <button class="btn-repush" data-id="${item.id}" title="把审批卡重新推送到已登录微信">重推微信</button>
         </div>
       ` : ''}
     </div>
@@ -5734,11 +5736,46 @@ function renderHitl() {
       rejectHitl(btn.dataset.id);
     });
   });
+  dom.hitlGrid.querySelectorAll('.btn-repush').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      repushHitl(btn.dataset.id);
+    });
+  });
 }
 
 function hitlStatusLabel(status) {
   const map = { pending: '待审批', approved: '已通过', rejected: '已拒绝' };
   return map[status] || status;
+}
+
+function hitlNotifyBadge(status) {
+  const map = {
+    sent: ['已推送微信', 'notify-sent'],
+    prepared: ['待推送', 'notify-prepared'],
+    failed: ['推送失败', 'notify-failed'],
+    not_configured: ['未配置推送', 'notify-none'],
+  };
+  const [label, cls] = map[status] || [null, null];
+  if (!label) return '';
+  return `<span class="hitl-notify-badge ${cls}">${label}</span>`;
+}
+
+async function repushHitl(id) {
+  try {
+    const res = await fetch(`${API}/hitl/${id}/repush-wechat`, { method: 'POST' });
+    const data = await res.json();
+    if (res.ok) {
+      const ok = data.success;
+      toast(ok ? 'success' : 'info', ok ? '已重推到微信' : '已尝试重推',
+        (data.note && data.note.delivery_status) || '');
+      loadHitl();
+    } else {
+      toast('error', '重推失败', data.detail || '未知错误');
+    }
+  } catch (e) {
+    toast('error', '重推失败', e.message);
+  }
 }
 
 async function approveHitl(id) {
