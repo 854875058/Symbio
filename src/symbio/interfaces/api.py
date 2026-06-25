@@ -2905,6 +2905,26 @@ async def reject_request(request_id: str, approver_id: str = "web-user", comment
     return {"request": _hitl_request_payload(result)}
 
 
+@app.post("/api/hitl/{request_id}/repush-wechat")
+async def repush_hitl_wechat(request_id: str):
+    """把某条审批的审批卡重新推送到已登录微信（投递失败/未送达时手动重推）。"""
+    gateway = _get_hitl_gateway()
+    rid = await _resolve_hitl_request_id(request_id)
+    request = await gateway.get_request(rid)
+    if request is None:
+        raise HTTPException(status_code=404, detail="审批请求不存在")
+    note = await _push_hitl_to_wechat(request)
+    if note is None:
+        raise HTTPException(status_code=400, detail="未配置微信审批人（wechat.hitl_approver），无法推送")
+    notifications = request.metadata.get("notifications", [])
+    notifications.append(note)
+    request.metadata["notifications"] = notifications
+    request.metadata["notification_status"] = note.get("delivery_status", "prepared")
+    await gateway.update_request(request)
+    return {"success": note.get("delivery_status") == "sent", "note": note,
+            "request": _hitl_request_payload(request)}
+
+
 @app.post("/api/hitl/im-callback")
 async def hitl_im_callback(callback: IMApprovalCallback):
     """Handle approval commands forwarded by QQ/WeChat/IM bots."""

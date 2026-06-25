@@ -69,6 +69,8 @@ class WeChatBridge:
         # 实时消息流环形缓冲（收/发），供 UI 展示是否真正收发通了
         self._messages: list[dict[str, Any]] = []
         self._messages_max = 60
+        # iLink 出站发送的重试次数（网络异常时退避重试）
+        self._send_retries = 3
 
     def set_message_handler(self, handler: Callable[[str, str, bool], Awaitable[str]]) -> None:
         """注入入站消息处理回调（内置 iLink 模式收到消息后调用）。"""
@@ -330,16 +332,22 @@ class WeChatBridge:
         """
         payload = {"to_user": to_user, "content": content, "is_group": is_group}
 
-        # 1) 内置 iLink 模式（已扫码登录）
+        # 1) 内置 iLink 模式（已扫码登录）；网络异常自动重试（默认 3 次、退避）
         if self.is_logged_in and self._client is not None and getattr(self._client, "token", ""):
-            try:
-                resp = await self._client.send_message(to_user, content, context_token=context_token)
-                ok = not (resp.get("ret") or resp.get("errcode"))
-                return {"delivery_status": "sent" if ok else "error", "via": "ilink",
-                        "payload": payload, "response": resp}
-            except Exception as e:
-                logger.warning(f"iLink 发送失败: {e}")
-                return {"delivery_status": "error", "via": "ilink", "payload": payload, "error": str(e)}
+            last_err = ""
+            for attempt in range(self._send_retries):
+                try:
+                    resp = await self._client.send_message(to_user, content, context_token=context_token)
+                    ok = not (resp.get("ret") or resp.get("errcode"))
+                    return {"delivery_status": "sent" if ok else "error", "via": "ilink",
+                            "payload": payload, "response": resp, "attempts": attempt + 1}
+                except Exception as e:
+                    last_err = str(e)
+                    logger.warning(f"iLink 发送失败(第{attempt + 1}/{self._send_retries}次): {e}")
+                    if attempt + 1 < self._send_retries:
+                        await asyncio.sleep(0.5 * (attempt + 1))
+            return {"delivery_status": "error", "via": "ilink", "payload": payload,
+                    "error": last_err, "attempts": self._send_retries}
 
         # 2) 外部 bridge 模式
         cfg = getattr(get_settings(), "wechat", None)

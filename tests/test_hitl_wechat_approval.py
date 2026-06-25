@@ -285,3 +285,38 @@ async def test_bare_multiple_pending_asks_for_code(monkeypatch):
     # 两条都还在 pending
     assert (await gw.get_request(a)).status == ApprovalStatus.PENDING
     assert (await gw.get_request(b)).status == ApprovalStatus.PENDING
+
+
+# --------------------------------------------------------------------------
+# 失败重推：/api/hitl/{id}/repush-wechat
+# --------------------------------------------------------------------------
+
+async def test_repush_wechat_endpoint(monkeypatch):
+    bridge = _install(monkeypatch, approver="wxid_admin")
+    gw = app.state.hitl_gateway
+    rid = await gw.submit_request(
+        ApprovalRequest(task_id="repush", risk_level=RiskLevel.MEDIUM, timeout_seconds=9999)
+    )
+    code = approval_short_code(rid)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(f"/api/hitl/{code}/repush-wechat")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["success"] is True
+    assert body["note"]["delivery_status"] == "sent"
+    assert len(bridge.sent) == 1 and bridge.sent[0]["to"] == "wxid_admin"
+
+
+async def test_repush_wechat_without_approver_400(monkeypatch):
+    _install(monkeypatch, approver="")  # 未配置审批人
+    gw = app.state.hitl_gateway
+    rid = await gw.submit_request(
+        ApprovalRequest(task_id="repush2", risk_level=RiskLevel.MEDIUM, timeout_seconds=9999)
+    )
+    code = approval_short_code(rid)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(f"/api/hitl/{code}/repush-wechat")
+    assert resp.status_code == 400

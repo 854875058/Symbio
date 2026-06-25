@@ -502,3 +502,51 @@ async def test_logout_clears_session_file(tmp_path):
     await bridge.logout()
     assert not path.exists()
     assert bridge.login_state()["status"] == "logged_out"
+
+
+# ---------------------------------------------------------------------------
+# 批次A3a：iLink 出站发送网络异常自动重试
+# ---------------------------------------------------------------------------
+
+class _FlakyClient:
+    def __init__(self, fail_times: int):
+        self.token = "t"
+        self.account_id = "a"
+        self.base_url = "u"
+        self.calls = 0
+        self.fail_times = fail_times
+
+    async def send_message(self, to_user, text, context_token=""):
+        self.calls += 1
+        if self.calls <= self.fail_times:
+            raise RuntimeError("transient net error")
+        return {}  # 无 ret/errcode → 成功
+
+
+async def _no_sleep(*args, **kwargs):
+    return None
+
+
+async def test_send_retries_then_succeeds(monkeypatch, tmp_path):
+    import symbio.interfaces.wechat_bridge as wb
+    monkeypatch.setattr(wb.asyncio, "sleep", _no_sleep)  # 跳过退避
+    bridge = WeChatBridge(session_path=tmp_path / "wx.json")
+    bridge._login["status"] = "logged_in"
+    bridge._client = _FlakyClient(fail_times=2)
+
+    res = await bridge.send("u", "hi")
+    assert res["delivery_status"] == "sent"
+    assert res["attempts"] == 3  # 前两次失败、第三次成功
+
+
+async def test_send_all_retries_fail_returns_error(monkeypatch, tmp_path):
+    import symbio.interfaces.wechat_bridge as wb
+    monkeypatch.setattr(wb.asyncio, "sleep", _no_sleep)
+    bridge = WeChatBridge(session_path=tmp_path / "wx.json")
+    bridge._login["status"] = "logged_in"
+    bridge._client = _FlakyClient(fail_times=99)
+
+    res = await bridge.send("u", "hi")
+    assert res["delivery_status"] == "error"
+    assert res["attempts"] == 3
+    assert "transient" in res["error"]
