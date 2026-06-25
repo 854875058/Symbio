@@ -160,6 +160,7 @@ class WeChatConfig(BaseSettings):
     timeout: float = Field(default=10.0, description="Outbound HTTP timeout (seconds)")
     reply_in_response: bool = Field(default=True, description="Also return the reply text in the inbound HTTP response")
     ilink_base_url: str = Field(default="https://ilinkai.weixin.qq.com", description="iLink Bot API base URL (built-in clawbot QR-login mode)")
+    hitl_approver: str = Field(default="", description="WeChat recipient (wxid/contact/group id) that HITL approval cards are pushed to via the logged-in bridge")
 
     model_config = {"env_prefix": "SYMBIO_WECHAT_"}
 

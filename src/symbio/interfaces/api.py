@@ -2721,12 +2721,66 @@ def _hitl_request_payload(request: ApprovalRequest) -> dict:
     return payload
 
 
+async def _push_hitl_to_wechat(request: ApprovalRequest) -> Optional[dict]:
+    """把审批卡推送到已登录个人微信（iLink bridge）的配置审批人。
+
+    出向闭环：webhook 通知之外，直接把审批卡（含短码）发到用户的个人微信，
+    用户回复"同意 <短码>"即可审批。best-effort——任何异常都不影响 submit。
+    """
+    from symbio.config.settings import get_settings
+
+    wcfg = getattr(get_settings(), "wechat", None)
+    approver = (getattr(wcfg, "hitl_approver", "") or "").strip() if wcfg else ""
+    if not approver:
+        return None
+
+    code = approval_short_code(request.request_id)
+    bridge = get_wechat_bridge()
+    has_endpoint = bool(getattr(wcfg, "send_endpoint", "")) if wcfg else False
+    note = {
+        "platform": "wechat-ilink",
+        "recipient": approver,
+        "short_code": code,
+        "approve_command": f"同意 {code}",
+        "reject_command": f"拒绝 {code} 原因",
+    }
+    if not bridge.is_logged_in and not has_endpoint:
+        note["delivery_status"] = "prepared"
+        note["reason"] = "微信未登录且未配置 send_endpoint，无法推送审批卡"
+        return note
+
+    message = _get_hitl_notifier().render_message(request)
+    try:
+        delivery = await bridge.send(approver, message)
+    except Exception as exc:  # pragma: no cover - 网络异常
+        logger.warning(f"推送 HITL 审批卡到微信失败: {exc}")
+        note["delivery_status"] = "failed"
+        note["error"] = str(exc)
+        return note
+    note["delivery_status"] = delivery.get("delivery_status", "sent")
+    note["via"] = delivery.get("via", "")
+    note["message"] = message
+    return note
+
+
 async def _notify_hitl_request(request: ApprovalRequest) -> list[dict]:
     if request.status != ApprovalStatus.PENDING:
         return []
     results = await _get_hitl_notifier().notify(request)
     result_payloads = [result.model_dump(mode="json") for result in results]
     notifications = [item["payload"] for item in result_payloads if item.get("payload")]
+
+    # 同时推送到已登录的个人微信（iLink bridge）
+    wechat_note = await _push_hitl_to_wechat(request)
+    if wechat_note:
+        notifications.append(wechat_note)
+        result_payloads.append({
+            "platform": wechat_note.get("platform", "wechat-ilink"),
+            "success": wechat_note.get("delivery_status") == "sent",
+            "delivery_status": wechat_note.get("delivery_status", "prepared"),
+            "payload": wechat_note,
+        })
+
     request.metadata["notifications"] = notifications
     if notifications:
         request.metadata["notification_status"] = notifications[-1].get("delivery_status", "prepared")
