@@ -201,3 +201,39 @@ async def test_resolve_prefers_pending_when_short_code_collides(monkeypatch):
 
     resolved = await _resolve_hitl_request_id("0001")
     assert resolved == new  # 命中当前 pending，而不是历史里的同码
+
+
+# --------------------------------------------------------------------------
+# 审批命令：中文不带空格也要识别（"同意5754"）
+# --------------------------------------------------------------------------
+
+def test_parse_chinese_command_without_space():
+    from symbio.core.hitl_notifier import parse_im_approval_command as parse
+
+    c = parse("同意5754")
+    assert c is not None and c.action == "approve" and c.request_id == "5754"
+    r = parse("拒绝5754")
+    assert r is not None and r.action == "reject" and r.request_id == "5754"
+    # 带空格仍可
+    assert parse("同意 5754").action == "approve"
+    # 中文无空格动作 + 空格原因
+    c2 = parse("同意5754 已确认")
+    assert c2.request_id == "5754" and c2.comment == "已确认"
+    # 英文不带空格不应误判为审批
+    assert parse("ok1234") is None
+    # 普通中文聊天不应误判
+    assert parse("同意了这个方案吧") is None
+
+
+async def test_wechat_dispatch_approves_without_space(monkeypatch):
+    _install(monkeypatch, approver="wxid_admin")
+    gw = app.state.hitl_gateway
+    rid = await gw.submit_request(
+        ApprovalRequest(task_id="nospace", risk_level=RiskLevel.MEDIUM, timeout_seconds=9999)
+    )
+    code = approval_short_code(rid)
+
+    reply, routed = await _wechat_dispatch("wxid_admin", f"同意{code}")  # 无空格
+    assert routed["kind"] == "approval" and routed["action"] == "approve"
+    got = await gw.get_request(rid)
+    assert got.status == ApprovalStatus.APPROVED

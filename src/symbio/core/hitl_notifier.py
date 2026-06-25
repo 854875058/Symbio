@@ -644,16 +644,20 @@ _COMMAND_RE = re.compile(
 
 
 def parse_im_approval_command(text: str) -> Optional[IMApprovalCommand]:
+    # \u4e2d\u6587\u52a8\u4f5c\u5141\u8bb8\u4e0d\u5e26\u7a7a\u683c\uff08"\u540c\u610f5754"\uff0c\u4e2d\u6587\u8f93\u5165\u4e60\u60ef\u4e0d\u6253\u7a7a\u683c\uff09\uff1b\u82f1\u6587\u52a8\u4f5c\u4ecd\u8981\u6c42
+    # \u7a7a\u683c\uff08"approve 5754"\uff09\uff0c\u907f\u514d\u628a "ok1234"/"no1234" \u8fd9\u7c7b\u804a\u5929\u8bef\u5224\u6210\u5ba1\u6279\u547d\u4ee4\u3002
     short_match = re.match(
-        r"^\s*(?P<action>\u540c\u610f|\u901a\u8fc7|\u6279\u51c6|approve|yes|ok|"
-        r"\u62d2\u7edd|\u9a73\u56de|reject|no)\s+"
+        r"^\s*(?:"
+        r"(?P<cjk>\u540c\u610f|\u901a\u8fc7|\u6279\u51c6|\u62d2\u7edd|\u9a73\u56de)\s*"
+        r"|(?P<en>approve|yes|ok|reject|no)\s+"
+        r")"
         r"(?P<request_id>[0-9a-zA-Z-]{4,36})"
         r"(?:\s+(?P<comment>.*))?\s*$",
         text or "",
         re.IGNORECASE,
     )
     if short_match:
-        raw_action = short_match.group("action").lower()
+        raw_action = (short_match.group("cjk") or short_match.group("en") or "").lower()
         action = "reject" if raw_action in {"\u62d2\u7edd", "\u9a73\u56de", "reject", "no"} else "approve"
         return IMApprovalCommand(
             action=action,
