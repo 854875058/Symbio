@@ -247,6 +247,11 @@ Symbio 仍处于 Alpha 阶段。核心调度、HITL（多渠道审批 + 超时�
 
 MIT License. See [LICENSE](LICENSE).
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=854875058/Symbio&type=Date)](https://star-history.com/#854875058/Symbio&Date)
+
+
 <div align="center">
 
 **Symbio: AI Infra for controllable, observable, evolvable agents.**
