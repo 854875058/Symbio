@@ -242,6 +242,14 @@ async def startup():
         app.state.execution_store = ExecutionStateStore(EXECUTION_DB_PATH)
         logger.warning(f"HITL Orchestrator 初始化失败（审批 API 仍可用）: {e}")
     logger.info("HITL ApprovalGateway 已初始化")
+    # 尝试恢复微信登录态（重启免重扫码）；token 过期则 recv loop 自动回落
+    try:
+        bridge = get_wechat_bridge()
+        bridge.set_message_handler(_wechat_dispatch_reply)
+        if await bridge.try_restore_session():
+            logger.info("微信登录态已从本地恢复")
+    except Exception as e:
+        logger.warning(f"微信登录态恢复跳过: {e}")
     logger.info("Symbio API 已启动，数据库已连接")
 
 

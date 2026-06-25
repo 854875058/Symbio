@@ -431,3 +431,74 @@ def test_extract_text_prefers_text_then_voice():
     assert extract_text([{"type": 1, "text_item": {"text": "hi"}}]) == "hi"
     assert extract_text([{"type": 3, "voice_item": {"text": "语音转写"}}]) == "语音转写"
     assert extract_text([]) == ""
+
+
+# ---------------------------------------------------------------------------
+# 批次A1：登录态持久化（重启免重扫码）
+# ---------------------------------------------------------------------------
+
+def test_save_session_writes_token(tmp_path):
+    import json
+    from types import SimpleNamespace
+    path = tmp_path / "wx.json"
+    bridge = WeChatBridge(session_path=path)
+    bridge._client = SimpleNamespace(token="tok-1", account_id="acc@im.bot", base_url="https://x")
+    bridge._login["user"] = "acc@im.bot"
+    bridge._sync_buf = "buf-9"
+    bridge._save_session()
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["token"] == "tok-1"
+    assert data["account_id"] == "acc@im.bot"
+    assert data["sync_buf"] == "buf-9"
+
+
+def test_save_session_skips_without_token(tmp_path):
+    path = tmp_path / "wx.json"
+    WeChatBridge(session_path=path)._save_session()  # 无 client/token
+    assert not path.exists()
+
+
+async def test_restore_session_recovers_login(tmp_path, monkeypatch):
+    import json
+    path = tmp_path / "wx.json"
+    path.write_text(json.dumps({
+        "token": "tok-2", "account_id": "acc2@im.bot",
+        "base_url": "https://ilinkai.weixin.qq.com", "user": "acc2@im.bot", "sync_buf": "buf-3",
+    }), encoding="utf-8")
+    bridge = WeChatBridge(session_path=path)
+    monkeypatch.setattr(bridge, "_start_recv_loop", lambda: None)  # 不起网络收消息循环
+
+    ok = await bridge.try_restore_session()
+    assert ok is True
+    assert bridge.is_logged_in
+    assert bridge._client.token == "tok-2"
+    assert bridge._sync_buf == "buf-3"
+    assert bridge.login_state()["user"] == "acc2@im.bot"
+
+
+async def test_restore_session_no_file(tmp_path):
+    bridge = WeChatBridge(session_path=tmp_path / "nope.json")
+    assert await bridge.try_restore_session() is False
+    assert not bridge.is_logged_in
+
+
+async def test_restore_session_ignores_empty_token(tmp_path):
+    import json
+    path = tmp_path / "wx.json"
+    path.write_text(json.dumps({"token": "", "account_id": "x"}), encoding="utf-8")
+    bridge = WeChatBridge(session_path=path)
+    assert await bridge.try_restore_session() is False
+
+
+async def test_logout_clears_session_file(tmp_path):
+    from types import SimpleNamespace
+    path = tmp_path / "wx.json"
+    bridge = WeChatBridge(session_path=path)
+    bridge._client = SimpleNamespace(token="tok", account_id="a", base_url="u")
+    bridge._login["status"] = "logged_in"
+    bridge._save_session()
+    assert path.exists()
+
+    await bridge.logout()
+    assert not path.exists()
+    assert bridge.login_state()["status"] == "logged_out"

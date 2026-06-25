@@ -14,6 +14,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
 
 from pydantic import BaseModel, Field
@@ -47,7 +49,8 @@ class WeChatBridge:
     Web UI 显示，用户扫码后 bridge 再 push logged_in。
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, session_path: str | Path = Path("data") / "wechat_session.json") -> None:
+        self._session_path = Path(session_path)
         self._login: dict[str, Any] = {
             "status": "logged_out",
             "qr": "",          # 登录二维码内容（URL/字符串，前端可渲染成二维码）
@@ -169,6 +172,7 @@ class WeChatBridge:
                 if st.get("base_url"):
                     client.base_url = st["base_url"].rstrip("/")
                 self.update_login("logged_in", user=st.get("account_id") or "微信账号")
+                self._save_session()
                 self._start_recv_loop()
                 return
             elif status == "expired":
@@ -208,8 +212,9 @@ class WeChatBridge:
                 continue
             # 更新增量游标（响应里回传同名字段 get_updates_buf）
             new_buf = str(data.get("get_updates_buf") or "")
-            if new_buf:
+            if new_buf and new_buf != self._sync_buf:
                 self._sync_buf = new_buf
+                self._save_session()  # 持久化游标，避免重启后重复处理旧消息
             for msg in data.get("msgs") or []:
                 sender = str(msg.get("from_user_id") or "").strip()
                 if not sender or sender == client.account_id:
@@ -245,7 +250,62 @@ class WeChatBridge:
         self._client = None
         self._qrcode_id = ""
         self._sync_buf = ""
+        self._clear_session()
         return self.update_login("logged_out")
+
+    # -- 登录态持久化（重启免重扫码）-------------------------------------
+
+    def _save_session(self) -> None:
+        """把当前 iLink 登录凭据落盘，供进程重启后恢复。"""
+        if self._client is None or not getattr(self._client, "token", ""):
+            return
+        try:
+            self._session_path.parent.mkdir(parents=True, exist_ok=True)
+            self._session_path.write_text(json.dumps({
+                "token": self._client.token,
+                "account_id": getattr(self._client, "account_id", ""),
+                "base_url": getattr(self._client, "base_url", ""),
+                "user": self._login.get("user", ""),
+                "sync_buf": self._sync_buf,
+            }, ensure_ascii=False), encoding="utf-8")
+        except Exception as e:  # pragma: no cover - 磁盘异常
+            logger.warning(f"保存微信会话失败: {e}")
+
+    def _clear_session(self) -> None:
+        try:
+            self._session_path.unlink(missing_ok=True)
+        except Exception:  # pragma: no cover
+            pass
+
+    async def try_restore_session(self) -> bool:
+        """进程启动时尝试用落盘 token 恢复登录，免重扫码。
+
+        token 若已过期，recv loop 首次 getupdates 会收到 -14 并自动回落到 failed，
+        用户再扫码即可。因此恢复是 best-effort，不保证 token 仍有效。
+        """
+        if self.is_logged_in or not self._session_path.exists():
+            return False
+        try:
+            data = json.loads(self._session_path.read_text(encoding="utf-8"))
+        except Exception:
+            return False
+        token = str(data.get("token") or "")
+        if not token:
+            return False
+        from symbio.interfaces.ilink_client import ILinkClient
+
+        cfg = getattr(get_settings(), "wechat", None)
+        base_url = str(data.get("base_url") or "") or (
+            getattr(cfg, "ilink_base_url", "") or "https://ilinkai.weixin.qq.com"
+        )
+        self._client = ILinkClient(base_url=base_url)
+        self._client.token = token
+        self._client.account_id = str(data.get("account_id") or "")
+        self._sync_buf = str(data.get("sync_buf") or "")
+        self.update_login("logged_in", user=str(data.get("user") or data.get("account_id") or "微信账号"))
+        self._start_recv_loop()
+        logger.info("微信登录态已从本地恢复，免重扫码")
+        return True
 
     def classify(self, content: str) -> tuple[str, Any]:
         """把入站文本分类为 'approval' 或 'chat'。
