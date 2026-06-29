@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import re
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
 from typing import Any, Optional
 from uuid import uuid4
 
@@ -183,13 +185,57 @@ class PIIDetector:
 class SanitizeExecutor:
     """脱敏执行器 - 按规则对 PII 进行脱敏处理"""
 
-    def __init__(self, rules: list[SanitizeRule] | None = None):
+    def __init__(
+        self,
+        rules: list[SanitizeRule] | None = None,
+        encrypt_key: str | bytes | None = None,
+        key_path: str | Path | None = None,
+    ):
         self._rules: dict[PIIType, SanitizeRule] = {}
+        self._encrypt_key = encrypt_key
+        self._key_path = key_path
+        self._cipher = None  # 懒加载 Fernet
         if rules:
             for rule in rules:
                 self._rules[rule.pii_type] = rule
         else:
             self._init_default_rules()
+
+    # -- 真加密（ENCRYPT 策略，可逆）---------------------------------------
+
+    def _resolve_encrypt_key(self) -> bytes:
+        """解析 Fernet 密钥：显式传入 > 环境变量 > 落盘文件（不存在则生成并持久化）。"""
+        if self._encrypt_key:
+            key = self._encrypt_key
+            return key.encode() if isinstance(key, str) else key
+        env_key = os.environ.get("SYMBIO_SANITIZE_KEY")
+        if env_key:
+            return env_key.encode()
+        path = Path(self._key_path) if self._key_path else Path("data") / "sanitizer.key"
+        if path.exists():
+            return path.read_bytes().strip()
+        from cryptography.fernet import Fernet
+
+        key = Fernet.generate_key()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(key)
+        return key
+
+    def _get_cipher(self):
+        if self._cipher is None:
+            from cryptography.fernet import Fernet
+
+            self._cipher = Fernet(self._resolve_encrypt_key())
+        return self._cipher
+
+    def decrypt(self, token: str) -> str:
+        """还原 ENCRYPT 策略加密的值；非密文/解密失败时原样返回。"""
+        if not isinstance(token, str) or not token.startswith("ENC:"):
+            return token
+        try:
+            return self._get_cipher().decrypt(token[4:].encode("ascii")).decode("utf-8")
+        except Exception:
+            return token
 
     def _init_default_rules(self) -> None:
         """初始化默认脱敏规则"""
@@ -274,7 +320,7 @@ class SanitizeExecutor:
         elif rule.strategy == SanitizeStrategy.TOKENIZE:
             return self._tokenize(value)
         elif rule.strategy == SanitizeStrategy.ENCRYPT:
-            return self._encrypt_placeholder(value)
+            return self._encrypt(value)
         else:
             return rule.replacement
 
@@ -303,9 +349,14 @@ class SanitizeExecutor:
         """令牌化"""
         return f"TOK_{uuid4().hex[:8]}"
 
-    def _encrypt_placeholder(self, value: str) -> str:
-        """加密占位符 (实际加密需配合密钥管理)"""
-        return f"ENC_{uuid4().hex[:12]}"
+    def _encrypt(self, value: str) -> str:
+        """真加密（Fernet 对称加密，可经 decrypt 还原）；crypto 不可用时回退占位。"""
+        try:
+            token = self._get_cipher().encrypt((value or "").encode("utf-8")).decode("ascii")
+            return f"ENC:{token}"
+        except Exception as exc:  # pragma: no cover - 仅在 cryptography 缺失时
+            logger.warning(f"加密失败，回退占位: {exc}")
+            return f"ENC_{uuid4().hex[:12]}"
 
     def add_rule(self, rule: SanitizeRule) -> None:
         """添加脱敏规则"""
