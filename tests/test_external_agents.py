@@ -12,9 +12,62 @@ from symbio.tools.external_agents import (
     ExternalAgentController,
     ExternalAgentProvider,
     ExternalAgentRunRequest,
+    ExternalAgentRunResult,
     ExternalAgentSessionCreate,
     _clean_subprocess_env,
+    _extract_claude_json,
 )
+
+
+def test_extract_claude_json_parses_result_and_session_id():
+    stdout = 'Active code page: 65001\n{"type":"result","result":"HI","session_id":"abc-123"}'
+    text, sid = _extract_claude_json(stdout)
+    assert text == "HI"
+    assert sid == "abc-123"
+    # 非 JSON 原样返回、session 为空
+    assert _extract_claude_json("just text no json") == ("just text no json", "")
+    assert _extract_claude_json("") == ("", "")
+
+
+@pytest.mark.asyncio
+async def test_run_session_captures_claude_session_id_then_resumes(tmp_path):
+    controller = ExternalAgentController(
+        state_path=tmp_path / "ext.json",
+        workspace_root=tmp_path,
+        providers=[
+            ExternalAgentProvider(
+                provider_id="claude-code", display_name="Claude Code",
+                executable="claude", path="claude", installed=True,
+            )
+        ],
+    )
+    session = controller.create_session(
+        ExternalAgentSessionCreate(provider="claude-code", workspace=str(tmp_path))
+    )
+
+    async def fake_execute(command, cwd, timeout):
+        return ExternalAgentRunResult(
+            session_id="", provider="", success=True, exit_code=0,
+            stdout='Active code page: 65001\n{"result":"done-1","session_id":"sess-xyz"}',
+        )
+    controller._execute = fake_execute
+
+    r1 = await controller.run_session(session.session_id, ExternalAgentRunRequest(prompt="第一步"))
+    assert r1.stdout == "done-1"  # 解包出干净文本
+    assert controller.get_session(session.session_id).external_session_id == "sess-xyz"  # 回填
+
+    captured = {}
+    async def fake_execute2(command, cwd, timeout):
+        captured["cmd"] = command
+        return ExternalAgentRunResult(
+            session_id="", provider="", success=True, exit_code=0,
+            stdout='{"result":"done-2","session_id":"sess-xyz"}',
+        )
+    controller._execute = fake_execute2
+
+    r2 = await controller.run_session(session.session_id, ExternalAgentRunRequest(prompt="第二步"))
+    assert "--resume" in captured["cmd"] and "sess-xyz" in captured["cmd"]  # 后续轮续接
+    assert r2.stdout == "done-2"
 
 
 def test_clean_subprocess_env_strips_host_auth(monkeypatch):

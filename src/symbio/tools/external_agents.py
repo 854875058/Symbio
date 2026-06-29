@@ -44,6 +44,29 @@ def _clean_subprocess_env() -> dict[str, str]:
     return env
 
 
+def _extract_claude_json(stdout: str) -> tuple[str, str]:
+    """解析 claude -p --output-format json 输出，取出 (result 文本, session_id)。
+
+    Windows 上 .CMD 会在前面打一行 "Active code page: ..."，故从第一个 '{' 起解析。
+    解析失败（非 JSON / 报错输出）则原样返回文本、session_id 为空，不影响调用方。
+    """
+    if not stdout:
+        return stdout, ""
+    start = stdout.find("{")
+    if start == -1:
+        return stdout, ""
+    try:
+        data = json.loads(stdout[start:])
+    except Exception:
+        return stdout, ""
+    if not isinstance(data, dict):
+        return stdout, ""
+    text = data.get("result")
+    if not isinstance(text, str):
+        text = stdout
+    return text, str(data.get("session_id") or "")
+
+
 class ExternalAgentProvider(BaseModel):
     """Runtime definition for an external coding-agent CLI."""
 
@@ -221,6 +244,14 @@ class ExternalAgentController:
         result.session_id = session.session_id
         result.provider = session.provider
         result.command = command
+        # claude-code：从 --output-format json 输出里解包干净文本 + 回填 session_id，
+        # 后续轮自动 --resume 拿到原生多轮记忆。
+        if session.provider == "claude-code" and result.success:
+            text, captured_id = _extract_claude_json(result.stdout)
+            result.stdout = text
+            if captured_id and not session.external_session_id:
+                session.external_session_id = captured_id
+                result.metadata["captured_session_id"] = captured_id
         self._record_result(session, result)
         return result
 
@@ -395,7 +426,9 @@ def build_external_agent_command(
         return command
 
     if provider.provider_id == "claude-code":
-        command = [executable, "-p", prompt]
+        # --output-format json：拿到结构化输出，含 session_id（用于后续 --resume
+        # 原生多轮记忆）与干净的 result 文本（run_session 里解包回 stdout）。
+        command = [executable, "-p", prompt, "--output-format", "json"]
         model = request.model or session.model
         if model:
             command.extend(["--model", model])
