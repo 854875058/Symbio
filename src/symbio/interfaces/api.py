@@ -2161,10 +2161,8 @@ async def install_marketplace_skill(package_id: str):
     package = marketplace.get_package(package_id)
     if package is None:
         raise HTTPException(status_code=404, detail="Marketplace package not found")
-    record = marketplace.install(
-        package_id,
-        install_dir=Path("data") / "skills" / "marketplace_installed" / package.name,
-    )
+    # 默认装到市场存储目录下的 installed/<name>（data/skill_marketplace/，已 gitignore）
+    record = marketplace.install(package_id)
     return {"success": record.status == "installed", "record": _marketplace_install_record_payload(record)}
 
 

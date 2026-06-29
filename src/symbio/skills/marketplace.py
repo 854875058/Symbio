@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import shutil
 import threading
 from datetime import datetime
 from enum import Enum
@@ -142,6 +144,9 @@ class SkillMarketplace:
         self._storage_dir = Path(storage_dir)
         self._storage_dir.mkdir(parents=True, exist_ok=True)
 
+        self._packages_dir = self._storage_dir / "packages"   # 已发布包的源码存放处
+        self._installed_file = self._storage_dir / "installed.json"
+
         self._packages: dict[str, SkillPackage] = {}
         self._versions: dict[str, list[PackageVersion]] = {}  # package_id -> versions
         self._install_records: list[InstallRecord] = []
@@ -149,6 +154,7 @@ class SkillMarketplace:
         self._lock = threading.Lock()
 
         self._load_packages()
+        self._load_install_records()
 
     def _load_packages(self) -> None:
         """从磁盘加载包信息"""
@@ -212,6 +218,19 @@ class SkillMarketplace:
             repository=repository,
             manifest=manifest.model_dump(),
         )
+
+        # 有源码就存进 packages/<id>/，安装时拷出，真正分发技能内容
+        if source_path:
+            src = Path(source_path)
+            if src.exists():
+                store = self._packages_dir / package.package_id
+                store.mkdir(parents=True, exist_ok=True)
+                if src.is_dir():
+                    shutil.copytree(src, store, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(src, store / src.name)
+                package.file_size_bytes = _dir_size(store)
+                package.checksum = _dir_checksum(store)
 
         with self._lock:
             self._packages[package.package_id] = package
@@ -329,9 +348,9 @@ class SkillMarketplace:
         )
 
         try:
-            # 确定安装路径
+            # 确定安装路径并把技能内容真正写到磁盘（不再是空目录）
             target_dir = Path(install_dir) if install_dir else self._storage_dir / "installed" / package.name
-            target_dir.mkdir(parents=True, exist_ok=True)
+            file_count = self._materialize_skill(package, target_dir)
             record.install_path = str(target_dir)
 
             # 创建注册信息
@@ -353,7 +372,7 @@ class SkillMarketplace:
             package.downloads += 1
             self._save_index()
 
-            logger.info(f"安装 Skill: {package.name} v{package.version} -> {target_dir}")
+            logger.info(f"安装 Skill: {package.name} v{package.version} -> {target_dir}（{file_count} 个文件）")
 
         except Exception as exc:
             record.status = InstallStatus.FAILED
@@ -361,7 +380,51 @@ class SkillMarketplace:
             logger.error(f"安装失败: {package.name} - {exc}")
 
         self._install_records.append(record)
+        self._save_install_records()
         return record
+
+    def _materialize_skill(self, package: SkillPackage, target_dir: Path) -> int:
+        """把技能内容真正写到 target_dir：有源码就拷源码，否则按 manifest 生成
+        manifest.json + SKILL.md，保证装完目录里有真实可看可用的内容。返回文件数。"""
+        target_dir.mkdir(parents=True, exist_ok=True)
+        copied = 0
+        store = self._packages_dir / package.package_id
+        if store.exists():
+            for item in store.iterdir():
+                dest = target_dir / item.name
+                if item.is_dir():
+                    shutil.copytree(item, dest, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(item, dest)
+                copied += 1
+        if copied == 0:
+            (target_dir / "manifest.json").write_text(
+                json.dumps(package.manifest or {}, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            (target_dir / "SKILL.md").write_text(_render_skill_md(package), encoding="utf-8")
+            copied = 2
+        return copied
+
+    def _load_install_records(self) -> None:
+        if not self._installed_file.exists():
+            return
+        try:
+            data = json.loads(self._installed_file.read_text(encoding="utf-8"))
+            self._install_records = [InstallRecord(**item) for item in data]
+        except Exception as exc:
+            logger.error(f"加载安装记录失败: {exc}")
+            self._install_records = []
+
+    def _save_install_records(self) -> None:
+        try:
+            self._installed_file.write_text(
+                json.dumps([r.model_dump() for r in self._install_records],
+                           ensure_ascii=False, indent=2, default=str),
+                encoding="utf-8",
+            )
+        except Exception as exc:  # pragma: no cover
+            logger.error(f"保存安装记录失败: {exc}")
 
     def uninstall(self, package_name: str) -> bool:
         """卸载 Skill 包
@@ -372,12 +435,24 @@ class SkillMarketplace:
         Returns:
             是否成功
         """
+        # 删除安装目录 + 标记记录卸载
+        removed_dir = False
+        for record in self._install_records:
+            if record.package_name == package_name and record.status == InstallStatus.INSTALLED:
+                record.status = InstallStatus.UNINSTALLED
+                path = Path(record.install_path)
+                if record.install_path and path.exists():
+                    shutil.rmtree(path, ignore_errors=True)
+                    removed_dir = True
+        self._save_install_records()
+
         skill = self._registry.get_by_name(package_name)
-        if not skill:
+        if skill:
+            self._registry.unregister(skill.skill_id)
+
+        if not skill and not removed_dir:
             logger.warning(f"未找到已安装的 Skill: {package_name}")
             return False
-
-        self._registry.unregister(skill.skill_id)
         logger.info(f"卸载 Skill: {package_name}")
         return True
 
@@ -465,3 +540,40 @@ class SkillMarketplace:
             packages_by_category=categories,
             top_packages=top_info,
         )
+
+
+def _render_skill_md(package: SkillPackage) -> str:
+    """从 manifest 生成一份可读的 SKILL.md（manifest-only 包安装时落地）。"""
+    manifest = package.manifest or {}
+    caps = manifest.get("capabilities") or []
+    entry = manifest.get("entry_point", "")
+    lines = [
+        f"# {package.display_name or package.name}",
+        "",
+        package.description or "（无描述）",
+        "",
+        f"- 版本：{package.version}",
+        f"- 作者：{package.author or '未知'}",
+        f"- 许可证：{package.license}",
+    ]
+    if entry:
+        lines.append(f"- 入口：`{entry}`")
+    if package.tags:
+        lines.append(f"- 标签：{', '.join(package.tags)}")
+    lines += ["", "## 能力", ""]
+    lines += [f"- {c}" for c in caps] if caps else ["（未声明）"]
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _dir_size(path: Path) -> int:
+    return sum(p.stat().st_size for p in path.rglob("*") if p.is_file())
+
+
+def _dir_checksum(path: Path) -> str:
+    digest = hashlib.sha256()
+    for file in sorted(path.rglob("*")):
+        if file.is_file():
+            digest.update(file.relative_to(path).as_posix().encode("utf-8"))
+            digest.update(file.read_bytes())
+    return digest.hexdigest()[:16]

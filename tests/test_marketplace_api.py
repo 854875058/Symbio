@@ -70,3 +70,66 @@ async def test_skill_marketplace_install_returns_installed_record():
     assert data["record"]["package_id"] == package_id
     assert data["record"]["status"] == "installed"
     assert data["record"]["install_path"]
+    # 真安装：目录里有真实落地的文件
+    install_dir = Path(data["record"]["install_path"])
+    assert (install_dir / "SKILL.md").is_file()
+    assert (install_dir / "manifest.json").is_file()
+
+
+# ---------------------------------------------------------------------------
+# 批次D1：真安装落地 + 记录持久化 + 源码打包（直连 SkillMarketplace）
+# ---------------------------------------------------------------------------
+
+from symbio.skills.marketplace import SkillMarketplace
+from symbio.skills.registry import SkillRegistry
+from symbio.skills.schema import SkillManifest
+
+
+def _manifest(name: str) -> SkillManifest:
+    return SkillManifest(
+        name=name, display_name=name.replace("_", " ").title(), version="1.0.0",
+        description="demo skill", skill_type="tool", author="t", license="MIT",
+        tags=["x"], capabilities=["c"], entry_point="pkg.mod:Cls",
+    )
+
+
+def test_install_materializes_manifest_only_skill(tmp_path):
+    mkt = SkillMarketplace(registry=SkillRegistry(), storage_dir=tmp_path / "mkt")
+    pkg = mkt.publish_package(_manifest("demo_skill"))
+    record = mkt.install(pkg.package_id)
+
+    assert record.status.value == "installed"
+    d = Path(record.install_path)
+    assert (d / "manifest.json").is_file()
+    assert (d / "SKILL.md").read_text(encoding="utf-8").strip()  # 非空
+
+    # 记录持久化：重新实例化仍能读到已安装
+    again = SkillMarketplace(registry=SkillRegistry(), storage_dir=tmp_path / "mkt")
+    assert any(r.package_name == "demo_skill" for r in again.list_installed())
+
+
+def test_publish_with_source_then_install_copies_real_files(tmp_path):
+    src = tmp_path / "src_skill"
+    src.mkdir()
+    (src / "main.py").write_text("print('hi')", encoding="utf-8")
+    (src / "SKILL.md").write_text("# Real Skill", encoding="utf-8")
+
+    mkt = SkillMarketplace(registry=SkillRegistry(), storage_dir=tmp_path / "mkt")
+    pkg = mkt.publish_package(_manifest("real_skill"), source_path=src)
+    assert pkg.checksum and pkg.file_size_bytes > 0  # 打了包
+
+    record = mkt.install(pkg.package_id)
+    d = Path(record.install_path)
+    assert (d / "main.py").read_text(encoding="utf-8") == "print('hi')"
+    assert (d / "SKILL.md").read_text(encoding="utf-8") == "# Real Skill"
+
+
+def test_uninstall_removes_install_dir(tmp_path):
+    mkt = SkillMarketplace(registry=SkillRegistry(), storage_dir=tmp_path / "mkt")
+    pkg = mkt.publish_package(_manifest("rm_skill"))
+    record = mkt.install(pkg.package_id)
+    d = Path(record.install_path)
+    assert d.exists()
+
+    assert mkt.uninstall("rm_skill") is True
+    assert not d.exists()
