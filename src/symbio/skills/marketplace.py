@@ -426,6 +426,30 @@ class SkillMarketplace:
         except Exception as exc:  # pragma: no cover
             logger.error(f"保存安装记录失败: {exc}")
 
+    def install_from_remote(
+        self,
+        source: Any,
+        remote: Any,
+        install_dir: str | Path | None = None,
+    ) -> InstallRecord:
+        """从远程源（如 GitHubSkillSource）拉取一个技能，发布到本地市场并安装。
+
+        source 需提供 fetch_skill(remote, dest) -> SkillManifest。拉下来的文件经
+        publish_package 存进 packages/<id>/，再走 install 真正落地（复用 D1）。
+        """
+        fetch_dir = self._packages_dir / "_remote" / str(getattr(remote, "name", "skill"))
+        if fetch_dir.exists():
+            shutil.rmtree(fetch_dir, ignore_errors=True)
+        fetch_dir.mkdir(parents=True, exist_ok=True)
+        manifest = source.fetch_skill(remote, fetch_dir)
+        package = self.publish_package(
+            manifest=manifest,
+            source_path=fetch_dir,
+            categories=["remote"],
+            repository=getattr(remote, "html_url", "") or "",
+        )
+        return self.install(package.package_id, install_dir=install_dir)
+
     def uninstall(self, package_name: str) -> bool:
         """卸载 Skill 包
 
