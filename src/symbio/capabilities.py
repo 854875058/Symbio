@@ -51,16 +51,18 @@ CAPABILITY_ITEMS: tuple[CapabilityItem, ...] = (
     {
         "id": "hitl_im_approval",
         "module": "hitl",
-        "claim": "Human approval through Web, webhook, QQ, WeCom, Feishu, and text commands.",
+        "claim": "Human approval via Web, webhook, QQ, WeCom, Feishu, text commands, and auto-push of approval cards to the logged-in personal WeChat (with re-push).",
         "status": "implemented",
         "evidence": [
             "src/symbio/core/hitl_gateway.py",
             "src/symbio/core/hitl_notifier.py",
             "src/symbio/interfaces/api.py",
             "tests/test_hitl_notifier.py",
+            "tests/test_hitl_wechat_approval.py",
+            "tests/test_hitl_timeout_policy.py",
         ],
         "docs": ["README.md", "README_zh.md", "docs/features.md"],
-        "next_step": "Add timeout escalation policies and richer per-channel delivery diagnostics.",
+        "next_step": "Add richer per-channel delivery diagnostics and multi-approver UX.",
     },
     {
         "id": "ontology_memory_graph",
@@ -126,16 +128,18 @@ CAPABILITY_ITEMS: tuple[CapabilityItem, ...] = (
     {
         "id": "skills_marketplace",
         "module": "skills",
-        "claim": "Marketplace browsing, search, and local install records for skill packages.",
+        "claim": "Browse/search skills, install with real on-disk materialization, and import real Agent Skills from GitHub repositories.",
         "status": "partial",
         "evidence": [
             "src/symbio/skills/marketplace.py",
+            "src/symbio/skills/remote_source.py",
             "src/symbio/interfaces/api.py",
             "web/app.js",
             "tests/test_marketplace_api.py",
+            "tests/test_remote_skill_source.py",
         ],
         "docs": ["README.md", "docs/features.md", "docs/feature-checklist.md"],
-        "next_step": "Connect remote/private registries, package signing, dependency install, sandboxed execution, and version compatibility checks.",
+        "next_step": "Add package signing, sandboxed execution, version compatibility checks, and private/authenticated registries.",
     },
     {
         "id": "mcp_gateway",
@@ -154,19 +158,22 @@ CAPABILITY_ITEMS: tuple[CapabilityItem, ...] = (
     {
         "id": "external_agent_control",
         "module": "external_agents",
-        "claim": "Directly attach to and control local Codex and Claude Code sessions.",
+        "claim": "Attach to, live-sync (tail + resume), and orchestrate (relay / tiled workbench) local Codex and Claude Code sessions.",
         "status": "implemented",
         "evidence": [
             "src/symbio/tools/external_agents.py",
             "src/symbio/tools/external_transcripts.py",
+            "src/symbio/tools/external_live_session.py",
+            "src/symbio/tools/external_relay.py",
             "src/symbio/interfaces/api.py",
             "web/index.html",
             "web/app.js",
             "tests/test_external_agents.py",
-            "tests/test_external_transcript_import.py",
+            "tests/test_external_live_session.py",
+            "tests/test_external_relay.py",
         ],
         "docs": ["docs/feature-checklist.md", "docs/external-agent-control.md"],
-        "next_step": "Add live streaming, cancellation, and richer MCP/environment injection per external session.",
+        "next_step": "Add per-turn streaming and cancellation, and richer MCP/environment injection per external session.",
     },
     {
         "id": "agent_external_backend",
@@ -184,7 +191,7 @@ CAPABILITY_ITEMS: tuple[CapabilityItem, ...] = (
     {
         "id": "wechat_bridge",
         "module": "interfaces",
-        "claim": "Personal WeChat QR-login bot (built-in iLink) with two-way chat and approval routing.",
+        "claim": "Personal WeChat QR-login bot (built-in iLink) with session persistence, two-way chat, and HITL approval push/routing.",
         "status": "implemented",
         "evidence": [
             "src/symbio/interfaces/ilink_client.py",
@@ -192,6 +199,7 @@ CAPABILITY_ITEMS: tuple[CapabilityItem, ...] = (
             "src/symbio/interfaces/api.py",
             "web/app.js",
             "tests/test_wechat_bridge.py",
+            "tests/test_hitl_wechat_approval.py",
         ],
         "docs": ["README.md", "docs/feature-checklist.md"],
         "next_step": "Add media (image/voice/file) handling and group-chat policies on the iLink path.",
@@ -246,14 +254,14 @@ CAPABILITY_ITEMS: tuple[CapabilityItem, ...] = (
     {
         "id": "ray_actor_runtime",
         "module": "distributed",
-        "claim": "Ray-native SubAgent actor dispatch with local asyncio fallback.",
+        "claim": "Concurrent SubAgent execution via asyncio. Ray-native actor dispatch is roadmap-only and NOT yet implemented (no Ray code in the runtime).",
         "status": "partial",
         "evidence": [
             "src/symbio/agents/subagent.py",
             "pyproject.toml",
         ],
         "docs": ["README.md", "docs/module-design-whitepaper.md"],
-        "next_step": "Productize Ray actor submission, result collection, cancellation, and cluster diagnostics.",
+        "next_step": "Implement real Ray actor submission/result collection/cancellation, or drop the distributed claim and present this as asyncio concurrency only.",
     },
     {
         "id": "a2a_protocol",
