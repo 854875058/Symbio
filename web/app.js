@@ -5701,9 +5701,9 @@ async function wbSend(paneId, text) {
   if (input) input.value = '';
   try {
     if (p.mode === 'new') {
-      // 直接把指令发给 claude -p：实测它对"对话记录+请回应"式提示常答非所问、
-      // 对直接祈使句执行更好。每条指令请尽量自包含；真正的多轮记忆走"接管会话"
-      // 模式（--resume，原生记忆）。
+      // 直接把指令发给后端：不在前端拼接历史（claude -p 对"对话记录+请回应"式
+      // 提示常答非所问）。多轮记忆由后端自动续接——首轮捕获 session_id、后续轮
+      // 自动 --resume 拿到 claude 原生记忆（批次C2），所以这里直接发原文即可。
       const res = await fetch(`${API}/external-agents/sessions/${encodeURIComponent(p.sessionId)}/run`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: text, approved: true, timeout: 300 }),
