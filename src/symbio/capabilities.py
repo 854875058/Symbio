@@ -291,6 +291,18 @@ CAPABILITY_ITEMS: tuple[CapabilityItem, ...] = (
         "next_step": "Wire an LLM/vision planner into ActionPlanner, add coordinate grounding from screenshots, and harden multi-tab/session lifecycle.",
     },
     {
+        "id": "multimodal_vision",
+        "module": "memory",
+        "claim": "Multi-modal memory: real image understanding via Claude vision, plus PDF/code structure extraction.",
+        "status": "partial",
+        "evidence": [
+            "src/symbio/memory/multimodal.py",
+            "tests/test_multimodal_vision.py",
+        ],
+        "docs": ["README.md", "docs/feature-checklist.md"],
+        "next_step": "Wire vision descriptions into the live memory ingestion pipeline (manager.py), cache descriptions to avoid re-billing, and add OCR for text-heavy images.",
+    },
+    {
         "id": "federated_privacy",
         "module": "platform",
         "claim": "Privacy computing, federated learning, and differential privacy for enterprise data.",

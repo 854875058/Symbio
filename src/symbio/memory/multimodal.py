@@ -3,16 +3,41 @@
 from __future__ import annotations
 
 import ast
+import base64
 import re
 import struct
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from symbio.utils.logger import get_logger
 
 logger = get_logger("multimodal_memory")
+
+
+# Claude vision 支持的图片 MIME 类型（用于真视觉描述）。
+# 注意：BMP / unknown 不在 Claude vision 支持列表内，遇到时降级为占位描述。
+_VISION_MEDIA_TYPES: dict[str, str] = {
+    "PNG": "image/png",
+    "JPEG": "image/jpeg",
+    "GIF87a": "image/gif",
+    "GIF89a": "image/gif",
+    "WEBP": "image/webp",
+}
+
+# 单张图片送入视觉模型的大小上限（5MB，避免 413 / 过高成本）。
+_VISION_MAX_BYTES = 5 * 1024 * 1024
+
+# 视觉描述提示词：要求中文、简洁、面向检索/嵌入。
+_VISION_PROMPT = (
+    "请用中文简洁描述这张图片的内容，覆盖：主要对象、场景、可见文字、"
+    "布局或图表要点。控制在 120 字以内，便于后续检索与嵌入。"
+    "直接给出描述，不要任何前缀或客套。"
+)
+
+# 注入式视觉描述函数签名：(image_base64, media_type) -> 描述文本（失败返回 None）。
+VisionDescribeFn = Callable[[str, str], Optional[str]]
 
 
 # ---------------------------------------------------------------------------
@@ -294,7 +319,8 @@ class MultiModalMemory:
 
     支持的模态:
     - Text: 直接使用（现有功能）
-    - Images: 提取元数据（尺寸、格式），生成描述占位符
+    - Images: 提取元数据（尺寸、格式），并调用 Claude 视觉模型生成真实内容描述；
+              无 API key / 不支持的格式 / 调用失败时优雅降级为占位描述
     - PDF: 提取文本内容（基础解析）
     - Code: AST 感知解析，提取函数/类结构
 
@@ -307,8 +333,11 @@ class MultiModalMemory:
         # 处理代码
         result = mm.process_content("def foo(): pass", ContentModality.CODE)
 
-        # 处理图片（传入路径）
+        # 处理图片（传入路径，自动调视觉模型生成描述）
         result = mm.process_content("/path/to/image.png", ContentModality.IMAGE)
+
+        # 测试 / 离线：注入自定义描述函数，关闭真实网络调用
+        mm = MultiModalMemory(vision_describe=lambda b64, mime: "一只猫")
     """
 
     # 支持的图片格式（用于魔数检测）
@@ -320,6 +349,25 @@ class MultiModalMemory:
         b"RIFF": "WEBP",  # 需要进一步验证
         b"BM": "BMP",
     }
+
+    def __init__(
+        self,
+        *,
+        vision_describe: Optional[VisionDescribeFn] = None,
+        vision_model: Optional[str] = None,
+        enable_vision: bool = True,
+    ) -> None:
+        """
+        Args:
+            vision_describe: 可注入的视觉描述函数 (image_base64, media_type) -> 描述文本；
+                             用于测试 / 离线场景。为 None 时使用基于 settings 的真实
+                             Claude 视觉调用。
+            vision_model:    视觉模型名（覆盖 settings.model.model_medium）。
+            enable_vision:   是否启用视觉描述；False 时图片一律使用占位描述。
+        """
+        self._vision_describe = vision_describe
+        self._vision_model = vision_model
+        self._enable_vision = enable_vision
 
     def process_content(
         self,
@@ -434,13 +482,27 @@ class MultiModalMemory:
         # 生成文本描述
         width = metadata.get("width", "未知")
         height = metadata.get("height", "未知")
-        fmt_str = metadata.get("format", "未知格式")
+        fmt = metadata.get("format", "unknown")
+        fmt_str = fmt if fmt and fmt != "unknown" else "未知格式"
         size_kb = file_size / 1024
+
+        # 调用视觉模型生成真实内容描述（失败/不支持时降级为占位）
+        description: Optional[str] = None
+        if self._enable_vision:
+            description = self._describe_image_with_vision(path, fmt, file_size)
+
+        if description:
+            metadata["vision_description"] = description
+            metadata["has_vision_description"] = True
+            desc_line = f"[图片描述] {description}"
+        else:
+            metadata["has_vision_description"] = False
+            desc_line = "[图片描述占位] 此图片的内容描述需要通过视觉模型生成。"
 
         text_repr = (
             f"[图片] 文件: {path.name}, 格式: {fmt_str}, "
             f"尺寸: {width}x{height}, 大小: {size_kb:.1f}KB\n"
-            f"[图片描述占位] 此图片的内容描述需要通过视觉模型生成。"
+            f"{desc_line}"
         )
 
         return ProcessedContent(
@@ -449,6 +511,104 @@ class MultiModalMemory:
             text_representation=text_repr,
             metadata=metadata,
         )
+
+    def _describe_image_with_vision(
+        self, path: Path, fmt: str, file_size: int
+    ) -> Optional[str]:
+        """调用视觉模型生成图片描述。
+
+        映射格式 -> MIME，做大小校验，base64 编码后交给描述函数。
+        任何一步失败（不支持的格式 / 文件过大 / 读取失败 / 模型调用失败）都返回
+        None，由调用方降级为占位描述——绝不抛异常打断内容处理。
+
+        Args:
+            path: 图片路径
+            fmt: 由魔数检测得到的格式（PNG/JPEG/GIF89a/WEBP/BMP/unknown）
+            file_size: 文件字节数
+
+        Returns:
+            描述文本，或 None（降级）
+        """
+        media_type = _VISION_MEDIA_TYPES.get(fmt)
+        if media_type is None:
+            logger.info(f"格式 {fmt!r} 不支持视觉描述，降级为占位")
+            return None
+
+        if file_size > _VISION_MAX_BYTES:
+            logger.info(
+                f"图片过大（{file_size/1024/1024:.1f}MB > "
+                f"{_VISION_MAX_BYTES/1024/1024:.0f}MB），跳过视觉描述"
+            )
+            return None
+
+        try:
+            with open(path, "rb") as f:
+                image_b64 = base64.standard_b64encode(f.read()).decode("ascii")
+        except Exception as e:
+            logger.warning(f"读取图片用于视觉描述失败: {e}")
+            return None
+
+        describe = self._vision_describe or self._default_vision_describe
+        try:
+            description = describe(image_b64, media_type)
+        except Exception as e:  # 注入函数或模型调用抛错 -> 优雅降级
+            logger.warning(f"视觉描述调用失败: {e}")
+            return None
+
+        if not description:
+            return None
+        description = description.strip()
+        return description or None
+
+    def _default_vision_describe(
+        self, image_b64: str, media_type: str
+    ) -> Optional[str]:
+        """基于 settings 的真实 Claude 视觉调用（官方 anthropic SDK）。
+
+        无 API key、SDK 缺失或调用异常时返回 None。
+        """
+        try:
+            from symbio.config.settings import get_settings
+
+            settings = get_settings()
+            api_key = settings.model.anthropic_api_key
+            if not api_key:
+                return None
+            base_url = settings.model.anthropic_base_url
+            model = self._vision_model or settings.model.model_medium
+        except Exception as e:
+            logger.warning(f"读取视觉模型配置失败: {e}")
+            return None
+
+        try:
+            import anthropic
+
+            client = anthropic.Anthropic(api_key=api_key, base_url=base_url)
+            resp = client.messages.create(
+                model=model,
+                max_tokens=1024,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": media_type,
+                                    "data": image_b64,
+                                },
+                            },
+                            {"type": "text", "text": _VISION_PROMPT},
+                        ],
+                    }
+                ],
+            )
+            text = "".join(getattr(b, "text", "") for b in resp.content).strip()
+            return text or None
+        except Exception as e:
+            logger.warning(f"视觉模型描述失败: {e}")
+            return None
 
     def _detect_image_format(self, header: bytes) -> str:
         """通过文件魔数检测图片格式"""
