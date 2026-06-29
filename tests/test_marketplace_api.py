@@ -133,3 +133,79 @@ def test_uninstall_removes_install_dir(tmp_path):
 
     assert mkt.uninstall("rm_skill") is True
     assert not d.exists()
+
+
+# ---------------------------------------------------------------------------
+# 批次D2b：远程源 API（注入假 GitHub session，不打真网络）
+# ---------------------------------------------------------------------------
+
+from symbio.skills.remote_source import GitHubSkillSource
+
+_REMOTE_SKILL_MD = (
+    "---\nname: algorithmic-art\ndescription: Generative art with p5.js\nlicense: MIT\n---\nbody\n"
+)
+
+
+class _FakeGhSession:
+    def __init__(self):
+        self._json = {
+            "git/trees": {"tree": [
+                {"path": "skills/algorithmic-art/SKILL.md", "type": "blob"},
+                {"path": "skills/docx/SKILL.md", "type": "blob"},
+            ]},
+            "contents/skills/algorithmic-art": [
+                {"name": "SKILL.md", "type": "file", "download_url": "https://raw/skillmd"},
+                {"name": "LICENSE.txt", "type": "file", "download_url": "https://raw/license"},
+            ],
+        }
+        self._text = {"skillmd": _REMOTE_SKILL_MD, "license": "MIT text"}
+
+    def _lookup(self, store, url):
+        for key in sorted(store, key=len, reverse=True):
+            if key in url:
+                return store[key]
+        raise KeyError(url)
+
+    def get_json(self, url):
+        return self._lookup(self._json, url)
+
+    def get_text(self, url):
+        return self._lookup(self._text, url)
+
+
+@pytest.fixture
+def fake_remote_source():
+    app.state.remote_skill_source_factory = lambda repo, ref="main": GitHubSkillSource(
+        repo=repo, ref=ref, session=_FakeGhSession()
+    )
+    try:
+        yield
+    finally:
+        if hasattr(app.state, "remote_skill_source_factory"):
+            delattr(app.state, "remote_skill_source_factory")
+
+
+@pytest.mark.asyncio
+async def test_remote_search_lists_github_skills(fake_remote_source):
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/skills/marketplace/remote", params={"q": "algo"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert any(s["name"] == "algorithmic-art" for s in data["skills"])
+    assert data["repo"] == "anthropics/skills"
+
+
+@pytest.mark.asyncio
+async def test_remote_install_materializes_skill(fake_remote_source):
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/skills/marketplace/remote/install",
+            json={"repo": "anthropics/skills", "path": "skills/algorithmic-art", "name": "algorithmic-art"},
+        )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["success"] is True
+    assert data["record"]["status"] == "installed"
+    assert (Path(data["record"]["install_path"]) / "SKILL.md").is_file()

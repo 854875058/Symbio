@@ -694,6 +694,16 @@ def _get_skill_marketplace():
     return marketplace
 
 
+def _remote_skill_source(repo: str, ref: str = "main"):
+    """构造 GitHub 远程 Skills 源；测试可注入 app.state.remote_skill_source_factory。"""
+    factory = getattr(app.state, "remote_skill_source_factory", None)
+    if factory is not None:
+        return factory(repo or "anthropics/skills", ref or "main")
+    from symbio.skills.remote_source import GitHubSkillSource
+
+    return GitHubSkillSource(repo=repo or "anthropics/skills", ref=ref or "main")
+
+
 async def _bootstrap_ontology_from_memories(ontology) -> None:
     """Populate an empty ontology from existing memories for first-render UX."""
     try:
@@ -2152,6 +2162,56 @@ async def list_skill_marketplace(
             _marketplace_install_record_payload(record)
             for record in marketplace.list_installed()
         ],
+    }
+
+
+class RemoteSkillInstallRequest(BaseModel):
+    repo: str = "anthropics/skills"
+    path: str
+    name: str = ""
+    ref: str = "main"
+    html_url: str = ""
+
+
+@app.get("/api/skills/marketplace/remote")
+async def search_remote_skills(
+    q: str = Query("", description="Keyword filter on skill name"),
+    repo: str = Query("anthropics/skills", description="GitHub owner/repo to browse"),
+):
+    """从 GitHub 仓库列出可接入的 Agent Skills（默认官方 anthropics/skills）。"""
+    try:
+        source = _remote_skill_source(repo)
+        skills = source.list_skills(query=q, limit=60)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"拉取远程 Skills 失败：{exc}")
+    return {
+        "repo": repo or "anthropics/skills",
+        "skills": [skill.model_dump(mode="json") for skill in skills],
+        "total": len(skills),
+    }
+
+
+@app.post("/api/skills/marketplace/remote/install")
+async def install_remote_skill(request: RemoteSkillInstallRequest):
+    """从 GitHub 拉取一个 Agent Skill 并安装到本地市场。"""
+    from symbio.skills.remote_source import RemoteSkill
+
+    marketplace = _get_skill_marketplace()
+    source = _remote_skill_source(request.repo, request.ref)
+    remote = RemoteSkill(
+        name=request.name or request.path.rstrip("/").split("/")[-1],
+        repo=request.repo or "anthropics/skills",
+        path=request.path,
+        ref=request.ref or "main",
+        html_url=request.html_url,
+    )
+    try:
+        record = marketplace.install_from_remote(source, remote)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"安装远程 Skill 失败：{exc}")
+    return {
+        "success": record.status == "installed",
+        "record": _marketplace_install_record_payload(record),
     }
 
 
