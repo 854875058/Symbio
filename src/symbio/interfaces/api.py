@@ -272,6 +272,9 @@ class ChatRequest(BaseModel):
     message: str
     session_id: Optional[str] = "default"
     model: Optional[str] = None
+    # 附件文件路径（图片/PDF）。会自动摄取：图片走 Claude 视觉模型生成描述，
+    # 描述既入库可检索，也作为历史消息让模型在本轮可感知。
+    attachments: list[str] = []
 
 
 class ChatResponse(BaseModel):
@@ -281,6 +284,8 @@ class ChatResponse(BaseModel):
     token_usage: Optional[dict] = None
     cached: bool = False
     prune_info: Optional[dict] = None
+    # 本轮自动摄取的附件摘要（路径/模态/是否有视觉描述/记忆ID）
+    attachments_ingested: Optional[list] = None
 
 
 class ModelCreate(BaseModel):
@@ -1564,6 +1569,90 @@ async def security_selftest(category: Optional[str] = None):
 
 # ============ 对话 API ============
 
+# 聊天附件按扩展名判模态
+_IMAGE_ATTACH_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+
+
+async def _ingest_chat_attachments(
+    memory_manager,
+    db,
+    session_id: str,
+    attachments: list[str],
+) -> list[dict]:
+    """把聊天附件（图片/PDF）自动摄取进记忆，并把描述落为一条历史消息。
+
+    - 图片：调 Claude 视觉模型生成中文描述（无 key 时降级占位）
+    - PDF：抽取文本内容
+    - 描述写入语义索引（可后续检索），并作为一条 user 消息落库，
+      使模型在本轮 _build_history_messages 时可感知附件内容
+    - 任何单个附件失败都跳过，不影响其余附件与正常对话
+
+    Returns:
+        每个成功摄取附件的摘要列表（path/modality/memory_id/has_vision_description）
+    """
+    notes: list[dict] = []
+    if not memory_manager or not attachments:
+        return notes
+
+    from symbio.memory.manager import MemoryType
+
+    for raw_path in attachments:
+        try:
+            path = Path(str(raw_path))
+        except Exception:
+            continue
+        ext = path.suffix.lower()
+        if ext in _IMAGE_ATTACH_EXTS:
+            modality = "image"
+        elif ext == ".pdf":
+            modality = "pdf"
+        else:
+            logger.info(f"附件类型未知，跳过摄取: {raw_path}")
+            continue
+
+        try:
+            item = await memory_manager.add_multimodal_memory(
+                content=str(path),
+                modality=modality,
+                memory_type=MemoryType.LONG_TERM,
+                session_id=session_id,
+                source="chat_attachment",
+                tags=["chat_attachment"],
+            )
+        except Exception as exc:
+            logger.warning(f"附件摄取失败: {raw_path}: {exc}")
+            continue
+
+        if item is None:
+            logger.warning(f"附件处理未产出内容，跳过: {raw_path}")
+            continue
+
+        note_text = f"[附件] {path.name}\n{item.content}"
+        # 落一条 user 历史消息，让模型本轮可感知附件
+        if db is not None:
+            try:
+                await db.create_message(
+                    f"msg-{uuid.uuid4().hex[:12]}",
+                    session_id,
+                    "user",
+                    note_text,
+                    time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    0,
+                )
+            except Exception as exc:
+                logger.warning(f"附件历史消息落库失败: {raw_path}: {exc}")
+
+        notes.append({
+            "path": str(path),
+            "modality": modality,
+            "memory_id": item.memory_id,
+            "has_vision_description": bool(item.metadata.get("has_vision_description")),
+            "description": item.metadata.get("vision_description") or item.content,
+        })
+
+    return notes
+
+
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     """对话接口 - 调用真实 LLM，同时持久化消息到数据库"""
@@ -1582,6 +1671,11 @@ async def chat(request: ChatRequest):
     if hasattr(app.state, 'memory_manager') and app.state.memory_manager:
         await app.state.memory_manager.add_conversation_turn("user", request.message, session_id)
 
+    # 聊天附件自动摄取（图片/PDF -> 视觉/文本描述 -> 入库 + 落历史，模型本轮可感知）
+    attachments_ingested = await _ingest_chat_attachments(
+        getattr(app.state, "memory_manager", None), db, session_id, request.attachments
+    )
+
     # 更新会话标题（如果是新会话的第一条消息）
     session = await db.get_session(session_id)
     if session and session["title"] == "新对话":
@@ -1597,7 +1691,10 @@ async def chat(request: ChatRequest):
         if not api_key:
             error_msg = "错误: 未配置 API Key，请在 Models 页面配置 LLM 或编辑 symbio.yaml"
             await db.create_message(f"msg-{uuid.uuid4().hex[:12]}", session_id, "assistant", error_msg, time.strftime("%Y-%m-%dT%H:%M:%S"), 0)
-            return ChatResponse(success=False, content=error_msg, session_id=session_id)
+            return ChatResponse(
+                success=False, content=error_msg, session_id=session_id,
+                attachments_ingested=attachments_ingested or None,
+            )
 
         client = anthropic.AsyncAnthropic(api_key=api_key, base_url=base_url)
         model = request.model or settings.model.model_medium
@@ -1637,6 +1734,7 @@ async def chat(request: ChatRequest):
                 success=True, content=content, session_id=session_id,
                 token_usage={"input": 0, "output": 0, "total": 0},
                 cached=True,
+                attachments_ingested=attachments_ingested or None,
             )
 
         # 成本优化管线：上下文剪枝（超出预算时裁剪历史）
@@ -1680,6 +1778,7 @@ async def chat(request: ChatRequest):
         return ChatResponse(
             success=True, content=content, session_id=session_id,
             token_usage=token_usage, prune_info=prune_info,
+            attachments_ingested=attachments_ingested or None,
         )
 
     except Exception as e:
