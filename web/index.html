@@ -1117,6 +1117,15 @@
 
         <div class="marketplace-shell" id="marketplace-shell" style="display:none;">
           <div class="marketplace-summary" id="marketplace-summary"></div>
+          <div class="marketplace-remote">
+            <div class="marketplace-remote-head">🌐 网络 Skills（从 GitHub 仓库接入真实 Agent Skills）</div>
+            <div class="marketplace-remote-bar">
+              <input type="text" id="remote-skill-repo" placeholder="owner/repo（默认 anthropics/skills）">
+              <input type="text" id="remote-skill-q" placeholder="关键词过滤，如 docx / art / pdf">
+              <button class="btn-outline" id="btn-remote-search" type="button">搜索网络</button>
+            </div>
+            <div class="marketplace-remote-results" id="marketplace-remote-results"></div>
+          </div>
           <div class="marketplace-grid" id="marketplace-grid">
             <div class="empty-state-lg"><p>Loading marketplace...</p></div>
           </div>

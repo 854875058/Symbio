@@ -2918,6 +2918,70 @@ async function installMarketplaceSkill(packageId, button) {
   }
 }
 
+// ===== 网络 Skills（从 GitHub 接入，批次D2c） =====
+async function searchRemoteSkills() {
+  const box = $('#marketplace-remote-results');
+  if (!box) return;
+  const repo = ($('#remote-skill-repo')?.value || '').trim();
+  const q = ($('#remote-skill-q')?.value || '').trim();
+  box.innerHTML = `<div class="empty-hint" style="padding:8px">正在从 GitHub 搜索…</div>`;
+  try {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (repo) params.set('repo', repo);
+    const res = await fetch(`${API}/skills/marketplace/remote?${params.toString()}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    renderRemoteSkills(data.skills || [], data.repo);
+  } catch (e) {
+    box.innerHTML = `<div class="empty-hint" style="padding:8px">搜索失败：${esc(e.message)}</div>`;
+  }
+}
+
+function renderRemoteSkills(skills, repo) {
+  const box = $('#marketplace-remote-results');
+  if (!box) return;
+  if (!skills.length) {
+    box.innerHTML = `<div class="empty-hint" style="padding:8px">没有匹配的网络 Skills</div>`;
+    return;
+  }
+  box.innerHTML = skills.map((s, i) => `
+    <div class="remote-skill-card">
+      <div class="remote-skill-info">
+        <a class="remote-skill-name" href="${esc(s.html_url || '#')}" target="_blank" rel="noopener">${esc(s.name)}</a>
+        <span class="remote-skill-repo">${esc(s.repo)}</span>
+      </div>
+      <button class="btn-outline remote-skill-install" type="button" data-i="${i}">接入</button>
+    </div>`).join('');
+  box.querySelectorAll('.remote-skill-install').forEach(btn => {
+    btn.addEventListener('click', () => installRemoteSkill(skills[Number(btn.dataset.i)], btn));
+  });
+}
+
+async function installRemoteSkill(skill, button) {
+  if (!skill) return;
+  const prev = button ? button.textContent : '';
+  if (button) { button.disabled = true; button.textContent = '接入中…'; }
+  try {
+    const res = await fetch(`${API}/skills/marketplace/remote/install`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repo: skill.repo, path: skill.path, name: skill.name, ref: skill.ref || 'main', html_url: skill.html_url || '' }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.detail || data.record?.error || `HTTP ${res.status}`);
+    toast('success', '已接入网络 Skill', `${skill.name} 已拉取并安装到本地市场`);
+    if (button) button.textContent = '已接入';
+    await loadMarketplace(dom.skillsSearch?.value.trim() || undefined);
+  } catch (e) {
+    toast('error', '接入失败', e.message);
+    if (button) { button.disabled = false; button.textContent = prev || '接入'; }
+  }
+}
+
+$('#btn-remote-search')?.addEventListener('click', searchRemoteSkills);
+$('#remote-skill-q')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') searchRemoteSkills(); });
+$('#remote-skill-repo')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') searchRemoteSkills(); });
+
 // Skills search
 let skillsSearchTimer = null;
 dom.skillsSearch?.addEventListener('input', () => {

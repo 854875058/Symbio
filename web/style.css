@@ -5094,3 +5094,34 @@ textarea::placeholder { color:var(--text-tertiary); }
   white-space: pre-wrap; word-break: break-word; font-size: 0.83rem; line-height: 1.5;
   color: var(--text-primary);
 }
+
+/* ===== 市场：网络 Skills（GitHub 接入，批次D2c） ===== */
+.marketplace-remote {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+.marketplace-remote-head { font-size: 0.82rem; font-weight: 600; color: var(--text-primary); margin-bottom: 10px; }
+.marketplace-remote-bar { display: flex; gap: 8px; flex-wrap: wrap; }
+.marketplace-remote-bar input {
+  flex: 1; min-width: 160px; padding: 7px 10px; font: inherit; font-size: 0.82rem;
+  border: 1px solid var(--border); border-radius: var(--radius-md);
+  background: var(--bg-primary); color: var(--text-primary);
+}
+.marketplace-remote-bar input:focus { outline: none; border-color: var(--border-accent); }
+.marketplace-remote-results {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px; margin-top: 10px;
+}
+.remote-skill-card {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-md);
+  background: var(--bg-primary);
+}
+.remote-skill-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.remote-skill-name { font-size: 0.82rem; font-weight: 600; color: var(--text-accent); text-decoration: none; }
+.remote-skill-name:hover { text-decoration: underline; }
+.remote-skill-repo { font-size: 0.66rem; color: var(--text-tertiary); }
+.remote-skill-install { padding: 4px 12px; font-size: 0.76rem; flex-shrink: 0; }
