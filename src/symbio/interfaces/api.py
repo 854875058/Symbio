@@ -350,6 +350,10 @@ class MemoryStoreRequest(BaseModel):
     tags: list[str] = []
     importance: float = 0.5
     memory_type: str = "long_term"  # short_term, long_term, episodic, semantic, procedural
+    # 多模态：text（默认）/ image / pdf / code。
+    # image/pdf 时 content 为文件路径，图片会调 Claude 视觉模型生成描述后入库。
+    modality: str = "text"
+    language: str = "python"        # 仅 modality=code 时使用
 
 
 class ConversationExportRequest(BaseModel):
@@ -1999,12 +2003,56 @@ async def search_memories(q: str = Query("", description="搜索关键词")):
 
 @app.post("/api/memory/store")
 async def store_memory(req: MemoryStoreRequest):
-    """手动存储记忆（同时写入 SQLite 和 MemoryManager）"""
+    """手动存储记忆（同时写入 SQLite 和 MemoryManager）。
+
+    modality 为 image/pdf/code 时走多模态摄取：图片用 Claude 视觉模型生成描述，
+    PDF/代码抽取结构化文本，再把"可检索文本表示"写入 SQLite 与语义索引。
+    """
     db = await get_db()
     memory_id = f"mem-{uuid.uuid4().hex[:12]}"
-    now_str = time.strftime("%Y-%m-%dT%H:%M:%S")
 
-    # 写入 SQLite（持久化）
+    modality = (req.modality or "text").lower().strip()
+    is_multimodal = modality in ("image", "pdf", "code")
+
+    memory_item = None
+    if is_multimodal:
+        if not (hasattr(app.state, 'memory_manager') and app.state.memory_manager):
+            raise HTTPException(status_code=503, detail="MemoryManager 未初始化，无法处理多模态内容")
+        from symbio.memory.manager import MemoryType
+        mt = MemoryType(req.memory_type) if req.memory_type in [e.value for e in MemoryType] else MemoryType.LONG_TERM
+        memory_item = await app.state.memory_manager.add_multimodal_memory(
+            content=req.content,
+            modality=modality,
+            memory_type=mt,
+            language=req.language,
+            tags=req.tags,
+            importance=req.importance,
+            source="manual",
+        )
+        if memory_item is None:
+            raise HTTPException(
+                status_code=422,
+                detail=f"多模态内容处理失败（modality={modality}，请确认文件路径有效）",
+            )
+        # 用处理后的文本表示落 SQLite，保证两侧内容一致
+        stored_content = memory_item.content
+        await db.create_memory(
+            memory_id=memory_id,
+            content=stored_content,
+            title=req.title or stored_content[:30],
+            tags=req.tags,
+            importance=req.importance,
+        )
+        return {
+            "success": True,
+            "memory_id": memory_id,
+            "semantic_id": memory_item.memory_id,
+            "modality": modality,
+            "text_representation": stored_content,
+            "has_vision_description": bool(memory_item.metadata.get("has_vision_description")),
+        }
+
+    # 纯文本：原有路径
     await db.create_memory(
         memory_id=memory_id,
         content=req.content,
@@ -2013,8 +2061,6 @@ async def store_memory(req: MemoryStoreRequest):
         importance=req.importance,
     )
 
-    # 写入 MemoryManager（语义搜索）
-    memory_item = None
     if hasattr(app.state, 'memory_manager') and app.state.memory_manager:
         from symbio.memory.manager import MemoryType
         mt = MemoryType(req.memory_type) if req.memory_type in [e.value for e in MemoryType] else MemoryType.LONG_TERM

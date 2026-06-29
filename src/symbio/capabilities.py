@@ -293,14 +293,17 @@ CAPABILITY_ITEMS: tuple[CapabilityItem, ...] = (
     {
         "id": "multimodal_vision",
         "module": "memory",
-        "claim": "Multi-modal memory: real image understanding via Claude vision, plus PDF/code structure extraction.",
+        "claim": "Multi-modal memory: real image understanding via Claude vision wired into the ingestion pipeline (described images become searchable memories), plus PDF/code structure extraction.",
         "status": "partial",
         "evidence": [
             "src/symbio/memory/multimodal.py",
+            "src/symbio/memory/manager.py",
+            "src/symbio/interfaces/api.py",
             "tests/test_multimodal_vision.py",
+            "tests/test_memory_multimodal_ingest.py",
         ],
         "docs": ["README.md", "docs/feature-checklist.md"],
-        "next_step": "Wire vision descriptions into the live memory ingestion pipeline (manager.py), cache descriptions to avoid re-billing, and add OCR for text-heavy images.",
+        "next_step": "Auto-ingest images attached in chat turns, persist cached descriptions across restarts, and add OCR for text-heavy images.",
     },
     {
         "id": "federated_privacy",

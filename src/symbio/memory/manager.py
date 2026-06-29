@@ -250,6 +250,11 @@ class MemoryManager:
         # Embedding 缓存
         self._embedding_cache: dict[str, list[float]] = {}
 
+        # 多模态处理器（图片/PDF/代码 -> 文本表示）；惰性创建
+        self._multimodal: Any = None
+        # 多模态处理结果缓存（按文件签名），避免重复描述/重复计费
+        self._mm_cache: dict[str, Any] = {}
+
         # 后台任务
         self._decay_task: Optional[asyncio.Task] = None
 
@@ -449,6 +454,117 @@ class MemoryManager:
             f"importance={importance}, content={content[:50]}"
         )
         return item
+
+    # ------------------------------------------------------------------
+    # 多模态记忆摄取（图片走 Claude 视觉真描述）
+    # ------------------------------------------------------------------
+
+    def _get_multimodal(self):
+        """惰性创建多模态处理器（图片描述走真实视觉模型，无 key 时优雅降级占位）。"""
+        if self._multimodal is None:
+            from symbio.memory.multimodal import MultiModalMemory
+            self._multimodal = MultiModalMemory()
+        return self._multimodal
+
+    def set_multimodal_processor(self, processor: Any) -> None:
+        """注入多模态处理器（测试/离线时用，可关闭真实网络调用）。"""
+        self._multimodal = processor
+        self._mm_cache.clear()
+
+    async def add_multimodal_memory(
+        self,
+        content: str,
+        modality: Any,
+        *,
+        memory_type: MemoryType = MemoryType.LONG_TERM,
+        language: str = "python",
+        priority: MemoryPriority = MemoryPriority.NORMAL,
+        session_id: str = "",
+        user_id: str = "",
+        source: str = "multimodal",
+        tags: Optional[list[str]] = None,
+        importance: float = 0.5,
+        ttl_hours: Optional[int] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> Optional[MemoryItem]:
+        """处理多模态内容（图片/PDF/代码/文本）后入库为可检索记忆。
+
+        - 图片：调用 Claude 视觉模型生成中文描述，作为可嵌入文本入库
+        - PDF：抽取文本内容入库
+        - 代码：AST 结构摘要入库
+        - 文本：直接入库
+
+        图片/PDF 的处理结果按"文件签名（路径+mtime+大小）"缓存，避免对同一文件
+        重复调用视觉模型造成重复计费。处理失败（如文件不存在）返回 None，不入库。
+
+        Args:
+            content: 文本内容，或图片/PDF 文件路径
+            modality: ContentModality 枚举或其字符串值（text/image/pdf/code）
+            language: 代码语言（仅 modality=code 时使用）
+            其余参数透传给 add_memory
+
+        Returns:
+            入库的 MemoryItem；处理失败时返回 None
+        """
+        from symbio.memory.multimodal import ContentModality
+
+        if isinstance(modality, str):
+            try:
+                modality = ContentModality(modality)
+            except ValueError:
+                logger.warning(f"未知模态 {modality!r}，按 text 处理")
+                modality = ContentModality.TEXT
+
+        mm = self._get_multimodal()
+
+        # 文件级缓存（图片/PDF 避免重复处理与重复计费）
+        cache_key: Optional[str] = None
+        if modality in (ContentModality.IMAGE, ContentModality.PDF):
+            try:
+                p = Path(content)
+                if p.exists():
+                    st = p.stat()
+                    cache_key = f"{p.resolve()}:{st.st_mtime_ns}:{st.st_size}"
+            except Exception:
+                cache_key = None
+
+        if cache_key and cache_key in self._mm_cache:
+            processed = self._mm_cache[cache_key]
+            logger.debug(f"多模态处理命中缓存: {cache_key}")
+        else:
+            kwargs: dict[str, Any] = {}
+            if modality == ContentModality.CODE:
+                kwargs["language"] = language
+            # process_content 含文件 I/O 与可能的网络调用，放到线程避免阻塞事件循环
+            processed = await asyncio.to_thread(
+                mm.process_content, content, modality, **kwargs
+            )
+            if cache_key and processed.is_valid:
+                self._mm_cache[cache_key] = processed
+
+        if not processed.is_valid:
+            logger.warning(
+                f"多模态内容处理失败，未入库: modality={modality.value}, "
+                f"error={processed.error}"
+            )
+            return None
+
+        merged_meta: dict[str, Any] = dict(metadata or {})
+        merged_meta.update(processed.metadata)
+        merged_meta["modality"] = modality.value
+
+        return await self.add_memory(
+            content=processed.text_representation,
+            memory_type=memory_type,
+            priority=priority,
+            session_id=session_id,
+            user_id=user_id,
+            source=source,
+            tags=tags,
+            importance=importance,
+            ttl_hours=ttl_hours,
+            metadata=merged_meta,
+        )
 
     async def add_conversation_turn(
         self,
