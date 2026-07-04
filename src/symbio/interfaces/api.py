@@ -4,7 +4,7 @@
 记忆管理、技能管理等完整 API。
 """
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -3672,20 +3672,49 @@ def _server_base_url(request) -> str:
         return "http://localhost:9090"
 
 
+def _build_self_agent_card(request):
+    """构建本实例的动态 AgentCard：真实包版本 + 能力账本快照。
+
+    让 /.well-known/agent.json 反映真实状态，而非硬编码死数据。
+    """
+    try:
+        from symbio import __version__ as version
+    except Exception:
+        version = None
+
+    metadata: dict = {}
+    try:
+        from symbio.capabilities import get_capability_report
+        report = get_capability_report()
+        metadata = {
+            "capability_summary": report["summary"],
+            "implemented_capabilities": [
+                item["id"] for item in report["items"]
+                if item["status"] == "implemented"
+            ],
+        }
+    except Exception:
+        metadata = {}
+
+    return build_agent_card(
+        base_url=_server_base_url(request),
+        version=version,
+        metadata=metadata or None,
+    )
+
+
 # -- AgentCard (self-description) ------------------------------------------
 
 @app.get("/.well-known/agent.json", tags=["a2a"])
-async def agent_card(request):
+async def agent_card(request: Request):
     """A2A AgentCard — describes this agent's capabilities to external agents."""
-    card = build_agent_card(base_url=_server_base_url(request))
-    return card.model_dump(mode="json")
+    return _build_self_agent_card(request).model_dump(mode="json")
 
 
 @app.get("/api/a2a/card", tags=["a2a"])
-async def get_own_agent_card(request):
+async def get_own_agent_card(request: Request):
     """Return this agent's own A2A card (same as /.well-known/agent.json)."""
-    card = build_agent_card(base_url=_server_base_url(request))
-    return card.model_dump(mode="json")
+    return _build_self_agent_card(request).model_dump(mode="json")
 
 
 # -- Inbound tasks (we receive from external agents) -----------------------
@@ -3734,30 +3763,44 @@ async def receive_a2a_task(payload: A2AInboundTaskRequest, request=None):
     }
 
 
+async def _a2a_default_executor(prompt: str) -> str:
+    """默认入站任务执行器：走 Symbio 的 LLM 后端。"""
+    settings = await _load_llm_settings()
+    import anthropic
+
+    if not settings.model.anthropic_api_key:
+        raise ValueError("No API key configured")
+
+    client = anthropic.AsyncAnthropic(
+        api_key=settings.model.anthropic_api_key,
+        base_url=settings.model.anthropic_base_url,
+    )
+    resp = await client.messages.create(
+        model=settings.model.model_medium,
+        max_tokens=2048,
+        system=SYMBIO_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return resp.content[0].text if resp.content else ""
+
+
 async def _process_inbound_a2a_task(task_id: str, prompt: str) -> None:
-    """Process an inbound A2A task through Symbio's LLM and update the task state."""
+    """Process an inbound A2A task and update the task state.
+
+    执行器可注入：设置 app.state.a2a_task_executor（async 或 sync 可调用，
+    prompt -> str）即可改走编排器/自定义后端；未设置时默认走 LLM。
+    无论成功失败都把任务推进到 COMPLETED，绝不让对端无限等待。
+    """
     mgr = _get_a2a_manager()
     await mgr.update_task_state(task_id, A2ATaskState.WORKING)
 
     response_text = ""
     try:
-        settings = await _load_llm_settings()
-        import anthropic
-
-        if not settings.model.anthropic_api_key:
-            raise ValueError("No API key configured")
-
-        client = anthropic.AsyncAnthropic(
-            api_key=settings.model.anthropic_api_key,
-            base_url=settings.model.anthropic_base_url,
-        )
-        resp = await client.messages.create(
-            model=settings.model.model_medium,
-            max_tokens=2048,
-            system=SYMBIO_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        response_text = resp.content[0].text if resp.content else ""
+        executor = getattr(app.state, "a2a_task_executor", None) or _a2a_default_executor
+        result_value = executor(prompt)
+        if inspect.isawaitable(result_value):
+            result_value = await result_value
+        response_text = str(result_value)
     except Exception as exc:
         response_text = f"[Symbio error: {exc}]"
 

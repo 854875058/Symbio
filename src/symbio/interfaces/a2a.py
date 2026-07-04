@@ -177,11 +177,30 @@ class A2AAgentCard(BaseModel):
             },
         ]
     )
+    # A2A 扩展位：放本实例真实能力快照，让 AgentCard 不再是死数据
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-def build_agent_card(base_url: str = "http://localhost:9090") -> A2AAgentCard:
-    """Build the current instance's AgentCard."""
-    return A2AAgentCard(url=base_url)
+def build_agent_card(
+    base_url: str = "http://localhost:9090",
+    *,
+    version: Optional[str] = None,
+    skills: Optional[list[dict[str, Any]]] = None,
+    metadata: Optional[dict[str, Any]] = None,
+) -> A2AAgentCard:
+    """Build the current instance's AgentCard.
+
+    version/skills/metadata 为 None 时用默认值；传入则覆盖，便于把真实的
+    包版本与能力快照写进卡片（动态自描述）。
+    """
+    card = A2AAgentCard(url=base_url)
+    if version:
+        card.version = version
+    if skills is not None:
+        card.skills = skills
+    if metadata is not None:
+        card.metadata = metadata
+    return card
 
 
 # ---------------------------------------------------------------------------

@@ -266,14 +266,15 @@ CAPABILITY_ITEMS: tuple[CapabilityItem, ...] = (
     {
         "id": "a2a_protocol",
         "module": "external_agents",
-        "claim": "Agent-to-Agent protocol compatibility with external agent systems.",
+        "claim": "Agent-to-Agent protocol: dynamic AgentCard (real version + capability snapshot), inbound task round-trip (received → executed → COMPLETED with result, pluggable executor), and outbound session tracking.",
         "status": "partial",
         "evidence": [
             "src/symbio/interfaces/a2a.py",
             "src/symbio/interfaces/api.py",
+            "tests/test_a2a_protocol.py",
         ],
         "docs": ["README.md", "docs/features.md", "docs/feature-checklist.md"],
-        "next_step": "Add streaming A2A responses, push notification delivery, OAuth auth scheme, and full conformance test suite.",
+        "next_step": "Route inbound tasks through the DAG orchestrator (not just a bare LLM call), prove a real cross-machine round-trip between two Symbio instances, then add streaming responses, push notifications, and an OAuth auth scheme.",
     },
     {
         "id": "computer_use_loop",
