@@ -744,6 +744,10 @@ async function checkHealth() {
     const res = await fetch(`${API}/health`);
     const data = await res.json();
     state.connected = data.status === 'ok';
+    if (data.version) {
+      const verEl = document.querySelector('.brand-ver');
+      if (verEl) verEl.textContent = `v${data.version}`;
+    }
   } catch {
     state.connected = false;
   }
@@ -5738,7 +5742,15 @@ async function wbAttachPane() {
   try {
     const res = await fetch(`${API}/external-agents/live/attach`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider: t.provider, transcript_path: t.path, from_start: true }),
+      // 带上已解析的 external_session_id：codex 的转录文件名是
+      // rollout-<时间>-<uuid>.jsonl，若后端回退用文件名 stem 当会话 id，
+      // codex exec resume 会找不到会话。claude-code 的文件名恰好是 uuid 故无碍。
+      body: JSON.stringify({
+        provider: t.provider,
+        transcript_path: t.path,
+        external_session_id: t.external_session_id || '',
+        from_start: true,
+      }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);

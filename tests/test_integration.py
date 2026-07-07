@@ -103,25 +103,31 @@ class TestRootEndpoints:
     """根路径与健康检查"""
 
     async def test_root(self, client):
-        """GET / 返回应用信息"""
+        """GET / 返回应用信息，版本随包版本动态变化"""
+        from symbio import __version__
+
         resp = await client.get("/")
         assert resp.status_code == 200
         data = resp.json()
         assert data["name"] == "Symbio"
-        assert data["version"] == "0.1.0"
+        assert data["version"] == __version__
         assert data["status"] == "running"
 
     async def test_health(self, client):
-        """GET /health 返回 ok"""
+        """GET /health 返回 ok，并带上当前版本供 UI 显示"""
+        from symbio import __version__
+
         resp = await client.get("/health")
         assert resp.status_code == 200
-        assert resp.json() == {"status": "ok"}
+        assert resp.json() == {"status": "ok", "version": __version__}
 
     async def test_api_health_alias(self, client):
         """GET /api/health returns the same payload used by the web UI."""
+        from symbio import __version__
+
         resp = await client.get("/api/health")
         assert resp.status_code == 200
-        assert resp.json() == {"status": "ok"}
+        assert resp.json() == {"status": "ok", "version": __version__}
 
 
 class TestHITLAPI:

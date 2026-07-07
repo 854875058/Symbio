@@ -133,7 +133,31 @@ async def test_external_agent_codex_command_preview_uses_session_and_policy(tmp_
             )
         ],
     )
-    session = controller.create_session(
+    # 无历史会话：走全新 `codex exec`
+    fresh = controller.create_session(
+        ExternalAgentSessionCreate(
+            provider="codex",
+            workspace=str(tmp_path),
+            sandbox_mode="workspace-write",
+            approval_policy="on-failure",
+        )
+    )
+    fresh_result = await controller.run_session(
+        fresh.session_id,
+        ExternalAgentRunRequest(prompt="全新任务", dry_run=True),
+    )
+    assert fresh_result.success is True
+    assert fresh_result.dry_run is True
+    assert fresh_result.command[:3] == ["codex", "exec", "--cd"]
+    assert "--sandbox" in fresh_result.command
+    assert "workspace-write" in fresh_result.command
+    assert "--skip-git-repo-check" in fresh_result.command
+    # codex-cli 新版 exec 不再接受 --approval-policy（会退出码 2）
+    assert "--approval-policy" not in fresh_result.command
+    assert fresh_result.command[-1] == "全新任务"
+
+    # 有历史会话：走 `codex exec resume <id>` 子命令（不再是 --resume 选项）
+    resumed = controller.create_session(
         ExternalAgentSessionCreate(
             provider="codex",
             workspace=str(tmp_path),
@@ -142,21 +166,17 @@ async def test_external_agent_codex_command_preview_uses_session_and_policy(tmp_
             approval_policy="on-failure",
         )
     )
-
     result = await controller.run_session(
-        session.session_id,
+        resumed.session_id,
         ExternalAgentRunRequest(prompt="继续修复测试", dry_run=True),
     )
 
     assert result.success is True
     assert result.dry_run is True
-    assert result.command[:3] == ["codex", "exec", "--cd"]
-    assert "--sandbox" in result.command
-    assert "workspace-write" in result.command
-    assert "--approval-policy" in result.command
-    assert "on-failure" in result.command
-    assert "--resume" in result.command
-    assert "thread-123" in result.command
+    assert result.command[:4] == ["codex", "exec", "resume", "thread-123"]
+    assert "--approval-policy" not in result.command
+    assert "--resume" not in result.command
+    assert result.command[-1] == "继续修复测试"
 
 
 @pytest.mark.asyncio

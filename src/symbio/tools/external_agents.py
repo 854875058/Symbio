@@ -67,6 +67,23 @@ def _extract_claude_json(stdout: str) -> tuple[str, str]:
     return text, str(data.get("session_id") or "")
 
 
+def _strip_cmd_shim_noise(stdout: str) -> str:
+    """剥掉 Windows .CMD 包装器打印的 "Active code page: N" 噪声行。
+
+    codex.CMD 启动时会 `chcp 65001` 切到 UTF-8，stdout 里因此多出一行
+    "Active code page: 65001"。只删这类已知 shim 行，其余原样保留。
+    """
+    if not stdout or "Active code page" not in stdout:
+        return stdout
+    lines = stdout.splitlines()
+    kept = [ln for ln in lines if not ln.strip().startswith("Active code page")]
+    cleaned = "\n".join(kept)
+    # 保留原本是否以换行结尾的观感
+    if stdout.endswith("\n") and not cleaned.endswith("\n"):
+        cleaned += "\n"
+    return cleaned.lstrip("\n")
+
+
 class ExternalAgentProvider(BaseModel):
     """Runtime definition for an external coding-agent CLI."""
 
@@ -252,6 +269,10 @@ class ExternalAgentController:
             if captured_id and not session.external_session_id:
                 session.external_session_id = captured_id
                 result.metadata["captured_session_id"] = captured_id
+        elif session.provider == "codex":
+            # Windows 上 codex.CMD 会先 `chcp 65001` 打印一行 "Active code page:
+            # 65001"，混进纯文本输出里。剥掉这类 shim 噪声再回显。
+            result.stdout = _strip_cmd_shim_noise(result.stdout)
         self._record_result(session, result)
         return result
 
@@ -407,6 +428,23 @@ def build_external_agent_command(
     # 装的 CLI 是 claude.CMD/codex.CMD，裸名 "claude" 经 CreateProcess 找不到。
     executable = provider.path or provider.executable
     if provider.provider_id == "codex":
+        model = request.model or session.model
+        # codex-cli ≥0.40 起：`codex exec` 去掉了 --approval-policy（exec 非交互
+        # 本就不弹审批），且续接从 `--resume <id>` 改成了子命令 `exec resume <id>`。
+        # 旧的拼法会触发 "unexpected argument '--approval-policy'" 退出码 2。
+        if session.external_session_id:
+            command = [
+                executable,
+                "exec",
+                "resume",
+                session.external_session_id,
+                "--skip-git-repo-check",
+            ]
+            if model:
+                command.extend(["--model", model])
+            command.append(prompt)
+            return command
+
         command = [
             executable,
             "exec",
@@ -414,14 +452,10 @@ def build_external_agent_command(
             session.workspace,
             "--sandbox",
             request.sandbox_mode or session.sandbox_mode,
-            "--approval-policy",
-            request.approval_policy or session.approval_policy,
+            "--skip-git-repo-check",
         ]
-        model = request.model or session.model
         if model:
             command.extend(["--model", model])
-        if session.external_session_id:
-            command.extend(["--resume", session.external_session_id])
         command.append(prompt)
         return command
 

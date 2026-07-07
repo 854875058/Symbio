@@ -851,9 +851,11 @@ async def _build_history_messages(db, session_id: str, max_messages: int = MAX_C
 @app.get("/")
 async def root():
     """根路径"""
+    from symbio import __version__ as _ver
+
     return {
         "name": "Symbio",
-        "version": "0.1.0",
+        "version": _ver,
         "status": "running",
     }
 
@@ -862,7 +864,9 @@ async def root():
 @app.get("/api/health")
 async def health():
     """健康检查"""
-    return {"status": "ok"}
+    from symbio import __version__ as _ver
+
+    return {"status": "ok", "version": _ver}
 
 
 @app.get("/api/capabilities")
