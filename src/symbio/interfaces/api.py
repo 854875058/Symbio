@@ -8,7 +8,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, HTTPExceptio
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Any, Optional
 import asyncio
 import hashlib
@@ -378,6 +378,18 @@ class SandboxExecuteRequest(BaseModel):
     access_mode: str = "workspace-write"
     approval_policy: str = "on-request"
     approved: bool = False
+
+
+class SandboxContainerExecuteRequest(BaseModel):
+    command: str
+    image: str = "python:3.11-slim"
+    timeout: Optional[int] = 120
+    working_dir: str = "/workspace"
+    env: dict[str, str] = Field(default_factory=dict)
+    memory_limit: str = "512m"
+    cpus: str = "1"
+    network: str = "none"
+    mount_workspace: bool = False
 
 
 class ExternalAgentSessionCreateRequest(BaseModel):
@@ -908,6 +920,46 @@ async def sandbox_audit(limit: int = 50):
     return {
         "records": [record.model_dump(mode="json") for record in reversed(records)],
         "total": len(executor.audit_records),
+    }
+
+
+@app.get("/api/sandbox/docker/status")
+async def sandbox_docker_status():
+    """Report whether the Docker engine is reachable for container isolation."""
+    from symbio.tools.sandbox import check_docker_available
+
+    available, detail = await check_docker_available()
+    return {"available": available, "detail": detail}
+
+
+@app.post("/api/sandbox/docker/execute")
+async def sandbox_docker_execute(request: SandboxContainerExecuteRequest):
+    """Run a command inside an isolated Docker container.
+
+    默认断网 + 只读根文件系统 + 内存/CPU 限制；mount_workspace=True 时
+    以只读方式把工作区挂进 /workspace。引擎不可用返回 503。
+    """
+    executor = _get_sandbox_executor()
+    volumes: dict[str, str] = {}
+    if request.mount_workspace:
+        volumes[str(_get_sandbox_workspace_root())] = "/workspace"
+
+    result = await executor.execute_in_container(
+        command=request.command,
+        image=request.image,
+        volumes=volumes,
+        timeout=request.timeout,
+        working_dir=request.working_dir,
+        env=request.env or None,
+        memory_limit=request.memory_limit,
+        cpus=request.cpus,
+        network=request.network,
+    )
+    if result.error_message.startswith("DOCKER_UNAVAILABLE"):
+        raise HTTPException(status_code=503, detail=result.error_message)
+    return {
+        "success": result.exit_code == 0,
+        "result": result.model_dump(mode="json"),
     }
 
 

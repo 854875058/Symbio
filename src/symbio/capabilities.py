@@ -207,7 +207,7 @@ CAPABILITY_ITEMS: tuple[CapabilityItem, ...] = (
     {
         "id": "sandbox_cluster",
         "module": "tools",
-        "claim": "Local sandbox plus Docker/K8s resource isolation path.",
+        "claim": "Workspace-bounded local sandbox plus real Docker container isolation (network-off + read-only root + mem/CPU limits, engine precheck, orphan-container cleanup, no host-env leak); K8s pod path is still a stub.",
         "status": "partial",
         "evidence": [
             "src/symbio/tools/sandbox.py",
@@ -215,9 +215,10 @@ CAPABILITY_ITEMS: tuple[CapabilityItem, ...] = (
             "src/symbio/interfaces/api.py",
             "web/app.js",
             "tests/test_sandbox_runtime.py",
+            "tests/test_docker_sandbox.py",
         ],
         "docs": ["README.md", "docs/module-design-whitepaper.md"],
-        "next_step": "Add persistent sandbox audit storage, OS/container-level network enforcement, and a production executor that creates, monitors, and destroys runtime pods.",
+        "next_step": "Replace the k8s_sandbox.py stub with a real pod executor (create/monitor/destroy), persist sandbox audit records across restarts, and surface Docker container execution in the web UI.",
     },
     {
         "id": "observability_otel",

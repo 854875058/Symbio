@@ -478,6 +478,86 @@ def _build_sandbox_env(
 
 
 # ---------------------------------------------------------------------------
+# Docker 支持
+# ---------------------------------------------------------------------------
+
+
+async def check_docker_available(timeout: int = 10) -> tuple[bool, str]:
+    """检测 Docker 引擎是否可用。
+
+    Returns:
+        (available, detail) — detail 为服务端版本或错误摘要。
+    """
+    try:
+        process = await asyncio.create_subprocess_exec(
+            "docker", "info", "--format", "{{.ServerVersion}}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+        if process.returncode == 0:
+            version = stdout.decode("utf-8", errors="replace").strip()
+            return True, f"docker engine {version}"
+        return False, stderr.decode("utf-8", errors="replace").strip()[:200]
+    except FileNotFoundError:
+        return False, "docker CLI not found"
+    except asyncio.TimeoutError:
+        return False, f"docker info timed out after {timeout}s"
+    except Exception as exc:  # pragma: no cover - 平台相关
+        return False, str(exc)[:200]
+
+
+def build_docker_run_command(
+    command: str,
+    image: str,
+    *,
+    container_name: str,
+    working_dir: str = "/workspace",
+    volumes: Optional[dict[str, str]] = None,
+    env: Optional[dict[str, str]] = None,
+    memory_limit: str = "512m",
+    cpus: str = "1",
+    network: str = "none",
+) -> list[str]:
+    """构建 docker run 命令行（纯函数，便于单测审计每个隔离参数）。
+
+    隔离策略：
+    - --rm + 显式 --name：执行完自动删除；超时可按名精准 kill
+    - --network none（默认）：断网
+    - --memory / --cpus：资源限制
+    - --read-only + tmpfs /tmp：根文件系统只读
+    - 环境变量只传显式指定项 + 沙箱标志，绝不泄漏宿主机环境
+      （宿主 Windows PATH 注入 Linux 容器会直接破坏容器内 PATH）
+    - 卷挂载一律只读
+    """
+    docker_cmd = [
+        "docker", "run",
+        "--rm",
+        "--name", container_name,
+        "--network", network,
+        "--memory", memory_limit,
+        "--cpus", cpus,
+        "--read-only",
+        "--tmpfs", "/tmp:rw,noexec,nosuid",
+        "-w", working_dir,
+    ]
+
+    for host_path, container_path in (volumes or {}).items():
+        abs_host_path = str(Path(host_path).resolve())
+        docker_cmd.extend(["-v", f"{abs_host_path}:{container_path}:ro"])
+
+    container_env = {"SYMBIO_SANDBOX": "1", "PYTHONDONTWRITEBYTECODE": "1"}
+    if env:
+        container_env.update(env)
+    for key, value in container_env.items():
+        docker_cmd.extend(["-e", f"{key}={value}"])
+
+    docker_cmd.append(image)
+    docker_cmd.extend(["sh", "-c", command])
+    return docker_cmd
+
+
+# ---------------------------------------------------------------------------
 # 沙箱执行器
 # ---------------------------------------------------------------------------
 
@@ -660,28 +740,34 @@ class SandboxExecutor:
         timeout: Optional[int] = None,
         working_dir: str = "/workspace",
         env: Optional[dict[str, str]] = None,
+        memory_limit: str = "512m",
+        cpus: str = "1",
+        network: str = "none",
     ) -> SandboxResult:
-        """在 Docker 容器中执行命令。
+        """在 Docker 容器中执行命令（真实容器隔离）。
 
         流程：
-        1. 构建 docker run 命令
-        2. 启动容器并执行命令
-        3. 捕获输出
-        4. 清理容器
+        1. 危险命令检查
+        2. Docker 引擎可用性预检（不可用则快速失败，返回 DOCKER_UNAVAILABLE）
+        3. 构建 docker run 命令（--rm/--network/--memory/--cpus/--read-only/tmpfs）
+        4. 启动容器并执行命令，捕获输出
+        5. 超时则按容器名强制清理，防止孤儿容器
 
         Args:
             command: 要执行的命令。
             image: Docker 镜像名称。
-            volumes: 卷挂载 {host_path: container_path}。
+            volumes: 卷挂载 {host_path: container_path}（只读）。
             timeout: 超时秒数。
             working_dir: 容器内工作目录。
-            env: 额外环境变量。
+            env: 额外环境变量（仅显式项进容器，不泄漏宿主机环境）。
+            memory_limit: 内存上限（docker --memory 格式）。
+            cpus: CPU 配额（docker --cpus 格式）。
+            network: 网络模式，默认 none 断网。
 
         Returns:
-            SandboxResult 执行结果。
+            SandboxResult 执行结果，metadata 携带容器隔离参数。
         """
         exec_timeout = timeout or self._default_timeout
-        volumes = volumes or {}
 
         logger.info(f"Executing in container: {command}")
         logger.debug(f"Image: {image}, timeout: {exec_timeout}s")
@@ -699,49 +785,71 @@ class SandboxExecutor:
                 metadata={"mode": "docker", "image": image},
             )
 
-        # 构建 docker run 命令
-        docker_cmd = [
-            "docker", "run",
-            "--rm",  # 执行完自动删除容器
-            "--network", "none",  # 禁用网络（安全隔离）
-            "--memory", "512m",  # 内存限制
-            "--cpus", "1",  # CPU 限制
-            "--read-only",  # 只读文件系统
-            "--tmpfs", "/tmp:rw,noexec,nosuid",  # 可写临时目录
-        ]
+        # Docker 引擎可用性预检 — 引擎没起时快速失败并给出可读原因
+        available, detail = await check_docker_available()
+        if not available:
+            logger.error(f"Docker engine unavailable: {detail}")
+            return SandboxResult(
+                command=command,
+                exit_code=-1,
+                error_message=f"DOCKER_UNAVAILABLE: {detail}",
+                permission_level=PermissionLevel.EXECUTE,
+                working_dir=working_dir,
+                metadata={"mode": "docker", "image": image, "docker_available": False},
+            )
 
-        # 工作目录
-        docker_cmd.extend(["-w", working_dir])
+        container_name = f"symbio-sbx-{uuid.uuid4().hex[:12]}"
+        docker_cmd = build_docker_run_command(
+            command,
+            image,
+            container_name=container_name,
+            working_dir=working_dir,
+            volumes=volumes,
+            env=env,
+            memory_limit=memory_limit,
+            cpus=cpus,
+            network=network,
+        )
 
-        # 卷挂载
-        for host_path, container_path in volumes.items():
-            abs_host_path = str(Path(host_path).resolve())
-            docker_cmd.extend(["-v", f"{abs_host_path}:{container_path}:ro"])
-
-        # 环境变量
-        sandbox_env = _build_sandbox_env(env)
-        for key, value in sandbox_env.items():
-            docker_cmd.extend(["-e", f"{key}={value}"])
-
-        # 镜像和命令
-        docker_cmd.append(image)
-        docker_cmd.extend(["sh", "-c", command])
-
-        # 执行
+        # docker CLI 本身需要宿主机环境（DOCKER_HOST、命名管道等）
         result = await self._execute_subprocess(
             cmd=docker_cmd,
             work_dir=Path.cwd(),
-            env=os.environ.copy(),  # docker 命令需要宿主机环境
+            env=os.environ.copy(),
             timeout=exec_timeout,
             command_str=f"docker run {image} sh -c '{command}'",
             perm_level=PermissionLevel.EXECUTE,
             resource_limits=ResourceLimits(),
         )
 
-        result.metadata["mode"] = "docker"
-        result.metadata["image"] = image
+        if result.timed_out:
+            # kill 掉 docker CLI 客户端并不会停掉容器本体，必须按名清理
+            await self._kill_container(container_name)
+
+        result.metadata.update({
+            "mode": "docker",
+            "image": image,
+            "container_name": container_name,
+            "network": network,
+            "memory_limit": memory_limit,
+            "cpus": cpus,
+            "docker_available": True,
+        })
 
         return result
+
+    async def _kill_container(self, container_name: str) -> None:
+        """按名强制移除容器（超时后兜底清理，容器已退出则静默）。"""
+        try:
+            process = await asyncio.create_subprocess_exec(
+                "docker", "rm", "-f", container_name,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await asyncio.wait_for(process.communicate(), timeout=15)
+            logger.warning(f"Force-removed timed-out container: {container_name}")
+        except Exception as exc:
+            logger.error(f"Failed to remove container {container_name}: {exc}")
 
     async def execute_with_policy(
         self,
