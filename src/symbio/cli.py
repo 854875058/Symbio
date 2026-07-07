@@ -44,7 +44,7 @@ def main(
         ctx.obj = {"config": config}
 
     if ctx.invoked_subcommand is None:
-        _start_interactive_mode()
+        _start_web(host="0.0.0.0", port=9090, reload=False)
 
 
 def _run(coro):
@@ -393,15 +393,26 @@ def serve(
     port: int = typer.Option(9090, "--port", "-p", help="Port"),
     reload: bool = typer.Option(False, "--reload", help="Reload on changes"),
 ) -> None:
-    """Start the FastAPI web service."""
+    """Start the FastAPI web service (default when no command is given)."""
+    _start_web(host=host, port=port, reload=reload)
+
+
+def _start_web(host: str, port: int, reload: bool) -> None:
+    """Launch the FastAPI web service and print a clickable local address."""
     import uvicorn
 
-    console.print(Panel(
-        f"[bold green]Starting Symbio Web[/bold green]\n\n"
-        f"API: http://{host}:{port}\n"
-        f"UI:  http://{host}:{port}/ui",
-        title="Symbio Server",
-    ))
+    # Bind address may be 0.0.0.0 (all interfaces) but that is not a usable URL
+    # to click. Show a reachable local address while still binding as requested.
+    display_host = "127.0.0.1" if host in {"0.0.0.0", "::", ""} else host
+    lines = [
+        "[bold green]Starting Symbio Web[/bold green]\n",
+        f"API: http://{display_host}:{port}",
+        f"UI:  http://{display_host}:{port}/ui",
+    ]
+    if display_host != host:
+        lines.append(f"\n[dim]Bound to {host} — also reachable on your LAN.[/dim]")
+    console.print(Panel("\n".join(lines), title="Symbio Server"))
+
     uvicorn.run("symbio.interfaces.api:app", host=host, port=port, reload=reload)
 
 
@@ -474,85 +485,6 @@ def _format_export_sample(format_name: str, session_id: str, messages: list[dict
     if fmt == "openai":
         return {"id": session_id, "messages": normalized}
     return {"id": session_id, "messages": normalized}
-
-
-def _start_interactive_mode() -> None:
-    """Start the local interactive prompt."""
-    from prompt_toolkit import PromptSession
-    from prompt_toolkit.history import FileHistory
-
-    config_path = Path("symbio.yaml")
-    if not config_path.exists():
-        _auto_init()
-
-    console.print(Panel(
-        f"[bold green]Symbio v{__version__}[/bold green]\n\n"
-        "Type a message to chat. Commands: /help, /status, /config, /clear, /exit",
-        title="Symbio Interactive",
-    ))
-
-    history_file = Path.home() / ".symbio" / "history"
-    history_file.parent.mkdir(parents=True, exist_ok=True)
-    prompt = PromptSession(history=FileHistory(str(history_file)))
-
-    while True:
-        try:
-            user_input = prompt.prompt("\nYou> ").strip()
-            if not user_input:
-                continue
-            if user_input.startswith("/"):
-                _handle_command(user_input)
-                continue
-            _process_message(user_input)
-        except KeyboardInterrupt:
-            continue
-        except EOFError:
-            console.print("\n[bold blue]Bye.[/bold blue]")
-            break
-
-
-def _auto_init() -> None:
-    project_path = Path(".")
-    config_path = project_path / "symbio.yaml"
-    if not config_path.exists():
-        get_settings().to_yaml(config_path)
-    (project_path / "data" / "lancedb").mkdir(parents=True, exist_ok=True)
-    (project_path / "data" / "checkpoints").mkdir(parents=True, exist_ok=True)
-    (project_path / "data" / "trajectories").mkdir(parents=True, exist_ok=True)
-    (project_path / "logs").mkdir(parents=True, exist_ok=True)
-    console.print("[bold green]Project auto-initialized.[/bold green]")
-
-
-def _handle_command(command: str) -> None:
-    cmd = command.lower().strip()
-    if cmd == "/help":
-        console.print("Commands: /help, /status, /config, /clear, /exit")
-    elif cmd == "/status":
-        console.print(f"Symbio v{__version__}")
-        console.print(f"Database: {DEFAULT_DB_PATH}")
-    elif cmd == "/config":
-        settings = get_settings()
-        console.print(f"Model low: {settings.model.model_low}")
-        console.print(f"Model medium: {settings.model.model_medium}")
-        console.print(f"Model high: {settings.model.model_high}")
-        console.print(f"Log level: {settings.log_level}")
-    elif cmd == "/clear":
-        console.clear()
-    elif cmd == "/exit":
-        raise typer.Exit()
-    else:
-        console.print(f"[bold red]Unknown command:[/bold red] {command}")
-
-
-def _process_message(message: str) -> None:
-    from typer.testing import CliRunner
-
-    runner = CliRunner()
-    result = runner.invoke(app, ["chat", message, "--session", "interactive"])
-    if result.output:
-        console.print(result.output, end="")
-    if result.exit_code:
-        console.print(f"[bold red]Command failed with exit code {result.exit_code}[/bold red]")
 
 
 if __name__ == "__main__":
