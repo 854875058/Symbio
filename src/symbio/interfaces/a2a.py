@@ -127,7 +127,7 @@ class A2ASession(BaseModel):
 
 class A2AAgentCapabilities(BaseModel):
     streaming: bool = True
-    pushNotifications: bool = False
+    pushNotifications: bool = True
     stateTransitionHistory: bool = True
 
 
@@ -187,11 +187,12 @@ def build_agent_card(
     version: Optional[str] = None,
     skills: Optional[list[dict[str, Any]]] = None,
     metadata: Optional[dict[str, Any]] = None,
+    authentication: Optional[dict[str, Any]] = None,
 ) -> A2AAgentCard:
     """Build the current instance's AgentCard.
 
-    version/skills/metadata 为 None 时用默认值；传入则覆盖，便于把真实的
-    包版本与能力快照写进卡片（动态自描述）。
+    version/skills/metadata/authentication 为 None 时用默认值；传入则覆盖，
+    便于把真实的包版本、能力快照与鉴权方案写进卡片（动态自描述）。
     """
     card = A2AAgentCard(url=base_url)
     if version:
@@ -200,6 +201,8 @@ def build_agent_card(
         card.skills = skills
     if metadata is not None:
         card.metadata = metadata
+    if authentication is not None:
+        card.authentication = authentication
     return card
 
 
@@ -219,9 +222,48 @@ class A2ASessionManager:
         self._sessions: dict[str, A2ASession] = {}
         self._persist_path = persist_path
         self._lock = asyncio.Lock()
+        # SSE 订阅：task_id -> 订阅队列列表（每个订阅者一个）
+        self._subscribers: dict[str, list[asyncio.Queue]] = {}
+        # 推送通知：task_id -> webhook URL
+        self._push_configs: dict[str, str] = {}
 
         if persist_path and persist_path.exists():
             self._load()
+
+    # ------------------------------------------------------------------
+    # Streaming subscriptions (SSE)
+    # ------------------------------------------------------------------
+
+    def subscribe(self, task_id: str) -> asyncio.Queue:
+        """订阅任务状态变更；每次 update_task_state 都会向队列投递任务快照。"""
+        queue: asyncio.Queue = asyncio.Queue()
+        self._subscribers.setdefault(task_id, []).append(queue)
+        return queue
+
+    def unsubscribe(self, task_id: str, queue: asyncio.Queue) -> None:
+        subs = self._subscribers.get(task_id)
+        if subs and queue in subs:
+            subs.remove(queue)
+        if subs is not None and not subs:
+            self._subscribers.pop(task_id, None)
+
+    def _notify_subscribers(self, task: A2ATask) -> None:
+        for queue in self._subscribers.get(task.id, []):
+            try:
+                queue.put_nowait(task.model_dump(mode="json"))
+            except Exception:
+                pass
+
+    # ------------------------------------------------------------------
+    # Push notifications (webhook)
+    # ------------------------------------------------------------------
+
+    def set_push_config(self, task_id: str, webhook_url: str) -> None:
+        """为任务注册推送 webhook；任务状态变更时 POST 任务快照过去。"""
+        self._push_configs[task_id] = webhook_url
+
+    def get_push_config(self, task_id: str) -> Optional[str]:
+        return self._push_configs.get(task_id)
 
     # ------------------------------------------------------------------
     # Tasks
@@ -248,6 +290,11 @@ class A2ASessionManager:
             if result is not None:
                 task.result = result
             self._save()
+        # 锁外通知：SSE 订阅者 + 推送 webhook
+        self._notify_subscribers(task)
+        webhook = self._push_configs.get(task_id)
+        if webhook:
+            asyncio.ensure_future(_deliver_push_notification(webhook, task))
         return task
 
     async def get_task(self, task_id: str) -> Optional[A2ATask]:
@@ -351,14 +398,50 @@ class A2ASessionManager:
 # ---------------------------------------------------------------------------
 
 
+async def _deliver_push_notification(webhook_url: str, task: "A2ATask") -> None:
+    """POST 任务快照到注册的 webhook（fire-and-forget，失败静默）。"""
+    payload = task.model_dump(mode="json")
+    try:
+        import aiohttp
+
+        async with aiohttp.ClientSession() as http_session:
+            await http_session.post(
+                webhook_url,
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=10),
+                headers={"Content-Type": "application/json"},
+            )
+    except ImportError:
+        import urllib.request
+
+        def _post():
+            req = urllib.request.Request(
+                webhook_url,
+                data=json.dumps(payload).encode(),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            urllib.request.urlopen(req, timeout=10)
+
+        try:
+            await asyncio.to_thread(_post)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
 async def send_task_to_agent(
     remote_url: str,
     message_text: str,
     session_id: Optional[str] = None,
     timeout: int = 30,
+    auth_token: Optional[str] = None,
+    push_url: Optional[str] = None,
 ) -> dict[str, Any]:
     """Send a task to a remote A2A-compatible agent via HTTP POST.
 
+    auth_token 非空时带 Bearer 头；push_url 非空时请求远端状态变更回调。
     Returns the raw JSON response body.  Raises on HTTP/connection errors.
     """
     endpoint = remote_url.rstrip("/") + "/api/a2a/tasks"
@@ -372,6 +455,12 @@ async def send_task_to_agent(
     }
     if session_id:
         payload["sessionId"] = session_id
+    if push_url:
+        payload["pushNotification"] = {"url": push_url}
+
+    headers = {"Content-Type": "application/json"}
+    if auth_token:
+        headers["Authorization"] = f"Bearer {auth_token}"
 
     try:
         import aiohttp  # optional dependency
@@ -381,7 +470,7 @@ async def send_task_to_agent(
                 endpoint,
                 json=payload,
                 timeout=aiohttp.ClientTimeout(total=timeout),
-                headers={"Content-Type": "application/json"},
+                headers=headers,
             ) as resp:
                 body = await resp.json()
                 if resp.status >= 400:
@@ -397,7 +486,7 @@ async def send_task_to_agent(
         req = urllib.request.Request(
             endpoint,
             data=json.dumps(payload).encode(),
-            headers={"Content-Type": "application/json"},
+            headers=headers,
             method="POST",
         )
         try:

@@ -109,7 +109,7 @@ symbio export --format sharegpt --output data/exports/train.jsonl
 - **Codex 风格沙箱** —— `read-only` / `workspace-write` / `danger-full-access` 三种访问模式 + 审批策略 + 工作区边界 + 审计。
 - **真 Docker 容器沙箱** —— 命令可在隔离容器内执行：默认断网（`--network none`）、只读根文件系统 + `/tmp` tmpfs、内存/CPU 限额、执行前引擎预检、超时按容器名兜底清理、宿主机环境与密钥绝不泄漏进容器。`GET /api/sandbox/docker/status` 查引擎状态，`POST /api/sandbox/docker/execute` 容器内执行。
 - **Computer Use 最小闭环** —— 浏览器会话控制、动作集、启发式规划、审计回放；Playwright 不可用时降级 dry-run。
-- **MCP 工具网关 / A2A 协议 / Skills 市场** —— 标准协议接入与本地工具生态。
+- **MCP 工具网关 / A2A 协议 / Skills 市场** —— 标准协议接入与本地工具生态；A2A 支持入站编排器执行、出站会话闭环、SSE 流式订阅、webhook 推送与 Bearer 鉴权。
 
 ---
 
@@ -135,7 +135,7 @@ symbio export --format sharegpt --output data/exports/train.jsonl
 | OpenTelemetry 可观测 | 🔧 部分实现 | trace/token heatmap + OTel Compose 部署包 |
 | 数据飞轮（四阶段闭环） | 🔧 部分实现 | 捕获/失效分析/SOP 蒸馏/反哺已打通，真实训练后端待补 |
 | Ray Actor 运行时 | 🔧 部分实现 | 本地 fallback 已有，集群调度待产品化 |
-| A2A 协议 | 🔧 部分实现 | 动态 AgentCard、入站任务走编排器完整管线、出站 poll 拉回结果、双进程跨实例真 HTTP 往返已验证；流式/推送/OAuth 待补 |
+| A2A 协议 | 🔧 部分实现 | 动态 AgentCard、入站走编排器管线、出站 poll 闭环、跨实例真 HTTP 往返、SSE 流式、webhook 推送、Bearer 鉴权；完整 OAuth/非文本 artifact 待补 |
 | **Computer Use 最小闭环** | 🔧 部分实现 | 会话/动作/截图/规划/审计/回放，待接 VLM 视觉规划 |
 | 隐私计算 / 联邦学习 | 📋 规划中 | 当前仅在路线图 |
 
@@ -169,6 +169,9 @@ symbio export --format sharegpt --output data/exports/train.jsonl
 | `GET /api/ontology` | 本体图谱 |
 | `POST /api/sandbox/execute` · `GET /api/sandbox/audit` | 本地沙箱执行 / 审计 |
 | `GET /api/sandbox/docker/status` · `POST /api/sandbox/docker/execute` | Docker 容器隔离执行 |
+| `GET /.well-known/agent.json` · `POST /api/a2a/tasks` | A2A AgentCard / 入站任务（可选 Bearer 鉴权） |
+| `GET /api/a2a/tasks/{id}/stream` | A2A 任务 SSE 流式订阅 |
+| `POST /api/a2a/sessions` · `.../{id}/send` · `.../{id}/poll` | A2A 出站会话（发送 + 拉回远端结果） |
 | `POST /api/export/conversations` | 对话数据集导出 |
 
 ---
@@ -241,7 +244,7 @@ pytest                 # 395 passed
 
 ## 当前状态
 
-Symbio 仍处于 Alpha 阶段。核心调度、HITL（多渠道审批 + 超时升级）、记忆、外部 Agent 接管、沙箱（本地 + Docker 容器隔离）、Token 成本优化、Prompt Injection 防火墙、数据飞轮闭环和 Web UI 已形成可运行能力；Computer Use 与 A2A 已具备最小闭环；企业级部署、安全隔离、远程 Skill 生态、完整 MCP 协议面、真实训练后端和隐私计算还在持续实现。
+Symbio 仍处于 Alpha 阶段。核心调度、HITL（多渠道审批 + 超时升级）、记忆、外部 Agent 接管、沙箱（本地 + Docker 容器隔离）、Token 成本优化、Prompt Injection 防火墙、数据飞轮闭环和 Web UI 已形成可运行能力；Computer Use 已具备最小闭环；A2A 已支持编排器执行、跨实例往返、SSE 流式、推送与鉴权；企业级部署、安全隔离、远程 Skill 生态、完整 MCP 协议面、真实训练后端和隐私计算还在持续实现。
 
 ---
 

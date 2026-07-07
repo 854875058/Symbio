@@ -7,7 +7,7 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Any, Optional
 import asyncio
@@ -3753,6 +3753,9 @@ def _build_self_agent_card(request):
         base_url=_server_base_url(request),
         version=version,
         metadata=metadata or None,
+        authentication=(
+            {"schemes": ["bearer"]} if _a2a_expected_token() else {"schemes": ["none"]}
+        ),
     )
 
 
@@ -3776,11 +3779,32 @@ class A2AInboundTaskRequest(BaseModel):
     id: Optional[str] = None
     sessionId: Optional[str] = None
     message: dict  # raw dict; validated inside handler
+    # A2A pushNotificationConfig：{"url": "https://..."}，状态变更时回调
+    pushNotification: Optional[dict] = None
+
+
+def _a2a_expected_token() -> str:
+    """A2A 鉴权 token：app.state 优先，其次环境变量；空串表示开放访问。"""
+    configured = getattr(app.state, "a2a_auth_token", None)
+    if configured is not None:
+        return str(configured)
+    return os.environ.get("SYMBIO_A2A_TOKEN", "")
+
+
+def _check_a2a_auth(request: Request) -> None:
+    """校验 Bearer token；未配置 token 时开放（AgentCard 会如实声明 schemes）。"""
+    expected = _a2a_expected_token()
+    if not expected:
+        return
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header != f"Bearer {expected}":
+        raise HTTPException(status_code=401, detail="Invalid or missing A2A bearer token")
 
 
 @app.post("/api/a2a/tasks", tags=["a2a"])
-async def receive_a2a_task(payload: A2AInboundTaskRequest, request=None):
+async def receive_a2a_task(payload: A2AInboundTaskRequest, request: Request):
     """Receive a task from an external A2A-compatible agent."""
+    _check_a2a_auth(request)
     mgr = _get_a2a_manager()
 
     # Normalise message
@@ -3804,6 +3828,11 @@ async def receive_a2a_task(payload: A2AInboundTaskRequest, request=None):
     )
 
     task = await mgr.receive_task(task)
+
+    # 推送通知注册（A2A pushNotificationConfig：状态变更时 POST 到 webhook）
+    push_url = (payload.pushNotification or {}).get("url", "")
+    if push_url:
+        mgr.set_push_config(task.id, push_url)
 
     # Fire-and-forget: process the task via Symbio's chat pipeline
     asyncio.create_task(_process_inbound_a2a_task(task.id, msg.text_content))
@@ -3908,6 +3937,55 @@ async def get_a2a_task(task_id: str):
     if task is None:
         raise HTTPException(status_code=404, detail="A2A task not found")
     return task.model_dump(mode="json")
+
+
+@app.get("/api/a2a/tasks/{task_id}/stream", tags=["a2a"])
+async def stream_a2a_task(task_id: str, timeout: int = 300):
+    """SSE 流式订阅任务状态（A2A tasks/sendSubscribe 语义）。
+
+    先发当前快照，之后每次状态变更推一个 event；任务到达终态或超时后关闭。
+    事件格式：`event: task-update\\ndata: {...task json...}\\n\\n`
+    """
+    mgr = _get_a2a_manager()
+    task = await mgr.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="A2A task not found")
+
+    terminal_states = {
+        A2ATaskState.COMPLETED.value,
+        A2ATaskState.FAILED.value,
+        A2ATaskState.CANCELLED.value,
+    }
+
+    async def event_stream():
+        queue = mgr.subscribe(task_id)
+        try:
+            snapshot = (await mgr.get_task(task_id)).model_dump(mode="json")
+            yield f"event: task-update\ndata: {json.dumps(snapshot, ensure_ascii=False)}\n\n"
+            if snapshot["state"] in terminal_states:
+                return
+            deadline = asyncio.get_event_loop().time() + timeout
+            while True:
+                remaining = deadline - asyncio.get_event_loop().time()
+                if remaining <= 0:
+                    yield "event: timeout\ndata: {}\n\n"
+                    return
+                try:
+                    update = await asyncio.wait_for(queue.get(), timeout=remaining)
+                except asyncio.TimeoutError:
+                    yield "event: timeout\ndata: {}\n\n"
+                    return
+                yield f"event: task-update\ndata: {json.dumps(update, ensure_ascii=False)}\n\n"
+                if update.get("state") in terminal_states:
+                    return
+        finally:
+            mgr.unsubscribe(task_id, queue)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/api/a2a/tasks", tags=["a2a"])

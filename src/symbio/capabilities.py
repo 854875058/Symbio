@@ -267,16 +267,17 @@ CAPABILITY_ITEMS: tuple[CapabilityItem, ...] = (
     {
         "id": "a2a_protocol",
         "module": "external_agents",
-        "claim": "Agent-to-Agent protocol: dynamic AgentCard, inbound tasks routed through the full Orchestrator pipeline (intent -> complexity -> routing -> planner/reviewer -> agent), outbound sessions with poll-based reply pull-back, and a proven two-process cross-instance round-trip over real HTTP.",
+        "claim": "Agent-to-Agent protocol: dynamic AgentCard, inbound tasks routed through the full Orchestrator pipeline, outbound sessions with poll-based reply pull-back, a proven two-process cross-instance round-trip over real HTTP, SSE streaming task updates, webhook push notifications, and optional Bearer-token auth.",
         "status": "partial",
         "evidence": [
             "src/symbio/interfaces/a2a.py",
             "src/symbio/interfaces/api.py",
             "tests/test_a2a_protocol.py",
             "tests/test_a2a_orchestrator_roundtrip.py",
+            "tests/test_a2a_streaming_push_auth.py",
         ],
         "docs": ["README.md", "docs/features.md", "docs/feature-checklist.md"],
-        "next_step": "Add streaming responses (SSE), push notifications, an OAuth auth scheme, and validate a cross-machine (not just cross-process) deployment.",
+        "next_step": "Upgrade Bearer auth to a full OAuth flow, add artifact (non-text) parts, and validate a cross-machine (not just cross-process) deployment.",
     },
     {
         "id": "computer_use_loop",
