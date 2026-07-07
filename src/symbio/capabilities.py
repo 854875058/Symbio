@@ -267,15 +267,16 @@ CAPABILITY_ITEMS: tuple[CapabilityItem, ...] = (
     {
         "id": "a2a_protocol",
         "module": "external_agents",
-        "claim": "Agent-to-Agent protocol: dynamic AgentCard (real version + capability snapshot), inbound task round-trip (received → executed → COMPLETED with result, pluggable executor), and outbound session tracking.",
+        "claim": "Agent-to-Agent protocol: dynamic AgentCard, inbound tasks routed through the full Orchestrator pipeline (intent -> complexity -> routing -> planner/reviewer -> agent), outbound sessions with poll-based reply pull-back, and a proven two-process cross-instance round-trip over real HTTP.",
         "status": "partial",
         "evidence": [
             "src/symbio/interfaces/a2a.py",
             "src/symbio/interfaces/api.py",
             "tests/test_a2a_protocol.py",
+            "tests/test_a2a_orchestrator_roundtrip.py",
         ],
         "docs": ["README.md", "docs/features.md", "docs/feature-checklist.md"],
-        "next_step": "Route inbound tasks through the DAG orchestrator (not just a bare LLM call), prove a real cross-machine round-trip between two Symbio instances, then add streaming responses, push notifications, and an OAuth auth scheme.",
+        "next_step": "Add streaming responses (SSE), push notifications, an OAuth auth scheme, and validate a cross-machine (not just cross-process) deployment.",
     },
     {
         "id": "computer_use_loop",

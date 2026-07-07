@@ -135,7 +135,7 @@ symbio export --format sharegpt --output data/exports/train.jsonl
 | OpenTelemetry 可观测 | 🔧 部分实现 | trace/token heatmap + OTel Compose 部署包 |
 | 数据飞轮（四阶段闭环） | 🔧 部分实现 | 捕获/失效分析/SOP 蒸馏/反哺已打通，真实训练后端待补 |
 | Ray Actor 运行时 | 🔧 部分实现 | 本地 fallback 已有，集群调度待产品化 |
-| A2A 协议 | 🔧 部分实现 | AgentCard、入站/出站任务、多轮会话 |
+| A2A 协议 | 🔧 部分实现 | 动态 AgentCard、入站任务走编排器完整管线、出站 poll 拉回结果、双进程跨实例真 HTTP 往返已验证；流式/推送/OAuth 待补 |
 | **Computer Use 最小闭环** | 🔧 部分实现 | 会话/动作/截图/规划/审计/回放，待接 VLM 视觉规划 |
 | 隐私计算 / 联邦学习 | 📋 规划中 | 当前仅在路线图 |
 

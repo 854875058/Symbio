@@ -3702,6 +3702,7 @@ from symbio.interfaces.a2a import (
     A2ATextPart,
     build_agent_card,
     fetch_remote_agent_card,
+    fetch_remote_task,
     send_task_to_agent,
 )
 
@@ -3836,19 +3837,55 @@ async def _a2a_default_executor(prompt: str) -> str:
     return resp.content[0].text if resp.content else ""
 
 
+async def _a2a_orchestrator_executor(prompt: str) -> str:
+    """编排器执行器：入站 A2A 任务走 Orchestrator 完整调度管线。
+
+    意图解析 → 复杂度评估 → 模型路由 → Planner/Reviewer → Agent 执行，
+    与 Web/CLI 消息同一条链路，而不是旁路裸调 LLM。
+    """
+    from symbio.utils.types import Message, MessageSource
+
+    orchestrator = getattr(app.state, "orchestrator", None)
+    if orchestrator is None:
+        raise RuntimeError("Orchestrator is not initialized")
+
+    message = Message(
+        source=MessageSource.A2A,
+        user_id="a2a-remote-agent",
+        content=prompt,
+        session_id=f"a2a-{uuid.uuid4().hex[:12]}",
+        metadata={"channel": "a2a"},
+    )
+    result = await orchestrator.process(message)
+    if not result.success and not result.content:
+        raise RuntimeError(result.error or "Orchestrator returned empty failure")
+    return result.content
+
+
+def _resolve_a2a_executor() -> tuple[Any, str]:
+    """选择入站任务执行器：注入 > 编排器 > 裸 LLM。返回 (executor, mode)。"""
+    injected = getattr(app.state, "a2a_task_executor", None)
+    if injected is not None:
+        return injected, "injected"
+    if getattr(app.state, "orchestrator", None) is not None:
+        return _a2a_orchestrator_executor, "orchestrator"
+    return _a2a_default_executor, "llm"
+
+
 async def _process_inbound_a2a_task(task_id: str, prompt: str) -> None:
     """Process an inbound A2A task and update the task state.
 
     执行器可注入：设置 app.state.a2a_task_executor（async 或 sync 可调用，
-    prompt -> str）即可改走编排器/自定义后端；未设置时默认走 LLM。
+    prompt -> str）即可改走自定义后端；未注入且编排器在场时走 Orchestrator
+    完整调度管线，否则回退裸 LLM。
     无论成功失败都把任务推进到 COMPLETED，绝不让对端无限等待。
     """
     mgr = _get_a2a_manager()
     await mgr.update_task_state(task_id, A2ATaskState.WORKING)
 
+    executor, executor_mode = _resolve_a2a_executor()
     response_text = ""
     try:
-        executor = getattr(app.state, "a2a_task_executor", None) or _a2a_default_executor
         result_value = executor(prompt)
         if inspect.isawaitable(result_value):
             result_value = await result_value
@@ -3859,6 +3896,7 @@ async def _process_inbound_a2a_task(task_id: str, prompt: str) -> None:
     result = A2ATaskResult(
         state=A2ATaskState.COMPLETED,
         message=A2AMessage.text(A2AMessageRole.AGENT, response_text),
+        metadata={"executor": executor_mode},
     )
     await mgr.update_task_state(task_id, A2ATaskState.COMPLETED, result=result)
 
@@ -3964,6 +4002,72 @@ async def send_a2a_session_message(session_id: str, req: A2ASendMessageRequest):
     except Exception as exc:
         await mgr.update_session_state(session_id, A2ATaskState.FAILED)
         raise HTTPException(status_code=502, detail=str(exc))
+
+
+@app.post("/api/a2a/sessions/{session_id}/poll", tags=["a2a"])
+async def poll_a2a_session(session_id: str):
+    """Pull remote results for this session's outbound tasks（闭合出站往返）。
+
+    对会话里每个已发出的任务查询远端状态；远端已 COMPLETED 且回复尚未入会话的，
+    把 agent 回复追加进会话消息。全部完成时会话状态推进到 COMPLETED。
+    """
+    mgr = _get_a2a_manager()
+    session = await mgr.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="A2A session not found")
+
+    seen_message_ids = {m.messageId for m in session.messages}
+    updates: list[dict] = []
+    all_completed = bool(session.task_ids)
+
+    for task_id in session.task_ids:
+        remote = await fetch_remote_task(session.remote_url, task_id)
+        if remote is None:
+            all_completed = False
+            updates.append({"task_id": task_id, "state": "unreachable"})
+            continue
+
+        state = remote.get("state", "unknown")
+        if state != A2ATaskState.COMPLETED.value:
+            all_completed = False
+            updates.append({"task_id": task_id, "state": state})
+            continue
+
+        reply_text = ""
+        result = remote.get("result") or {}
+        reply_msg = result.get("message") or {}
+        reply_id = reply_msg.get("messageId", "")
+        for part in reply_msg.get("parts", []):
+            if part.get("type") == "text":
+                reply_text += part.get("text", "")
+
+        appended = False
+        if reply_text and reply_id and reply_id not in seen_message_ids:
+            msg = A2AMessage(
+                role=A2AMessageRole.AGENT,
+                parts=[A2ATextPart(text=reply_text)],
+                messageId=reply_id,
+            )
+            await mgr.append_session_message(session_id, msg, task_id=task_id)
+            seen_message_ids.add(reply_id)
+            appended = True
+
+        updates.append({
+            "task_id": task_id,
+            "state": state,
+            "reply": reply_text or None,
+            "appended": appended,
+        })
+
+    if all_completed:
+        await mgr.update_session_state(session_id, A2ATaskState.COMPLETED)
+
+    session = await mgr.get_session(session_id)
+    return {
+        "session": session.model_dump(mode="json"),
+        "updates": updates,
+        "all_completed": all_completed,
+    }
 
 
 # -- Remote agent card probe -----------------------------------------------

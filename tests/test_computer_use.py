@@ -31,10 +31,21 @@ def _fresh_manager():
 # 会话与动作
 # ---------------------------------------------------------------------------
 
+_NETWORK_ERR_MARKERS = ("net::ERR", "Timeout", "timeout", "ECONNRESET")
+
+
+def _skip_if_transient_network_error(step: dict):
+    """真实 Playwright 模式下，外网抖动（代理切换等）不是被测逻辑的失败。"""
+    err = step.get("error") or ""
+    if not step["success"] and any(m in err for m in _NETWORK_ERR_MARKERS):
+        pytest.skip(f"transient network error in real-browser mode: {err[:120]}")
+
+
 @pytest.mark.asyncio
 async def test_session_records_audit_steps():
     session = ComputerUseSession("cu-test")
     step = await session.act("navigate", {"url": "https://example.com"})
+    _skip_if_transient_network_error(step)
     assert step["success"] is True
     assert step["action"] == "navigate"
     assert len(session.steps) == 1
@@ -131,6 +142,7 @@ async def test_computer_use_api_flow():
         resp = await client.post(f"/api/computer-use/sessions/{sid}/act",
                                  json={"action": "navigate", "params": {"url": "https://example.com"}})
         assert resp.status_code == 200
+        _skip_if_transient_network_error(resp.json()["step"])
         assert resp.json()["step"]["success"] is True
 
         resp = await client.post(f"/api/computer-use/sessions/{sid}/plan",

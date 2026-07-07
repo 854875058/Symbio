@@ -35,6 +35,7 @@ class MessageSource(str, Enum):
     WECHAT = "wechat"
     FEISHU = "feishu"
     DINGTALK = "dingtalk"
+    A2A = "a2a"
 
 
 class Message(BaseModel):

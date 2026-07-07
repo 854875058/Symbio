@@ -441,3 +441,33 @@ async def fetch_remote_agent_card(
     except Exception:
         pass
     return None
+
+
+async def fetch_remote_task(
+    remote_url: str, task_id: str, timeout: int = 10
+) -> Optional[dict[str, Any]]:
+    """Fetch the current state of a task we previously sent to a remote agent.
+
+    Returns the remote task JSON（含 state/result）；不可达或 404 时返回 None。
+    """
+    endpoint = remote_url.rstrip("/") + f"/api/a2a/tasks/{task_id}"
+    try:
+        import aiohttp
+
+        async with aiohttp.ClientSession() as http_session:
+            async with http_session.get(
+                endpoint, timeout=aiohttp.ClientTimeout(total=timeout)
+            ) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+    except ImportError:
+        import urllib.request
+
+        try:
+            with urllib.request.urlopen(endpoint, timeout=timeout) as resp:
+                return json.loads(resp.read())
+        except Exception:
+            pass
+    except Exception:
+        pass
+    return None
