@@ -145,6 +145,8 @@ def _get_external_agent_controller():
     controller = ExternalAgentController(
         state_path=Path("data") / "external_agents.json",
         workspace_root=_project_root(),
+        # 工作台需要能把 agent 派到整机任意真实项目目录，故放开工作区边界。
+        allow_any_workspace=True,
     )
     app.state.external_agent_controller = controller
     return controller
@@ -867,6 +869,50 @@ async def health():
     from symbio import __version__ as _ver
 
     return {"status": "ok", "version": _ver}
+
+
+@app.get("/api/fs/dirs")
+async def browse_directories(path: str = Query("", description="要浏览的绝对目录；空则返回盘符/根")):
+    """服务端目录浏览：列出某目录下的子文件夹，供工作台选择工作区。
+
+    只列文件夹名，不读文件内容。path 为空时：Windows 返回可用盘符，其它平台返回根 /。
+    """
+    entries: list[dict[str, Any]] = []
+
+    # path 为空：给出起点（Windows 列盘符，POSIX 从根开始）
+    if not path:
+        if os.name == "nt":
+            import string
+
+            drives = [
+                f"{letter}:\\"
+                for letter in string.ascii_uppercase
+                if Path(f"{letter}:\\").exists()
+            ]
+            for drive in drives:
+                entries.append({"name": drive, "path": drive})
+            return {"path": "", "parent": None, "separator": os.sep, "entries": entries}
+        path = "/"
+
+    try:
+        current = Path(path).resolve()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"无效路径：{exc}")
+    if not current.exists() or not current.is_dir():
+        raise HTTPException(status_code=404, detail=f"目录不存在：{current}")
+
+    try:
+        for child in sorted(current.iterdir(), key=lambda p: p.name.lower()):
+            try:
+                if child.is_dir():
+                    entries.append({"name": child.name, "path": str(child)})
+            except (PermissionError, OSError):
+                continue  # 无权限的项跳过，不整体失败
+    except (PermissionError, OSError) as exc:
+        raise HTTPException(status_code=403, detail=f"无法读取目录：{exc}")
+
+    parent = str(current.parent) if current.parent != current else None
+    return {"path": str(current), "parent": parent, "separator": os.sep, "entries": entries}
 
 
 @app.get("/api/capabilities")

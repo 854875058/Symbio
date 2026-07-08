@@ -181,9 +181,13 @@ class ExternalAgentController:
         state_path: str | Path = Path("data") / "external_agents.json",
         workspace_root: str | Path = ".",
         providers: list[ExternalAgentProvider] | None = None,
+        allow_any_workspace: bool = False,
     ) -> None:
         self.state_path = Path(state_path)
         self.workspace_root = Path(workspace_root).resolve()
+        # 开启后允许工作区指向整机任意绝对目录（工作台派活到真实项目用）；
+        # 关闭时（默认）仍限制在 workspace_root 内，保持既有安全边界与测试行为。
+        self.allow_any_workspace = allow_any_workspace
         self.providers: dict[str, ExternalAgentProvider] = {
             provider.provider_id: provider
             for provider in (providers if providers is not None else discover_external_agent_providers())
@@ -291,7 +295,7 @@ class ExternalAgentController:
         if not path.is_absolute():
             path = self.workspace_root / path
         resolved = path.resolve()
-        if not _is_relative_to(resolved, self.workspace_root):
+        if not self.allow_any_workspace and not _is_relative_to(resolved, self.workspace_root):
             raise ValueError(f"Workspace is outside Symbio workspace root: {resolved}")
         resolved.mkdir(parents=True, exist_ok=True)
         return resolved

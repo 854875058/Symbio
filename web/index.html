@@ -930,7 +930,8 @@
               <option value="claude-code">claude-code</option>
               <option value="codex">codex</option>
             </select>
-            <input class="select-input" id="wb-workspace" type="text" placeholder="工作区（默认 .）" style="width:160px">
+            <input class="select-input" id="wb-workspace" type="text" placeholder="工作区（默认 .，或点浏览选文件夹）" style="width:220px">
+            <button class="btn-outline" id="wb-browse" type="button" title="浏览并选择工作区文件夹">📁 浏览</button>
             <button class="btn-primary" id="wb-new-task" type="button">+ 新任务窗格</button>
             <select class="select-input" id="wb-transcript" title="选择一个已有会话来接管"></select>
             <button class="btn-outline" id="wb-attach" type="button">+ 接管该会话</button>
@@ -1564,6 +1565,22 @@
   </div>
 
   <div class="toast-container" id="toast-container"></div>
+
+  <!-- 工作区目录选择弹窗（服务端目录浏览） -->
+  <div class="dirpicker-overlay" id="dirpicker-overlay" style="display:none;">
+    <div class="dirpicker-modal">
+      <div class="dirpicker-head">
+        <span class="dirpicker-title">选择工作区文件夹</span>
+        <button class="dirpicker-close" id="dirpicker-close" type="button">✕</button>
+      </div>
+      <div class="dirpicker-path" id="dirpicker-path" title="当前目录">—</div>
+      <div class="dirpicker-list" id="dirpicker-list"></div>
+      <div class="dirpicker-foot">
+        <span class="dirpicker-hint">双击进入子目录，点「选此目录」确认</span>
+        <button class="btn-primary" id="dirpicker-select" type="button">选此目录</button>
+      </div>
+    </div>
+  </div>
 
   <script src="/static/app.js"></script>
 </body>

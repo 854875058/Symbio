@@ -6082,6 +6082,11 @@ function wbWireOnce() {
   $('#wb-attach')?.addEventListener('click', wbAttachPane);
   // provider 下拉切换时，接管会话下拉联动只显示对应 provider 的会话
   $('#wb-provider')?.addEventListener('change', wbRenderTranscriptOptions);
+  // 浏览按钮：打开服务端目录选择弹窗，选中后回填到工作区输入框
+  $('#wb-browse')?.addEventListener('click', () => openDirPicker((abs) => {
+    const input = $('#wb-workspace');
+    if (input) input.value = abs;
+  }));
   const grid = $('#wb-grid');
   grid?.addEventListener('keydown', (e) => {
     const input = e.target.closest('.wb-pane-input');
@@ -6100,6 +6105,78 @@ function wbWireOnce() {
   grid?.addEventListener('click', (e) => {
     const close = e.target.closest('.wb-pane-close');
     if (close) wbClosePane(close.dataset.pane);
+  });
+}
+
+// ============ 目录选择弹窗（服务端目录浏览）============
+const dirPicker = { current: '', onSelect: null, wired: false };
+
+function openDirPicker(onSelect) {
+  dirPicker.onSelect = onSelect;
+  dirPickerWireOnce();
+  const overlay = $('#dirpicker-overlay');
+  if (overlay) overlay.style.display = 'flex';
+  // 从工作区输入框已有值所在目录起步；否则从盘符/根起步
+  const start = ($('#wb-workspace')?.value || '').trim();
+  dirPickerLoad(start && start !== '.' ? start : '');
+}
+
+function closeDirPicker() {
+  const overlay = $('#dirpicker-overlay');
+  if (overlay) overlay.style.display = 'none';
+}
+
+async function dirPickerLoad(path) {
+  const list = $('#dirpicker-list');
+  const pathEl = $('#dirpicker-path');
+  if (list) list.innerHTML = '<div class="dirpicker-loading">加载中…</div>';
+  try {
+    const res = await fetch(`${API}/fs/dirs?path=${encodeURIComponent(path || '')}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    dirPicker.current = data.path || '';
+    if (pathEl) pathEl.textContent = data.path || '（选择一个盘符/根目录）';
+    dirPickerRender(data);
+  } catch (e) {
+    if (list) list.innerHTML = `<div class="dirpicker-loading">加载失败：${esc(e.message)}</div>`;
+  }
+}
+
+function dirPickerRender(data) {
+  const list = $('#dirpicker-list');
+  if (!list) return;
+  const rows = [];
+  if (data.parent !== null && data.parent !== undefined) {
+    rows.push(`<div class="dirpicker-item dirpicker-up" data-path="${esc(data.parent)}">📂 .. （上一级）</div>`);
+  }
+  (data.entries || []).forEach((e) => {
+    rows.push(`<div class="dirpicker-item" data-path="${esc(e.path)}">📁 ${esc(e.name)}</div>`);
+  });
+  list.innerHTML = rows.length ? rows.join('') : '<div class="dirpicker-loading">（此目录下无子文件夹）</div>';
+  list.querySelectorAll('.dirpicker-item').forEach((el) => {
+    // 双击进入；单击仅高亮（选中当前浏览目录仍用「选此目录」）
+    el.addEventListener('dblclick', () => dirPickerLoad(el.dataset.path));
+    el.addEventListener('click', () => {
+      list.querySelectorAll('.dirpicker-item').forEach((x) => x.classList.remove('active'));
+      el.classList.add('active');
+    });
+  });
+}
+
+function dirPickerWireOnce() {
+  if (dirPicker.wired) return;
+  dirPicker.wired = true;
+  $('#dirpicker-close')?.addEventListener('click', closeDirPicker);
+  $('#dirpicker-overlay')?.addEventListener('click', (e) => {
+    if (e.target.id === 'dirpicker-overlay') closeDirPicker();
+  });
+  $('#dirpicker-select')?.addEventListener('click', () => {
+    // 优先取高亮的子目录，否则取当前浏览目录
+    const active = $('#dirpicker-list .dirpicker-item.active:not(.dirpicker-up)');
+    const chosen = active ? active.dataset.path : dirPicker.current;
+    if (!chosen) { toast('error', '未选择', '请先进入或选中一个目录'); return; }
+    if (dirPicker.onSelect) dirPicker.onSelect(chosen);
+    closeDirPicker();
   });
 }
 
