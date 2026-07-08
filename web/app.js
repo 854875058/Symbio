@@ -18,10 +18,11 @@ const state = {
   memories: [],
   ontologyGraph: { stats: {}, nodes: [], edges: [] },
   ontologySelection: null,
+  ontologySim: null,   // Obsidian 风格力导向仿真运行态（见 renderOntologyGraph）
   skills: [],
   skillDetail: null,
   skillMode: 'local',
-  marketplace: { packages: [], stats: {}, installed: [], categories: [] },
+  marketplace: { packages: [], stats: {}, installed: [], categories: [], remoteAutoLoaded: false },
   tokens: { input: 0, output: 0, total: 0 },
   cost: 0,
   connected: false,
@@ -2509,39 +2510,93 @@ function renderOntologySummary(view) {
   `;
 }
 
-function chunkItems(items, size) {
-  const chunks = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
+
+// ===== Obsidian 风格力导向仿真（纯手写，无外部依赖，随服务器分发离线可用）=====
+// 斥力（节点互斥）+ 弹簧（边拉拢）+ 向心力（防飘散），requestAnimationFrame 迭代收敛。
+function computeNodeDegrees(nodes, edges) {
+  const deg = {};
+  nodes.forEach((n) => { deg[n.id] = 0; });
+  edges.forEach((e) => {
+    if (deg[e.source] !== undefined) deg[e.source] += 1;
+    if (deg[e.target] !== undefined) deg[e.target] += 1;
+  });
+  return deg;
 }
 
-function layoutOntologyNodes(nodes) {
-  const shellWidth = dom.ontologyGraph?.parentElement?.clientWidth || 1200;
-  const width = Math.max(960, shellWidth - 24);
-  const rowCapacity = Math.max(2, Math.floor((width - 120) / 190));
-  const grouped = {
-    concept: nodes.filter((node) => node.category === 'concept'),
-    individual: nodes.filter((node) => node.category === 'individual'),
-  };
-  const positions = {};
-  let y = 84;
+// 节点半径按连接度：连得越多越大，这是 Obsidian 图谱的招牌观感。
+function ontologyNodeRadius(degree) {
+  return Math.min(30, 8 + Math.sqrt(degree || 0) * 5);
+}
 
-  for (const key of ['concept', 'individual']) {
-    const rows = chunkItems(grouped[key], rowCapacity);
-    if (rows.length === 0) continue;
-    for (const row of rows) {
-      const gap = width / (row.length + 1);
-      row.forEach((node, index) => {
-        positions[node.id] = { x: gap * (index + 1), y };
-      });
-      y += 138;
+function createOntologySim(nodes, edges, width, height) {
+  const degrees = computeNodeDegrees(nodes, edges);
+  const cx = width / 2;
+  const cy = height / 2;
+  // 初始位置：圆周撒开，避免全叠在中心导致初期抖动
+  const simNodes = nodes.map((node, i) => {
+    const angle = (i / Math.max(1, nodes.length)) * Math.PI * 2;
+    const ring = 120 + (i % 5) * 40;
+    return {
+      ...node,
+      degree: degrees[node.id] || 0,
+      radius: ontologyNodeRadius(degrees[node.id]),
+      x: cx + Math.cos(angle) * ring,
+      y: cy + Math.sin(angle) * ring,
+      vx: 0, vy: 0, fixed: false,
+    };
+  });
+  const index = new Map(simNodes.map((n) => [n.id, n]));
+  const simEdges = edges
+    .map((e) => ({ ...e, s: index.get(e.source), t: index.get(e.target) }))
+    .filter((e) => e.s && e.t);
+  return { nodes: simNodes, edges: simEdges, index, cx, cy, alpha: 1 };
+}
+
+// 单步物理：库仑斥力 + 胡克弹簧 + 向心回拉 + 速度阻尼。
+function tickOntologySim(sim) {
+  const { nodes, edges, cx, cy } = sim;
+  const REPULSION = 5200;    // 节点互斥强度
+  const SPRING = 0.02;       // 边弹簧劲度
+  const SPRING_LEN = 90;     // 边自然长度
+  const CENTER = 0.012;      // 向心力
+  const DAMPING = 0.82;      // 阻尼
+
+  for (let i = 0; i < nodes.length; i++) {
+    const a = nodes[i];
+    for (let j = i + 1; j < nodes.length; j++) {
+      const b = nodes[j];
+      let dx = a.x - b.x;
+      let dy = a.y - b.y;
+      let d2 = dx * dx + dy * dy;
+      if (d2 < 0.01) { d2 = 0.01; dx = Math.random() - 0.5; dy = Math.random() - 0.5; }
+      const dist = Math.sqrt(d2);
+      const force = REPULSION / d2;
+      const fx = (dx / dist) * force;
+      const fy = (dy / dist) * force;
+      a.vx += fx; a.vy += fy;
+      b.vx -= fx; b.vy -= fy;
     }
-    y += 42;
   }
-
-  return { positions, width, height: Math.max(360, y) };
+  edges.forEach((e) => {
+    const dx = e.t.x - e.s.x;
+    const dy = e.t.y - e.s.y;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
+    const force = (dist - SPRING_LEN) * SPRING;
+    const fx = (dx / dist) * force;
+    const fy = (dy / dist) * force;
+    e.s.vx += fx; e.s.vy += fy;
+    e.t.vx -= fx; e.t.vy -= fy;
+  });
+  nodes.forEach((n) => {
+    if (n.fixed) { n.vx = 0; n.vy = 0; return; }
+    n.vx += (cx - n.x) * CENTER;
+    n.vy += (cy - n.y) * CENTER;
+    n.vx *= DAMPING;
+    n.vy *= DAMPING;
+    n.x += n.vx;
+    n.y += n.vy;
+  });
+  sim.alpha *= 0.985;
 }
 
 function edgeStrokeClass(edge) {
@@ -2557,8 +2612,17 @@ function compactOntologyLabel(text, limit = 16) {
   return `${value.slice(0, limit - 3)}...`;
 }
 
+// 停掉上一轮仿真的动画循环，避免多次进入页面叠加多个 rAF。
+function stopOntologySim() {
+  if (state.ontologySim && state.ontologySim.raf) {
+    cancelAnimationFrame(state.ontologySim.raf);
+    state.ontologySim.raf = null;
+  }
+}
+
 function renderOntologyGraph(view) {
   if (!dom.ontologyGraph || !dom.ontologyEmpty) return;
+  stopOntologySim();
 
   if (view.nodes.length === 0) {
     dom.ontologyGraph.innerHTML = '';
@@ -2566,61 +2630,197 @@ function renderOntologyGraph(view) {
     dom.ontologyEmpty.style.display = 'flex';
     return;
   }
-
   dom.ontologyEmpty.style.display = 'none';
 
-  const { positions, width, height } = layoutOntologyNodes(view.nodes);
-  const selectedId = state.ontologySelection;
   const visibleNodeIds = new Set(view.nodes.map((node) => node.id));
-  if (selectedId && !visibleNodeIds.has(selectedId)) {
+  if (state.ontologySelection && !visibleNodeIds.has(state.ontologySelection)) {
     state.ontologySelection = null;
   }
 
-  const edgeMarkup = view.edges.map((edge) => {
-    const source = positions[edge.source];
-    const target = positions[edge.target];
-    if (!source || !target) return '';
-    const midX = (source.x + target.x) / 2;
-    const midY = (source.y + target.y) / 2;
-    return `
-      <g class="ontology-edge-group">
-        <line
-          x1="${source.x}"
-          y1="${source.y}"
-          x2="${target.x}"
-          y2="${target.y}"
-          class="ontology-edge-line ${edgeStrokeClass(edge)}"
-        ></line>
-        <text x="${midX}" y="${midY - 8}" class="ontology-edge-label">${esc(edge.label || edge.relation_type || '')}</text>
-      </g>
-    `;
-  }).join('');
-
-  const nodeMarkup = view.nodes.map((node) => {
-    const pos = positions[node.id];
-    const selected = node.id === state.ontologySelection;
-    const label = compactOntologyLabel(node.label);
-    return `
-      <g class="ontology-node-group ${selected ? 'selected' : ''}" data-node-id="${node.id}" transform="translate(${pos.x}, ${pos.y})">
-        <circle r="34" class="ontology-node-circle ontology-node-${node.category}"></circle>
-        <text class="ontology-node-type" y="-10">${node.category === 'concept' ? '概念' : '个体'}</text>
-        <text class="ontology-node-label" y="12">${esc(label)}</text>
-      </g>
-    `;
-  }).join('');
-
+  const shell = dom.ontologyGraph.parentElement;
+  const width = Math.max(640, shell?.clientWidth || 960);
+  const height = Math.max(420, shell?.clientHeight || 560);
   dom.ontologyGraph.setAttribute('viewBox', `0 0 ${width} ${height}`);
-  dom.ontologyGraph.innerHTML = `
-    <g class="ontology-layer ontology-layer-edges">${edgeMarkup}</g>
-    <g class="ontology-layer ontology-layer-nodes">${nodeMarkup}</g>
-  `;
 
-  dom.ontologyGraph.querySelectorAll('.ontology-node-group').forEach((nodeEl) => {
-    nodeEl.addEventListener('click', () => {
-      state.ontologySelection = nodeEl.dataset.nodeId;
-      renderOntology();
-    });
+  const sim = createOntologySim(view.nodes, view.edges, width, height);
+  // 邻接表：悬停高亮时快速判断谁是选中/悬停节点的直接邻居。
+  const neighbors = new Map(sim.nodes.map((n) => [n.id, new Set()]));
+  sim.edges.forEach((e) => {
+    neighbors.get(e.s.id)?.add(e.t.id);
+    neighbors.get(e.t.id)?.add(e.s.id);
   });
+
+  // 视图变换（缩放/平移）挂在最外层 <g> 上
+  const viewState = { k: 1, tx: 0, ty: 0 };
+  dom.ontologyGraph.innerHTML = `
+    <g class="ontology-viewport">
+      <g class="ontology-layer ontology-layer-edges"></g>
+      <g class="ontology-layer ontology-layer-nodes"></g>
+    </g>`;
+  const viewport = dom.ontologyGraph.querySelector('.ontology-viewport');
+  const edgeLayer = dom.ontologyGraph.querySelector('.ontology-layer-edges');
+  const nodeLayer = dom.ontologyGraph.querySelector('.ontology-layer-nodes');
+
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  const edgeEls = sim.edges.map((edge) => {
+    const line = document.createElementNS(SVGNS, 'line');
+    line.setAttribute('class', `ontology-edge-line ${edgeStrokeClass(edge)}`);
+    edgeLayer.appendChild(line);
+    return { edge, line };
+  });
+  const nodeEls = sim.nodes.map((node) => {
+    const g = document.createElementNS(SVGNS, 'g');
+    g.setAttribute('class', `ontology-node-group ontology-node-${node.category}`);
+    g.dataset.nodeId = node.id;
+    const circle = document.createElementNS(SVGNS, 'circle');
+    circle.setAttribute('r', String(node.radius));
+    circle.setAttribute('class', 'ontology-node-circle');
+    const label = document.createElementNS(SVGNS, 'text');
+    label.setAttribute('class', 'ontology-node-label');
+    label.setAttribute('y', String(node.radius + 13));
+    label.textContent = compactOntologyLabel(node.label);
+    g.appendChild(circle);
+    g.appendChild(label);
+    nodeLayer.appendChild(g);
+    return { node, g };
+  });
+
+  function applyViewTransform() {
+    viewport.setAttribute('transform', `translate(${viewState.tx}, ${viewState.ty}) scale(${viewState.k})`);
+  }
+  function paint() {
+    edgeEls.forEach(({ edge, line }) => {
+      line.setAttribute('x1', edge.s.x); line.setAttribute('y1', edge.s.y);
+      line.setAttribute('x2', edge.t.x); line.setAttribute('y2', edge.t.y);
+    });
+    nodeEls.forEach(({ node, g }) => {
+      g.setAttribute('transform', `translate(${node.x}, ${node.y})`);
+      g.classList.toggle('selected', node.id === state.ontologySelection);
+    });
+  }
+
+  // 悬停高亮：非邻居节点+边淡出
+  function applyHighlight(focusId) {
+    if (!focusId) {
+      nodeEls.forEach(({ g }) => g.classList.remove('dimmed', 'highlight'));
+      edgeEls.forEach(({ line }) => line.classList.remove('dimmed', 'highlight'));
+      return;
+    }
+    const near = neighbors.get(focusId) || new Set();
+    nodeEls.forEach(({ node, g }) => {
+      const on = node.id === focusId || near.has(node.id);
+      g.classList.toggle('highlight', on);
+      g.classList.toggle('dimmed', !on);
+    });
+    edgeEls.forEach(({ edge, line }) => {
+      const on = edge.s.id === focusId || edge.t.id === focusId;
+      line.classList.toggle('highlight', on);
+      line.classList.toggle('dimmed', !on);
+    });
+  }
+
+  ontologyWireInteractions(dom.ontologyGraph, sim, nodeEls, viewState, applyViewTransform, applyHighlight, paint);
+
+  // 仿真主循环：迭代到能量足够低就停，省电。
+  const runSim = () => {
+    for (let s = 0; s < 2; s++) tickOntologySim(sim);
+    paint();
+    if (sim.alpha > 0.02) {
+      state.ontologySim.raf = requestAnimationFrame(runSim);
+    } else {
+      state.ontologySim.raf = null;
+    }
+  };
+  state.ontologySim = { sim, raf: null };
+  applyViewTransform();
+  runSim();
+}
+
+// 缩放/平移/拖拽节点/悬停 的事件绑定
+function ontologyWireInteractions(svg, sim, nodeEls, viewState, applyViewTransform, applyHighlight, paint) {
+  const nodeById = new Map(nodeEls.map(({ node, g }) => [node.id, { node, g }]));
+
+  // 屏幕坐标 → 图坐标（考虑当前缩放/平移）
+  function toGraph(evt) {
+    const rect = svg.getBoundingClientRect();
+    const vb = svg.viewBox.baseVal;
+    const sx = (evt.clientX - rect.left) / rect.width * (vb.width || rect.width);
+    const sy = (evt.clientY - rect.top) / rect.height * (vb.height || rect.height);
+    return { x: (sx - viewState.tx) / viewState.k, y: (sy - viewState.ty) / viewState.k };
+  }
+
+  // 滚轮缩放（以光标为中心）
+  svg.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const rect = svg.getBoundingClientRect();
+    const vb = svg.viewBox.baseVal;
+    const px = (e.clientX - rect.left) / rect.width * (vb.width || rect.width);
+    const py = (e.clientY - rect.top) / rect.height * (vb.height || rect.height);
+    const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+    const k = Math.min(4, Math.max(0.25, viewState.k * factor));
+    viewState.tx = px - (px - viewState.tx) * (k / viewState.k);
+    viewState.ty = py - (py - viewState.ty) * (k / viewState.k);
+    viewState.k = k;
+    applyViewTransform();
+  }, { passive: false });
+
+  let drag = null;  // { type: 'node'|'pan', ... }
+  svg.addEventListener('pointerdown', (e) => {
+    const g = e.target.closest?.('.ontology-node-group');
+    if (g) {
+      const entry = nodeById.get(g.dataset.nodeId);
+      if (entry) {
+        entry.node.fixed = true;
+        drag = { type: 'node', entry, moved: false };
+        svg.setPointerCapture(e.pointerId);
+      }
+    } else {
+      drag = { type: 'pan', x: e.clientX, y: e.clientY, tx: viewState.tx, ty: viewState.ty, moved: false };
+      svg.setPointerCapture(e.pointerId);
+    }
+  });
+  svg.addEventListener('pointermove', (e) => {
+    if (!drag) {
+      // 无拖拽时：悬停高亮
+      const g = e.target.closest?.('.ontology-node-group');
+      applyHighlight(g ? g.dataset.nodeId : null);
+      return;
+    }
+    if (drag.type === 'node') {
+      const p = toGraph(e);
+      drag.entry.node.x = p.x; drag.entry.node.y = p.y;
+      drag.entry.node.vx = 0; drag.entry.node.vy = 0;
+      drag.moved = true;
+      sim.alpha = Math.max(sim.alpha, 0.3);
+      if (!state.ontologySim.raf) {
+        const kick = () => { for (let s = 0; s < 2; s++) tickOntologySim(sim); paint();
+          if (sim.alpha > 0.02) state.ontologySim.raf = requestAnimationFrame(kick); else state.ontologySim.raf = null; };
+        state.ontologySim.raf = requestAnimationFrame(kick);
+      }
+      paint();
+    } else {
+      viewState.tx = drag.tx + (e.clientX - drag.x);
+      viewState.ty = drag.ty + (e.clientY - drag.y);
+      drag.moved = true;
+      applyViewTransform();
+    }
+  });
+  const endDrag = (e) => {
+    if (!drag) return;
+    if (drag.type === 'node') {
+      drag.entry.node.fixed = false;
+      if (!drag.moved) {   // 没拖动=点击选中
+        state.ontologySelection = drag.entry.node.id;
+        renderOntologyDetail(getOntologyView());
+        paint();
+      }
+    }
+    try { svg.releasePointerCapture(e.pointerId); } catch (_) {}
+    drag = null;
+  };
+  svg.addEventListener('pointerup', endDrag);
+  svg.addEventListener('pointercancel', endDrag);
+  svg.addEventListener('pointerleave', () => applyHighlight(null));
 }
 
 function formatOntologyProperties(properties) {
@@ -2794,6 +2994,12 @@ function setSkillsMode(mode) {
   const query = dom.skillsSearch?.value.trim() || undefined;
   if (nextMode === 'marketplace') {
     loadMarketplace(query);
+    // 首次进入 Marketplace 自动拉一次官方 anthropics/skills 网络列表，
+    // 否则网络区一直空着，看起来像没接入。只自动拉一次，避免重复请求。
+    if (!state.marketplace.remoteAutoLoaded) {
+      state.marketplace.remoteAutoLoaded = true;
+      searchRemoteSkills();
+    }
   } else {
     loadSkills(query);
   }
@@ -2814,6 +3020,7 @@ async function loadMarketplace(query) {
       categories: data.categories || [],
       popularTags: data.popular_tags || [],
       total: data.total || 0,
+      remoteAutoLoaded: state.marketplace.remoteAutoLoaded,
     };
     renderMarketplace(query);
   } catch (e) {
@@ -2928,17 +3135,26 @@ async function searchRemoteSkills() {
   if (!box) return;
   const repo = ($('#remote-skill-repo')?.value || '').trim();
   const q = ($('#remote-skill-q')?.value || '').trim();
-  box.innerHTML = `<div class="empty-hint" style="padding:8px">正在从 GitHub 搜索…</div>`;
+  box.innerHTML = `<div class="empty-hint" style="padding:8px">正在从 GitHub 拉取 Skills…（默认官方 anthropics/skills）</div>`;
   try {
     const params = new URLSearchParams();
     if (q) params.set('q', q);
     if (repo) params.set('repo', repo);
-    const res = await fetch(`${API}/skills/marketplace/remote?${params.toString()}`);
+    // GitHub git-tree 走代理可能较慢，给 45s 超时避免无限转圈
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 45000);
+    let res;
+    try {
+      res = await fetch(`${API}/skills/marketplace/remote?${params.toString()}`, { signal: ctrl.signal });
+    } finally {
+      clearTimeout(timer);
+    }
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
     renderRemoteSkills(data.skills || [], data.repo);
   } catch (e) {
-    box.innerHTML = `<div class="empty-hint" style="padding:8px">搜索失败：${esc(e.message)}</div>`;
+    const msg = e.name === 'AbortError' ? '拉取超时（网络/代理较慢），可点「搜索网络」重试' : `搜索失败：${e.message}`;
+    box.innerHTML = `<div class="empty-hint" style="padding:8px">${esc(msg)}</div>`;
   }
 }
 
@@ -2966,10 +3182,15 @@ async function installRemoteSkill(skill, button) {
   if (!skill) return;
   const prev = button ? button.textContent : '';
   if (button) { button.disabled = true; button.textContent = '接入中…'; }
+  // 大技能（如 docx，含 scripts/references 多文件）逐个走 GitHub raw 拉取较慢，
+  // 给 180s 超时；超时不代表失败，服务端可能仍在拉，故文案区分对待。
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 180000);
   try {
     const res = await fetch(`${API}/skills/marketplace/remote/install`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ repo: skill.repo, path: skill.path, name: skill.name, ref: skill.ref || 'main', html_url: skill.html_url || '' }),
+      signal: ctrl.signal,
     });
     const data = await res.json();
     if (!res.ok || !data.success) throw new Error(data.detail || data.record?.error || `HTTP ${res.status}`);
@@ -2977,8 +3198,13 @@ async function installRemoteSkill(skill, button) {
     if (button) button.textContent = '已接入';
     await loadMarketplace(dom.skillsSearch?.value.trim() || undefined);
   } catch (e) {
-    toast('error', '接入失败', e.message);
+    const msg = e.name === 'AbortError'
+      ? '接入超时：该技能文件较多、网络较慢，服务端可能仍在拉取，稍后刷新市场看是否已装上'
+      : e.message;
+    toast('error', '接入失败', msg);
     if (button) { button.disabled = false; button.textContent = prev || '接入'; }
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -5646,7 +5872,6 @@ async function loadWorkbench() {
 }
 
 async function wbLoadTranscripts() {
-  const sel = $('#wb-transcript');
   try {
     const res = await fetch(`${API}/external-agents/transcripts`);
     const data = await res.json();
@@ -5654,12 +5879,22 @@ async function wbLoadTranscripts() {
   } catch (e) {
     state.workbench.transcripts = [];
   }
-  if (sel) {
-    const items = state.workbench.transcripts;
-    sel.innerHTML = items.length
-      ? items.map((t, i) => `<option value="${i}">${esc((t.provider || '') + ' · ' + (t.title || t.external_session_id || t.path))}</option>`).join('')
-      : `<option value="">（未发现可接管的会话）</option>`;
-  }
+  wbRenderTranscriptOptions();
+}
+
+// 接管会话下拉：按当前选中的 provider 过滤，只列出对应 provider 的会话。
+// option 的 value 用「全局 transcripts 数组下标」保持稳定，过滤后接管仍取得对。
+function wbRenderTranscriptOptions() {
+  const sel = $('#wb-transcript');
+  if (!sel) return;
+  const provider = $('#wb-provider')?.value || '';
+  const items = state.workbench.transcripts;
+  const matched = items
+    .map((t, i) => ({ t, i }))
+    .filter(({ t }) => !provider || t.provider === provider);
+  sel.innerHTML = matched.length
+    ? matched.map(({ t, i }) => `<option value="${i}">${esc((t.title || t.external_session_id || t.path))}</option>`).join('')
+    : `<option value="">（该 provider 下无可接管的会话）</option>`;
 }
 
 function wbGridCols(n) {
@@ -5845,6 +6080,8 @@ function wbWireOnce() {
   state.workbench.wired = true;
   $('#wb-new-task')?.addEventListener('click', wbCreateNewPane);
   $('#wb-attach')?.addEventListener('click', wbAttachPane);
+  // provider 下拉切换时，接管会话下拉联动只显示对应 provider 的会话
+  $('#wb-provider')?.addEventListener('change', wbRenderTranscriptOptions);
   const grid = $('#wb-grid');
   grid?.addEventListener('keydown', (e) => {
     const input = e.target.closest('.wb-pane-input');

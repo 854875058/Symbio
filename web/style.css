@@ -908,8 +908,8 @@ textarea::placeholder { color:var(--text-tertiary); }
 .ontology-graph-shell {
   position: relative;
   flex: 1;
-  min-height: 280px;
-  overflow: auto;
+  min-height: 460px;
+  overflow: hidden;               /* 缩放/平移在内部处理，不用滚动条 */
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -918,8 +918,28 @@ textarea::placeholder { color:var(--text-tertiary); }
 .ontology-graph {
   display: block;
   width: 100%;
-  min-width: 960px;
-  min-height: 360px;
+  height: 100%;
+  min-height: 460px;
+  cursor: grab;                   /* 空白处可拖动平移 */
+  touch-action: none;             /* 让 pointer 事件接管缩放/拖拽 */
+}
+
+.ontology-graph:active {
+  cursor: grabbing;
+}
+
+.ontology-graph-hint {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  font-size: 0.72rem;
+  color: var(--text-tertiary);
+  background: var(--bg-glass, rgba(255,255,255,0.6));
+  padding: 4px 10px;
+  border-radius: var(--radius-sm, 8px);
+  border: 1px solid var(--border);
+  pointer-events: none;
+  user-select: none;
 }
 
 .ontology-empty {
@@ -946,29 +966,30 @@ textarea::placeholder { color:var(--text-tertiary); }
 
 .ontology-edge-line {
   stroke-linecap: round;
-  stroke-width: 1.6;
+  stroke-width: 1.4;
+  transition: opacity 160ms ease, stroke-width 160ms ease;
 }
 
 .ontology-edge-relation {
-  stroke: rgba(96, 165, 250, 0.55);
+  stroke: var(--accent, #d97757);
+  opacity: 0.5;
 }
 
 .ontology-edge-structural {
-  stroke: rgba(255, 255, 255, 0.24);
+  stroke: var(--text-tertiary);
+  opacity: 0.4;
   stroke-dasharray: 5 5;
 }
 
 .ontology-edge-instance {
-  stroke: rgba(192, 132, 252, 0.48);
+  stroke: var(--amber, #c98a3c);
+  opacity: 0.45;
   stroke-dasharray: 3 5;
 }
 
-.ontology-edge-label {
-  fill: var(--text-tertiary);
-  font-size: 10px;
-  text-anchor: middle;
-  pointer-events: none;
-}
+/* 悬停高亮：非相关边淡出，相关边加粗提亮 */
+.ontology-edge-line.dimmed { opacity: 0.08; }
+.ontology-edge-line.highlight { opacity: 0.95; stroke-width: 2.4; }
 
 .ontology-node-group {
   cursor: pointer;
@@ -976,45 +997,40 @@ textarea::placeholder { color:var(--text-tertiary); }
 
 .ontology-node-circle {
   stroke-width: 2;
-  transition: transform 160ms ease, stroke 160ms ease, fill 160ms ease;
+  transition: opacity 160ms ease, stroke 160ms ease, fill 160ms ease;
 }
 
-.ontology-node-group:hover .ontology-node-circle,
+/* 类别配色：概念=暖橙主色，个体=暖金次色（走 CSS 变量，暖色浅底） */
+.ontology-node-concept .ontology-node-circle {
+  fill: color-mix(in srgb, var(--accent, #d97757) 18%, transparent);
+  stroke: var(--accent, #d97757);
+}
+
+.ontology-node-individual .ontology-node-circle {
+  fill: color-mix(in srgb, var(--amber, #c98a3c) 18%, transparent);
+  stroke: var(--amber, #c98a3c);
+}
+
 .ontology-node-group.selected .ontology-node-circle {
-  transform: scale(1.04);
+  stroke: var(--green, #6a994e);
+  fill: color-mix(in srgb, var(--green, #6a994e) 20%, transparent);
+  stroke-width: 3;
 }
 
-.ontology-node-concept {
-  fill: rgba(96, 165, 250, 0.14);
-  stroke: rgba(96, 165, 250, 0.72);
+.ontology-node-group.highlight .ontology-node-circle {
+  stroke-width: 3;
 }
 
-.ontology-node-individual {
-  fill: rgba(192, 132, 252, 0.14);
-  stroke: rgba(192, 132, 252, 0.7);
-}
+.ontology-node-group.dimmed { opacity: 0.22; }
+.ontology-node-group.dimmed .ontology-node-label { opacity: 0; }
 
-.ontology-node-group.selected .ontology-node-concept,
-.ontology-node-group.selected .ontology-node-individual {
-  stroke: var(--green);
-  fill: rgba(52, 211, 153, 0.14);
-}
-
-.ontology-node-type,
 .ontology-node-label {
   text-anchor: middle;
   pointer-events: none;
-}
-
-.ontology-node-type {
-  fill: var(--text-tertiary);
-  font-size: 10px;
-}
-
-.ontology-node-label {
   fill: var(--text-primary);
   font-size: 12px;
   font-weight: 600;
+  transition: opacity 160ms ease;
 }
 
 .ontology-detail {
