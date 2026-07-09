@@ -110,7 +110,8 @@ class SemanticCacheConfig(BaseModel):
     prompt_cache_enabled: bool = True                # 启用 Prompt Cache 整合
     stats_reset_interval_seconds: int = 86400        # 统计重置间隔（默认每天）
     local_embedding_fallback: bool = True            # 无 OpenAI key 时用本地 embedding（开箱即用）
-    local_embedding_dim: int = 256                   # 本地降级 embedding 维度
+    local_embedding_dim: int = 256                   # 字符哈希降级 embedding 维度
+    st_embedding_dim: int = 384                      # sentence-transformers 维度（all-MiniLM-L6-v2）
 
 
 # ---------------------------------------------------------------------------
@@ -834,20 +835,22 @@ class SemanticCacheEngine:
             return []
 
     def _probe_local_embedding_dim(self) -> int:
-        """在建表前定准本地 embedding 维度。
+        """在建表前定准本地 embedding 维度，**不加载模型**（避免构造即卡数秒）。
 
-        优先尝试加载 sentence-transformers（可用则维度为其真实维度，如 all-MiniLM
-        的 384），失败则退回字符哈希维度（local_embedding_dim，默认 256）。
-        加载成功的模型缓存到 self._st_model，供后续 _local_embedding 复用，不重复加载。
+        只探测 sentence-transformers 是否可 import：可用则采用其已知维度
+        （all-MiniLM-L6-v2 = 384，见 st_embedding_dim 配置），模型权重推迟到首次
+        _local_embedding 时才惰性加载；不可用则退回字符哈希维度（默认 256）。
+
+        之前这里直接 SentenceTransformer(...) 加载整个模型，导致每次构造
+        SemanticCacheEngine 都卡 6~27s（生产/测试都受害）。改为惰性加载修复。
         """
-        try:
-            from sentence_transformers import SentenceTransformer
+        import importlib.util
 
-            self._st_model = SentenceTransformer("all-MiniLM-L6-v2")
-            return int(self._st_model.get_sentence_embedding_dimension())
-        except Exception:
-            self._st_model = False  # 标记不可用，_local_embedding 直接走哈希
-            return self._config.local_embedding_dim
+        if importlib.util.find_spec("sentence_transformers") is not None:
+            self._st_model = None  # None=待加载；首次 encode 时才真正 load
+            return int(self._config.st_embedding_dim)
+        self._st_model = False  # 标记不可用，_local_embedding 直接走哈希
+        return self._config.local_embedding_dim
 
     def _local_embedding(self, text: str) -> list[float]:
         """本地降级 embedding（无需外部 API）。
