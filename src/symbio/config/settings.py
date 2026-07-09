@@ -186,6 +186,19 @@ class OtelConfig(BaseSettings):
     model_config = {"env_prefix": "SYMBIO_OTEL_"}
 
 
+class DistributedConfig(BaseSettings):
+    """分布式执行（Ray Actor 池）配置。默认关闭，不影响单机部署。"""
+
+    use_ray: bool = Field(default=False, description="启用 Ray Actor 池跨进程执行子任务")
+    ray_address: Optional[str] = Field(
+        default=None,
+        description="Ray 集群地址；None 表示本地自动起集群，'auto'/'ray://host:port' 连已有集群",
+    )
+    num_workers: int = Field(default=4, description="Ray Actor 池 worker 数")
+
+    model_config = {"env_prefix": "SYMBIO_DISTRIBUTED_"}
+
+
 class Settings(BaseSettings):
     """Root configuration."""
 
@@ -207,6 +220,7 @@ class Settings(BaseSettings):
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     wechat: WeChatConfig = Field(default_factory=WeChatConfig)
     otel: OtelConfig = Field(default_factory=OtelConfig)
+    distributed: DistributedConfig = Field(default_factory=DistributedConfig)
 
     model_config = {"env_prefix": "SYMBIO_"}
 

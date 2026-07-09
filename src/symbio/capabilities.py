@@ -260,14 +260,17 @@ CAPABILITY_ITEMS: tuple[CapabilityItem, ...] = (
     {
         "id": "ray_actor_runtime",
         "module": "distributed",
-        "claim": "Concurrent SubAgent execution via asyncio. Ray-native actor dispatch is roadmap-only and NOT yet implemented (no Ray code in the runtime).",
-        "status": "partial",
+        "claim": "Real Ray Actor pool for cross-process SubAgent execution: submit / gather / cancel / shutdown, agents rebuilt in workers by name (no client serialization), wired into SubAgentManager behind a config flag; asyncio fallback when Ray is off/unavailable. Verified on a real local Ray cluster (tasks proven to run in distinct worker PIDs); multi-machine cluster deployment not yet validated.",
+        "status": "implemented",
         "evidence": [
+            "src/symbio/distributed/ray_runtime.py",
             "src/symbio/agents/subagent.py",
-            "pyproject.toml",
+            "src/symbio/core/orchestrator.py",
+            "src/symbio/config/settings.py",
+            "tests/test_ray_runtime.py",
         ],
         "docs": ["README.md", "docs/module-design-whitepaper.md"],
-        "next_step": "Implement real Ray actor submission/result collection/cancellation, or drop the distributed claim and present this as asyncio concurrency only.",
+        "next_step": "Validate a real multi-machine Ray cluster deployment and add per-actor load-aware scheduling beyond round-robin.",
     },
     {
         "id": "a2a_protocol",

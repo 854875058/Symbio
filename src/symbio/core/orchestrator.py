@@ -80,7 +80,11 @@ class Orchestrator:
         self.event_bus = EventBus()
         self.registry = get_registry()
         self.decomposer = TaskDecomposer()
-        self.subagent_manager = SubAgentManager(self.registry, self.event_bus, self.rate_limiter)
+        self._ray_executor = self._maybe_build_ray_executor()
+        self.subagent_manager = SubAgentManager(
+            self.registry, self.event_bus, self.rate_limiter,
+            executor=self._ray_executor,
+        )
         self.debate_engine = DebateEngine(use_llm=True)
         self.memory_bridge = MemoryBridge()
         self.planner_reviewer = PlannerReviewerLoop()
@@ -91,6 +95,26 @@ class Orchestrator:
         self.tool_loader = ToolLazyLoader()
         self.dag_orchestrator = DAGOrchestrator(registry=self.registry)
         self._pending_hitl_tasks: dict[str, Task] = {}  # request_id -> Task
+
+    def _maybe_build_ray_executor(self):
+        """按配置构建 Ray 分布式执行器；未开启或 Ray 不可用则返回 None（走 asyncio）。"""
+        settings = get_settings()
+        dist = getattr(settings, "distributed", None)
+        if dist is None or not dist.use_ray:
+            return None
+        try:
+            from symbio.distributed import RayExecutor, ray_available
+
+            if not ray_available():
+                logger.warning("distributed.use_ray=True 但 Ray 未安装，回退 asyncio")
+                return None
+            executor = RayExecutor(address=dist.ray_address, num_workers=dist.num_workers)
+            executor.start()
+            logger.info("Ray 分布式执行器已启用")
+            return executor
+        except Exception as exc:
+            logger.warning(f"Ray 执行器启动失败，回退 asyncio: {exc}")
+            return None
 
     async def initialize_memory(self) -> None:
         """初始化记忆系统（在首次处理消息时调用）"""

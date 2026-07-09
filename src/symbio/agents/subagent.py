@@ -12,9 +12,12 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from symbio.distributed import RayExecutor
 
 from symbio.agents.base import BaseAgent
 from symbio.agents.registry import AgentRegistry
@@ -86,10 +89,14 @@ class SubAgentManager:
         registry: AgentRegistry,
         event_bus: EventBus,
         rate_limiter: RateLimiter,
+        executor: Optional["RayExecutor"] = None,
     ) -> None:
         self.registry = registry
         self.event_bus = event_bus
         self.rate_limiter = rate_limiter
+        # 可选的分布式执行器（RayExecutor）。为 None 时组内并行走进程内 asyncio
+        # （默认、现有行为）；注入且可用时，组内子任务分发到 Ray Actor 池跨进程执行。
+        self._executor = executor
         self._active_subagents: dict[str, BaseAgent] = {}
         self._results: dict[str, SubAgentResult] = {}
 
@@ -124,18 +131,23 @@ class SubAgentManager:
             f"父任务={parent_task.task_id}, 分组数={len(execution_order)}"
         )
 
+        # 是否走 Ray 分布式：注入了 executor 且 Ray 可用才启用，否则回退 asyncio
+        use_ray = self._executor is not None and self._executor.available()
+
         # 逐组串行执行
         for group_idx, group in enumerate(execution_order):
             logger.debug(f"执行第 {group_idx + 1} 组: {group}")
-            coros = [
-                self._execute_single_subtask(
-                    subtask_map[sid],
-                    parent_task,
+            group_ids = [sid for sid in group if sid in subtask_map]
+            if use_ray:
+                await self._execute_group_on_ray(
+                    [subtask_map[sid] for sid in group_ids], parent_task
                 )
-                for sid in group
-                if sid in subtask_map
-            ]
-            await asyncio.gather(*coros)
+            else:
+                coros = [
+                    self._execute_single_subtask(subtask_map[sid], parent_task)
+                    for sid in group_ids
+                ]
+                await asyncio.gather(*coros)
 
         # 聚合结果
         aggregated = self._aggregate(parent_task.task_id)
@@ -261,6 +273,109 @@ class SubAgentManager:
             self._active_subagents.pop(subtask.subtask_id, None)
 
         self._results[subtask.subtask_id] = sub_result
+
+    # ------------------------------------------------------------------
+    # Ray 分布式组执行
+    # ------------------------------------------------------------------
+
+    async def _execute_group_on_ray(
+        self,
+        group: list[SubTask],
+        parent_task: Task,
+    ) -> None:
+        """把同组子任务分发到 Ray Actor 池跨进程并行执行。
+
+        与 asyncio 路径的差异：
+        - Agent 在 worker 进程内按 name 重建，主进程只传 (agent_name, task_dict)。
+        - EventBus 不可跨进程序列化，故 SPAWNED 事件在提交前于主进程补发，
+          COMPLETED/FAILED 事件在收集结果后于主进程补发——保持事件语义不变。
+        - 速率限制仍在主进程 acquire（提交即视为一次调用）。
+        """
+        submissions = []  # (subtask, agent_name, ref) 或 (subtask, agent_name, None, error)
+        for subtask in group:
+            agent = self._resolve_agent(subtask)
+            agent_name = agent.name if agent else "unknown"
+
+            await self._emit_event(
+                EventType.AGENT_SPAWNED,
+                {
+                    "subtask_id": subtask.subtask_id,
+                    "subtask_name": subtask.name,
+                    "agent_name": agent_name,
+                    "parent_task_id": parent_task.task_id,
+                },
+            )
+
+            if agent is None:
+                submissions.append((subtask, agent_name, None, "未找到合适的 Agent"))
+                continue
+
+            merged_context = self._build_context(subtask, parent_task)
+            task = Task(
+                intent=Intent(
+                    raw_text=subtask.description or subtask.name,
+                    action=subtask.action,
+                    parameters={**subtask.parameters, **merged_context},
+                ),
+                parent_task_id=parent_task.task_id,
+                metadata={
+                    "subtask_id": subtask.subtask_id,
+                    "subtask_name": subtask.name,
+                    "agent_type": subtask.suggested_agent,
+                },
+            )
+            await self.rate_limiter.acquire(task.model or "default")
+            ref = self._executor.submit(agent_name, task)
+            submissions.append((subtask, agent_name, ref, None))
+
+        # 收集所有已提交的 ObjectRef（gather 阻塞在线程池里跑，不卡事件循环）
+        refs = [s[2] for s in submissions if s[2] is not None]
+        outputs = await asyncio.to_thread(self._executor.gather, refs) if refs else []
+        out_iter = iter(outputs)
+
+        for subtask, agent_name, ref, pre_error in submissions:
+            start_ok = ref is not None and pre_error is None
+            if not start_ok:
+                sub_result = SubAgentResult(
+                    subtask_id=subtask.subtask_id,
+                    agent_name=agent_name,
+                    success=False,
+                    content="",
+                    error=pre_error or "提交失败",
+                )
+            else:
+                out = next(out_iter)
+                if out.get("ok"):
+                    rd = out["result"]
+                    sub_result = SubAgentResult(
+                        subtask_id=subtask.subtask_id,
+                        agent_name=agent_name,
+                        success=bool(rd.get("success", False)),
+                        content=rd.get("content", ""),
+                        token_usage=self._token_usage_to_dict(
+                            TokenUsage(**rd["token_usage"]) if rd.get("token_usage") else TokenUsage()
+                        ),
+                    )
+                else:
+                    sub_result = SubAgentResult(
+                        subtask_id=subtask.subtask_id,
+                        agent_name=agent_name,
+                        success=False,
+                        content="",
+                        error=out.get("error", "worker 执行失败"),
+                    )
+
+            evt = EventType.AGENT_COMPLETED if sub_result.success else EventType.AGENT_FAILED
+            payload = {
+                "subtask_id": subtask.subtask_id,
+                "agent_name": agent_name,
+                "success": sub_result.success,
+            }
+            if not sub_result.success and sub_result.error:
+                payload["error"] = sub_result.error
+            await self._emit_event(evt, payload)
+
+            self._results[subtask.subtask_id] = sub_result
 
     # ------------------------------------------------------------------
     # Agent 选择

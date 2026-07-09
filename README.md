@@ -135,8 +135,8 @@ symbio export --format sharegpt --output data/exports/train.jsonl
 | 数据飞轮（四阶段闭环） | ✅ 已实现 | 捕获/失效分析/SOP 蒸馏/反哺全通 + 真 LoRA SFT 训练后端（transformers+peft，真实 adapter 权重与 loss，缺依赖/GPU 回退桩）+ 后台任务 API 与网页提交监控 |
 | A2A 协议 | ✅ 已实现 | 动态 AgentCard、入站走编排器管线、出站 poll 闭环、跨进程真 HTTP 往返、SSE 流式、webhook 推送、Bearer 鉴权 |
 | 多模态视觉记忆 | ✅ 已实现 | Claude 视觉摄取管线（图片描述转可检索记忆）+ 聊天附件图片/PDF 自动摄取 + PDF/代码结构抽取 |
+| Ray Actor 运行时 | ✅ 已实现 | 真 Ray Actor 池跨进程执行子任务（提交/收集/取消/关闭，worker 内按名重建 Agent 免序列化 client），配置开关接进 SubAgentManager，Ray 关闭/缺失自动回退 asyncio；本机真集群实测任务跑在不同 worker 进程 PID，多机集群部署待验证 |
 | 沙箱与 K8s 路径 | 🔧 部分实现 | 本地工作区沙箱 + 真 Docker 容器隔离（断网/只读根/资源限额/引擎预检/孤儿清理）已具备；K8s pod 执行仍为桩，沙箱审计跨重启持久化待补 |
-| Ray Actor 运行时 | 🔧 部分实现 | 本地 fallback 已有，集群调度待产品化 |
 | **Computer Use 最小闭环** | 🔧 部分实现 | 会话/动作/截图/规划/审计/回放，待接 VLM 视觉规划 |
 | 隐私计算 / 联邦学习 | 📋 规划中 | 当前仅在路线图 |
 
