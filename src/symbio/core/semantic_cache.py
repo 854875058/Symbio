@@ -197,17 +197,22 @@ class SemanticCacheEngine:
         # 不同后端维度/语义不兼容，因此用不同表名隔离，避免向量混入同一索引。
         self._use_openai = bool(settings.model.openai_api_key)
         self._local_fallback = self._config.local_embedding_fallback
+        self._st_model = None  # sentence-transformers 模型缓存（若可用；False 表示不可用）
         if self._use_openai:
             self._embedding_backend = "openai"
             self._effective_dim = self._config.embedding_dim or 1536
         elif self._local_fallback:
             self._embedding_backend = "local"
-            self._effective_dim = self._config.local_embedding_dim
+            # 本地后端优先用 sentence-transformers（384 维），不可用才退字符哈希
+            # （local_embedding_dim，默认 256）。必须在建表前定准维度，否则 schema
+            # 用 256 建、ST 却产 384，写入会报 ArrowInvalid（维度不匹配）。
+            self._effective_dim = self._probe_local_embedding_dim()
         else:
             self._embedding_backend = "none"
             self._effective_dim = self._config.embedding_dim or 1536
-        self._config.table_name = f"{self._config.table_name}_{self._embedding_backend}"
-        self._st_model = None  # sentence-transformers 模型缓存（若可用）
+        # 表名带上后端与维度：不同维度的向量不能混进同一 FixedSizeList 索引，
+        # 用维度隔离避免 ST(384)/哈希(256) 切换时写入旧表报维度错。
+        self._config.table_name = f"{self._config.table_name}_{self._embedding_backend}_{self._effective_dim}"
 
         self._db: Optional[lancedb.DBConnection] = None
         self._table: Optional[lancedb.table.Table] = None
@@ -827,6 +832,22 @@ class SemanticCacheEngine:
         except Exception as e:
             logger.error(f"Embedding API 调用失败: {e}")
             return []
+
+    def _probe_local_embedding_dim(self) -> int:
+        """在建表前定准本地 embedding 维度。
+
+        优先尝试加载 sentence-transformers（可用则维度为其真实维度，如 all-MiniLM
+        的 384），失败则退回字符哈希维度（local_embedding_dim，默认 256）。
+        加载成功的模型缓存到 self._st_model，供后续 _local_embedding 复用，不重复加载。
+        """
+        try:
+            from sentence_transformers import SentenceTransformer
+
+            self._st_model = SentenceTransformer("all-MiniLM-L6-v2")
+            return int(self._st_model.get_sentence_embedding_dimension())
+        except Exception:
+            self._st_model = False  # 标记不可用，_local_embedding 直接走哈希
+            return self._config.local_embedding_dim
 
     def _local_embedding(self, text: str) -> list[float]:
         """本地降级 embedding（无需外部 API）。

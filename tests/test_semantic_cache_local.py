@@ -43,7 +43,9 @@ def test_backend_selection_without_key():
     if get_settings().model.openai_api_key:
         pytest.skip("环境配置了真实 embedding key")
     assert eng._embedding_backend == "local"
-    assert eng._config.table_name.endswith("_local")
+    # 表名格式为 <base>_<backend>_<dim>，维度随本地后端（ST 384 / 哈希 256）而定
+    assert f"_local_{eng._effective_dim}" in eng._config.table_name
+    assert eng._effective_dim in (256, 384)
 
 
 @pytest.mark.asyncio
