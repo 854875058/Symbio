@@ -5916,7 +5916,20 @@ function renderWorkbench() {
     return;
   }
   grid.style.gridTemplateColumns = `repeat(${wbGridCols(panes.length)}, minmax(0, 1fr))`;
-  grid.innerHTML = panes.map(p => `
+  grid.innerHTML = panes.map(p => {
+    if (p.mode === 'terminal') {
+      const kindLabel = { 'claude-code': 'claude 终端', 'codex': 'codex 终端', 'shell': 'shell 终端' }[p.termKind] || '终端';
+      return `
+    <div class="wb-pane wb-pane-terminal" data-pane="${p.id}">
+      <div class="wb-pane-head">
+        <span class="wb-pane-title">⌨ ${esc(kindLabel)}</span>
+        <span class="wb-pane-sub">${esc(p.subtitle || '')}</span>
+        <button class="wb-pane-close" data-pane="${p.id}" title="关闭窗格">✕</button>
+      </div>
+      <div class="wb-term-mount" data-term="${p.id}"></div>
+    </div>`;
+    }
+    return `
     <div class="wb-pane" data-pane="${p.id}">
       <div class="wb-pane-head">
         <span class="wb-pane-title">${esc(p.provider)} · ${p.mode === 'new' ? '新任务' : '接管'}</span>
@@ -5927,7 +5940,11 @@ function renderWorkbench() {
       <div class="wb-pane-compose">
         <textarea class="wb-pane-input" data-pane="${p.id}" rows="2" placeholder="给这个 agent 下任务，回车发送（Shift+Enter 换行）"${p.busy ? ' disabled' : ''}>${esc(p.draft || '')}</textarea>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
+
+  // 终端窗格：HTML 重建后把 xterm 实例（重新）挂进对应容器
+  panes.filter(p => p.mode === 'terminal').forEach(wbMountTerminal);
 }
 
 function wbStreamHtml(p) {
@@ -6068,11 +6085,102 @@ function wbStopPolling() {
 
 async function wbClosePane(paneId) {
   const p = wbPane(paneId);
+  // 终端窗格：关连接、销毁 xterm 实例，防泄漏
+  if (p && p.mode === 'terminal') {
+    try { p.ws?.close(); } catch (e) {}
+    try { p.term?.dispose(); } catch (e) {}
+    p.ws = null; p.term = null; p.fit = null;
+  }
   state.workbench.panes = state.workbench.panes.filter(x => x.id !== paneId);
   renderWorkbench();
   if (p && p.mode === 'attached' && p.liveId) {
     try { await fetch(`${API}/external-agents/live/${encodeURIComponent(p.liveId)}`, { method: 'DELETE' }); } catch (e) {}
   }
+}
+
+// ============ 工作台：交互式终端窗格 ============
+function wbCreateTerminalPane() {
+  if (typeof Terminal === 'undefined') {
+    toast('error', '终端不可用', 'xterm.js 未加载');
+    return;
+  }
+  const kind = $('#wb-term-kind')?.value || 'shell';
+  const workspace = ($('#wb-workspace')?.value || '.').trim() || '.';
+  state.workbench.seq += 1;
+  state.workbench.panes.push({
+    id: `pane-${state.workbench.seq}`, provider: kind, mode: 'terminal',
+    termKind: kind, subtitle: workspace, cwd: workspace,
+    term: null, fit: null, ws: null, started: false,
+  });
+  renderWorkbench();
+}
+
+// 把 xterm 挂进窗格容器并接 WebSocket（renderWorkbench 每次重建 DOM 后调用）
+function wbMountTerminal(p) {
+  const mount = document.querySelector(`.wb-term-mount[data-term="${p.id}"]`);
+  if (!mount) return;
+
+  // 首次：创建 xterm + fit + WS；重渲染：把已有实例重新 open 到新容器
+  if (!p.term) {
+    p.term = new Terminal({
+      cursorBlink: true,
+      fontFamily: 'JetBrains Mono, Consolas, monospace',
+      fontSize: 13,
+      theme: { background: '#1e1b18', foreground: '#e8e2d8', cursor: '#d97757' },
+      scrollback: 4000,
+    });
+    if (typeof FitAddon !== 'undefined' && FitAddon.FitAddon) {
+      p.fit = new FitAddon.FitAddon();
+      p.term.loadAddon(p.fit);
+    }
+  }
+
+  mount.innerHTML = '';
+  p.term.open(mount);
+  wbFitTerminal(p);
+
+  if (!p.started) {
+    p.started = true;
+    wbConnectTerminal(p);
+  }
+}
+
+function wbFitTerminal(p) {
+  try {
+    p.fit?.fit();
+    if (p.ws && p.ws.readyState === WebSocket.OPEN && p.term) {
+      p.ws.send(JSON.stringify({ type: 'resize', cols: p.term.cols, rows: p.term.rows }));
+    }
+  } catch (e) { /* 容器还没布局好，忽略 */ }
+}
+
+function wbConnectTerminal(p) {
+  const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${proto}://${window.location.host}/ws/terminal`);
+  p.ws = ws;
+  ws.onopen = () => {
+    ws.send(JSON.stringify({
+      type: 'start', kind: p.termKind, cwd: p.cwd,
+      cols: p.term?.cols || 100, rows: p.term?.rows || 30,
+    }));
+    // 键盘输入 → PTY
+    p.term.onData((data) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data }));
+    });
+  };
+  ws.onmessage = (evt) => {
+    let m;
+    try { m = JSON.parse(evt.data); } catch (e) { return; }
+    if (m.type === 'output') p.term.write(m.data);
+    else if (m.type === 'exit') p.term.write('\r\n\x1b[33m[进程已退出]\x1b[0m\r\n');
+    else if (m.type === 'error') p.term.write(`\r\n\x1b[31m[错误] ${m.message}\x1b[0m\r\n`);
+  };
+  ws.onclose = () => {
+    if (p.term) p.term.write('\r\n\x1b[90m[连接已断开]\x1b[0m\r\n');
+  };
+  ws.onerror = () => {
+    if (p.term) p.term.write('\r\n\x1b[31m[连接失败]\x1b[0m\r\n');
+  };
 }
 
 function wbWireOnce() {
@@ -6087,6 +6195,12 @@ function wbWireOnce() {
     const input = $('#wb-workspace');
     if (input) input.value = abs;
   }));
+  // 起终端按钮：开一个交互式 PTY 终端窗格
+  $('#wb-terminal')?.addEventListener('click', wbCreateTerminalPane);
+  // 窗口尺寸变化时，让所有终端窗格重新 fit
+  window.addEventListener('resize', () => {
+    state.workbench.panes.filter(p => p.mode === 'terminal').forEach(wbFitTerminal);
+  });
   const grid = $('#wb-grid');
   grid?.addEventListener('keydown', (e) => {
     const input = e.target.closest('.wb-pane-input');

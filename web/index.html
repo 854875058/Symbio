@@ -8,8 +8,12 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/xterm.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <script src="/static/qrcode.min.js"></script>
+  <!-- xterm.js 本地打包（不走 CDN，离线/内网可用） -->
+  <script src="/static/xterm.min.js"></script>
+  <script src="/static/xterm-addon-fit.min.js"></script>
 </head>
 <body>
   <div class="app">
@@ -933,6 +937,12 @@
             <input class="select-input" id="wb-workspace" type="text" placeholder="工作区（默认 .，或点浏览选文件夹）" style="width:220px">
             <button class="btn-outline" id="wb-browse" type="button" title="浏览并选择工作区文件夹">📁 浏览</button>
             <button class="btn-primary" id="wb-new-task" type="button">+ 新任务窗格</button>
+            <select class="select-input" id="wb-term-kind" title="终端里起什么">
+              <option value="claude-code">claude 终端</option>
+              <option value="codex">codex 终端</option>
+              <option value="shell">shell 终端</option>
+            </select>
+            <button class="btn-outline" id="wb-terminal" type="button" title="在窗格里起一个真交互终端">⌨ 起终端</button>
             <select class="select-input" id="wb-transcript" title="选择一个已有会话来接管"></select>
             <button class="btn-outline" id="wb-attach" type="button">+ 接管该会话</button>
             <span class="wb-count" id="wb-count">0 个窗格</span>

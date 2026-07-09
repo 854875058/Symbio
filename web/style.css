@@ -5037,6 +5037,18 @@ textarea::placeholder { color:var(--text-tertiary); }
 .wb-pane-compose textarea:focus { outline: none; border-color: var(--border-accent); }
 .wb-pane-compose textarea:disabled { opacity: 0.6; }
 
+/* 交互式终端窗格：深底容器承载 xterm */
+.wb-pane-terminal { background: #1e1b18; }
+.wb-term-mount {
+  flex: 1;
+  min-height: 0;
+  padding: 6px 4px 4px 8px;
+  overflow: hidden;
+  background: #1e1b18;
+}
+.wb-term-mount .xterm { height: 100%; }
+#wb-term-kind { max-width: 130px; }
+
 /* ===== External Agent: 实时双向会话 + 接力（批次17） ===== */
 .live-toggle {
   display: inline-flex; align-items: center; gap: 6px;

@@ -3726,6 +3726,110 @@ async def websocket_chat(websocket: WebSocket):
             pass
 
 
+# ============ 交互式终端 WebSocket ============
+
+def _terminal_client_allowed(websocket: WebSocket) -> bool:
+    """终端 WS 鉴权：默认只允许本机（环回）连接。
+
+    终端能在本机跑任意命令，blast radius 远大于聊天。默认仅 127.0.0.1/::1；
+    如需对外开放，设 SYMBIO_TERMINAL_ALLOW_REMOTE=1（需自担风险）。
+    """
+    if os.environ.get("SYMBIO_TERMINAL_ALLOW_REMOTE") == "1":
+        return True
+    client = websocket.client
+    host = client.host if client else ""
+    return host in ("127.0.0.1", "::1", "localhost", "::ffff:127.0.0.1")
+
+
+@app.websocket("/ws/terminal")
+async def websocket_terminal(websocket: WebSocket):
+    """在网页里起一个真 PTY 终端跑 claude-code / codex / shell。
+
+    协议（JSON 文本帧）：
+      客户端→服务端: {"type":"start","kind":"claude-code|codex|shell","cwd":".","cols":100,"rows":30}
+                     {"type":"input","data":"..."}         键盘输入
+                     {"type":"resize","cols":120,"rows":40} 尺寸变化
+      服务端→客户端: {"type":"output","data":"..."}         PTY 输出（含 ANSI）
+                     {"type":"exit"}                        子进程结束
+                     {"type":"error","message":"..."}       出错
+    """
+    from symbio.tools.terminal_session import TerminalSession, resolve_terminal_command
+
+    await websocket.accept()
+    if not _terminal_client_allowed(websocket):
+        await websocket.send_text(json.dumps({
+            "type": "error",
+            "message": "终端仅允许本机访问（设 SYMBIO_TERMINAL_ALLOW_REMOTE=1 可放开，风险自担）",
+        }))
+        await websocket.close()
+        return
+
+    session: "TerminalSession | None" = None
+    loop = asyncio.get_event_loop()
+    out_queue: "asyncio.Queue[str | None]" = asyncio.Queue()
+
+    async def pump_output() -> None:
+        """把 PTY 输出队列灌回 WebSocket，直到 EOF(None)。"""
+        while True:
+            chunk = await out_queue.get()
+            if chunk is None:
+                await websocket.send_text(json.dumps({"type": "exit"}))
+                return
+            await websocket.send_text(json.dumps({"type": "output", "data": chunk}))
+
+    pump_task: "asyncio.Task | None" = None
+    try:
+        while True:
+            raw = await websocket.receive_text()
+            try:
+                msg = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            mtype = msg.get("type")
+
+            if mtype == "start":
+                if session is not None:
+                    continue  # 已启动，忽略重复 start
+                kind = msg.get("kind", "shell")
+                cwd = msg.get("cwd") or None
+                cols = int(msg.get("cols", 100))
+                rows = int(msg.get("rows", 30))
+                try:
+                    command = resolve_terminal_command(kind)
+                except (ValueError, FileNotFoundError) as exc:
+                    await websocket.send_text(json.dumps({"type": "error", "message": str(exc)}))
+                    continue
+                session = TerminalSession(command, cwd=cwd, cols=cols, rows=rows)
+                try:
+                    session.start()
+                except Exception as exc:
+                    await websocket.send_text(json.dumps({"type": "error", "message": f"终端启动失败：{exc}"}))
+                    session = None
+                    continue
+                session.start_reader(loop, out_queue)
+                pump_task = asyncio.create_task(pump_output())
+
+            elif mtype == "input" and session is not None:
+                session.write(msg.get("data", ""))
+
+            elif mtype == "resize" and session is not None:
+                session.resize(int(msg.get("cols", 100)), int(msg.get("rows", 30)))
+
+    except WebSocketDisconnect:
+        logger.info("终端 WebSocket 断开")
+    except Exception as e:
+        logger.error(f"终端 WebSocket 错误: {e}")
+    finally:
+        if session is not None:
+            session.terminate()
+        if pump_task is not None:
+            pump_task.cancel()
+        try:
+            await websocket.close()
+        except Exception:
+            pass
+
+
 # ============ 静态文件 ============
 
 web_dir = _get_web_dir()
