@@ -6,8 +6,9 @@
 - 训练管理: 提交/查询/管理微调作业（支持 Ray Train 或本地 stub）
 - 指标追踪: 记录训练过程中的 loss、accuracy 等指标
 
-当 use_ray=True 且 Ray 可用时使用 Ray Train；否则回退到本地训练桩。
-实际训练循环为 stub，等待积累足够数据后接入真实训练。
+本地训练默认走真 LoRA SFT 后端（lora_trainer，transformers+peft，产出真实 adapter
+权重与 loss）；缺训练依赖或显式设 SYMBIO_FT_STUB=1 时回退到 stub（会在 job.metadata
+标注 backend=stub）。use_ray=True 且 Ray 可用时走 Ray（当前仍复用 stub 训练循环）。
 """
 
 from __future__ import annotations
@@ -175,6 +176,9 @@ class FineTuneJob(BaseModel):
     )
     output_path: Optional[str] = Field(
         default=None, description="产出模型路径"
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict, description="后端/adapter/参数量等附加信息"
     )
 
     @property
@@ -605,10 +609,71 @@ class OfflineFineTuner:
             self._start_local_training(job)
 
     def _start_local_training(self, job: FineTuneJob) -> None:
-        """使用本地训练桩。"""
+        """本地训练：优先真 LoRA 后端，缺依赖或 SYMBIO_FT_STUB=1 时回退 stub。"""
+        import os
+
+        if os.environ.get("SYMBIO_FT_STUB") == "1":
+            logger.info(f"SYMBIO_FT_STUB=1，使用训练桩: job_id={job.job_id}")
+            job.status = JobStatus.TRAINING
+            self._run_training_stub(job)
+            return
+        try:
+            self._run_real_lora_training(job)
+        except Exception as exc:
+            # 依赖缺失等可回退的场景走 stub（标注），其它真实训练错误照常置 FAILED
+            from symbio.evolution.lora_trainer import TrainingDependencyError
+
+            if isinstance(exc, TrainingDependencyError):
+                logger.warning(f"真训练依赖缺失，回退训练桩: {exc}")
+                job.metadata["backend"] = "stub"
+                job.metadata["stub_reason"] = str(exc)
+                job.status = JobStatus.TRAINING
+                self._run_training_stub(job)
+            else:
+                raise
+
+    def _run_real_lora_training(self, job: FineTuneJob) -> None:
+        """调用真 LoRA 训练后端，把真实 loss 回填到 job.metrics。"""
+        from symbio.evolution.lora_trainer import train_lora
+
+        cfg = job.config
         job.status = JobStatus.TRAINING
-        logger.info(f"本地训练桩已启动: job_id={job.job_id}")
-        self._run_training_stub(job)
+        job.metadata["backend"] = "lora"
+        logger.info(f"真 LoRA 训练启动: job_id={job.job_id}, model={cfg.model_name}")
+
+        def _on_step(record: dict) -> None:
+            job.metrics.append(TrainingMetrics(
+                step=record["step"],
+                epoch=record["epoch"],
+                loss=record["loss"],
+                learning_rate=record.get("learning_rate", cfg.learning_rate),
+            ))
+
+        result = train_lora(
+            base_model=cfg.model_name,
+            dataset_path=cfg.dataset_path,
+            output_dir=str(Path(cfg.output_dir) / f"lora_{job.job_id[:8]}"),
+            epochs=cfg.epochs,
+            learning_rate=cfg.learning_rate,
+            batch_size=cfg.batch_size,
+            max_seq_length=cfg.max_seq_length,
+            lora_rank=cfg.lora_rank,
+            lora_alpha=cfg.lora_alpha,
+            lora_dropout=cfg.lora_dropout,
+            on_step=_on_step,
+        )
+        job.status = JobStatus.COMPLETED
+        job.completed_at = datetime.now()
+        job.output_path = result.output_dir
+        job.metadata["adapter_files"] = result.adapter_files
+        job.metadata["trainable_params"] = result.trainable_params
+        job.metadata["total_params"] = result.total_params
+        if job.metrics:
+            job.best_metrics = min(job.metrics, key=lambda m: m.loss)
+        logger.info(
+            f"真 LoRA 训练完成: job_id={job.job_id}, final_loss={result.final_loss}, "
+            f"adapter={result.output_dir}"
+        )
 
     def _run_training_stub(self, job: FineTuneJob) -> None:
         """训练桩 — 记录意图，模拟指标，不执行真实训练。

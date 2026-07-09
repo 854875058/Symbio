@@ -133,7 +133,7 @@ symbio export --format sharegpt --output data/exports/train.jsonl
 | MCP 工具网关 | 🔧 部分实现 | stdio JSON-RPC 桥接已具备，协议面待补齐 |
 | 沙箱与 K8s 路径 | 🔧 部分实现 | 本地工作区沙箱 + 真 Docker 容器隔离（断网/只读根/资源限额/引擎预检/孤儿清理）已具备；K8s pod 执行仍为桩，沙箱审计跨重启持久化待补 |
 | OpenTelemetry 可观测 | 🔧 部分实现 | trace/token heatmap + OTel Compose 部署包 |
-| 数据飞轮（四阶段闭环） | 🔧 部分实现 | 捕获/失效分析/SOP 蒸馏/反哺已打通，真实训练后端待补 |
+| 数据飞轮（四阶段闭环） | 🔧 部分实现 | 捕获/失效分析/SOP 蒸馏/反哺已打通；真 LoRA SFT 训练后端已落地（transformers+peft，产出真实 adapter 权重与 loss，缺依赖/GPU 时回退桩）；待接 API/UI 提交监控与更大模型 |
 | Ray Actor 运行时 | 🔧 部分实现 | 本地 fallback 已有，集群调度待产品化 |
 | A2A 协议 | 🔧 部分实现 | 动态 AgentCard、入站走编排器管线、出站 poll 闭环、跨实例真 HTTP 往返、SSE 流式、webhook 推送、Bearer 鉴权；完整 OAuth/非文本 artifact 待补 |
 | **Computer Use 最小闭环** | 🔧 部分实现 | 会话/动作/截图/规划/审计/回放，待接 VLM 视觉规划 |

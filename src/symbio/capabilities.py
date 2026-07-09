@@ -241,18 +241,20 @@ CAPABILITY_ITEMS: tuple[CapabilityItem, ...] = (
     {
         "id": "data_flywheel",
         "module": "evolution",
-        "claim": "Trajectory capture, SOP distillation, dataset export, and fine-tuning loop.",
+        "claim": "Trajectory capture, SOP distillation, dataset export, and a real LoRA SFT training backend (transformers+peft, real adapter weights and loss; stub fallback when deps/GPU absent).",
         "status": "partial",
         "evidence": [
             "src/symbio/evolution/sop_distiller.py",
             "src/symbio/evolution/dataset_exporter.py",
             "src/symbio/evolution/fine_tuner.py",
+            "src/symbio/evolution/lora_trainer.py",
             "src/symbio/interfaces/api.py",
             "web/app.js",
             "tests/test_evolution_api.py",
+            "tests/test_lora_trainer.py",
         ],
         "docs": ["README.md", "docs/features.md", "docs/feature-checklist.md"],
-        "next_step": "Replace training stubs with a real SFT/LoRA backend and add full eval run reports.",
+        "next_step": "Wire the LoRA trainer to an API/UI submit-and-monitor path, add full eval run reports, and support larger base models / quantized (QLoRA) training.",
     },
     {
         "id": "ray_actor_runtime",
