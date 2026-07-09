@@ -11,6 +11,32 @@
 import os
 import tempfile
 
+import pytest
+
 # 必须在导入 symbio 之前设置（get_settings 运行时才读取，这里足够早）
 _SESSION_DATA_DIR = tempfile.mkdtemp(prefix="symbio_test_")
 os.environ["SYMBIO_MEMORY_LANCEDB_PATH"] = os.path.join(_SESSION_DATA_DIR, "lancedb")
+
+
+# ---------------------------------------------------------------------------
+# 慢测试分层：默认跳过 @pytest.mark.slow（真跑浏览器/加载模型/真训练），
+# 加 --run-slow 才执行。让本地日常迭代只跑快测试（约 40s vs 全量 130s）。
+# CI 全量校验时传 --run-slow。
+# ---------------------------------------------------------------------------
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--run-slow",
+        action="store_true",
+        default=False,
+        help="运行标记为 slow 的慢测试（浏览器/模型加载/真训练）",
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    if config.getoption("--run-slow"):
+        return
+    skip_slow = pytest.mark.skip(reason="慢测试默认跳过，加 --run-slow 运行")
+    for item in items:
+        if "slow" in item.keywords:
+            item.add_marker(skip_slow)

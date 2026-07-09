@@ -41,6 +41,7 @@ def _skip_if_transient_network_error(step: dict):
         pytest.skip(f"transient network error in real-browser mode: {err[:120]}")
 
 
+@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_session_records_audit_steps():
     session = ComputerUseSession("cu-test")
@@ -60,6 +61,7 @@ async def test_unknown_action_fails_gracefully():
     assert "未知动作" in step["error"]
 
 
+@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_navigate_updates_current_url_in_dry_run():
     session = ComputerUseSession("cu-test")
@@ -73,6 +75,7 @@ async def test_navigate_updates_current_url_in_dry_run():
 # 规划器闭环
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_planner_drives_recon_sequence():
     session = ComputerUseSession("cu-test")
@@ -92,6 +95,7 @@ async def test_planner_drives_recon_sequence():
 # 回放
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_replay_reexecutes_recorded_steps():
     session = ComputerUseSession("cu-test")
@@ -127,6 +131,7 @@ async def test_manager_lifecycle(tmp_path):
 # API
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_computer_use_api_flow():
     transport = ASGITransport(app=app)

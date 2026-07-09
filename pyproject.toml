@@ -147,3 +147,6 @@ target-version = "py310"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "slow: 慢测试（真跑浏览器/加载模型/真训练），默认跳过，加 --run-slow 才执行",
+]

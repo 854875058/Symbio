@@ -127,7 +127,7 @@ symbio export --format sharegpt --output data/exports/train.jsonl
 | 外部 Agent 接管 | ✅ 已实现 | Codex / Claude Code 会话登记、运行、导入 transcript；工作台多开平铺 + 网页真交互终端（PTY 跑 claude/codex/shell 的 TUI）+ 终端内接管 resume |
 | Agent 接入 Claude/Codex | ✅ 已实现 | 单 Agent 委托本地 Claude Code / Codex CLI 执行（ExternalBackedAgent） |
 | 个人微信扫码绑定机器人 | ✅ 已实现 | 内置 iLink Bot 直连，扫码登录 + 双向收发 + 审批/对话分流 |
-| **Token 成本五层优化** | ✅ 已实现 | 语义缓存 + 上下文剪枝 + 成本监控接入对话链路 + 成本仪表盘 |
+| **Token 成本五层优化** | ✅ 已实现 | 语义缓存 + 上下文剪枝 + 成本监控接入对话链路 + 成本仪表盘；可复现基准见 `benchmarks/`（分层路由 LLM 避免率 85%、上下文剪枝压缩到 25%、语义缓存改写命中率 30%） |
 | **Prompt Injection 三层防火墙** | ✅ 已实现 | 接入对话入口，攻击样本自检拦截率 65%，编程话题零误伤 |
 | Skills 市场 | 🔧 部分实现 | 本地市场与安装记录已具备，远程生态待完善 |
 | MCP 工具网关 | 🔧 部分实现 | stdio JSON-RPC 桥接已具备，协议面待补齐 |

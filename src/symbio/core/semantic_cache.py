@@ -150,6 +150,31 @@ CACHE_TABLE_SCHEMA = build_cache_schema(1536)
 
 
 # ---------------------------------------------------------------------------
+# sentence-transformers 进程级单例
+# ---------------------------------------------------------------------------
+# 模型权重（all-MiniLM-L6-v2）加载一次要 3~6s。之前每个 SemanticCacheEngine 实例
+# 各自 load 一份，多实例（含测试里每个用例新建引擎）会重复加载，白白多花几十秒、
+# 多占几百 MB 显存/内存。改成按模型名缓存的进程级单例，全进程共享一份权重。
+_ST_MODEL_NAME = "all-MiniLM-L6-v2"
+_ST_MODEL_CACHE: dict[str, Any] = {}
+
+
+def _load_st_model_singleton(model_name: str):
+    """加载并缓存 sentence-transformers 模型（进程级单例，按模型名区分）。
+
+    首次调用真正 load；后续同名直接命中缓存。加载失败抛异常，由调用方降级处理。
+    """
+    cached = _ST_MODEL_CACHE.get(model_name)
+    if cached is not None:
+        return cached
+    from sentence_transformers import SentenceTransformer
+
+    model = SentenceTransformer(model_name)
+    _ST_MODEL_CACHE[model_name] = model
+    return model
+
+
+# ---------------------------------------------------------------------------
 # 语义缓存引擎
 # ---------------------------------------------------------------------------
 
@@ -863,8 +888,8 @@ class SemanticCacheEngine:
         if self._st_model is not False:
             try:
                 if self._st_model is None:
-                    from sentence_transformers import SentenceTransformer
-                    self._st_model = SentenceTransformer("all-MiniLM-L6-v2")
+                    # 进程级单例：多实例共享一份权重，避免重复加载
+                    self._st_model = _load_st_model_singleton(_ST_MODEL_NAME)
                     self._effective_dim = int(self._st_model.get_sentence_embedding_dimension())
                 vec = self._st_model.encode(text, normalize_embeddings=True)
                 return [float(x) for x in vec]

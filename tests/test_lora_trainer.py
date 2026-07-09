@@ -108,6 +108,7 @@ def test_stub_fallback_when_env_set(tmp_path, monkeypatch):
 
 # ---------- 真训练（需依赖 + 能加载极小模型）----------
 
+@pytest.mark.slow
 @requires_training
 def test_real_lora_training_produces_adapter_and_real_loss(tmp_path):
     """真跑一次极小 LoRA 训练：产出 adapter 权重 + 真实 loss + 进度回调。"""
