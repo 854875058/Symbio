@@ -172,7 +172,6 @@ async function switchPage(name) {
   if (name === 'capabilities') await loadCapabilities();
   if (name === 'evolution') await loadEvolution();
   if (name === 'sandbox') await loadSandbox();
-  if (name === 'external-agents') await loadExternalAgents();
   if (name === 'workbench') await loadWorkbench();
   if (name === 'hitl') { await loadHitl(); await loadHitlChannels(); await loadHitlTimeoutPolicy(); }
   if (name === 'mcp') await loadMCP();
@@ -6584,7 +6583,24 @@ async function init() {
   if (dom.statusModelName) dom.statusModelName.textContent = modelName;
 
   setInterval(checkHealth, 30000);
+  updateWelcomeCapCount();
   console.log('Symbio UI initialized');
+}
+
+// 首页欢迎语的能力数从 /api/capabilities 动态取（原先写死 "33 项" 是错的）
+async function updateWelcomeCapCount() {
+  const el = document.getElementById('welcome-cap-count');
+  if (!el) return;
+  try {
+    const res = await fetch(`${API}/capabilities`);
+    const data = await res.json();
+    const s = data.summary || {};
+    const impl = s.implemented ?? 0;
+    const total = s.total ?? (data.items?.length || 0);
+    el.textContent = total ? `${impl}/${total} 项能力已落地` : '多项核心能力';
+  } catch (e) {
+    el.textContent = '多项核心能力';  // 拿不到就退化成不带数字的文案
+  }
 }
 
 document.addEventListener('DOMContentLoaded', init);
