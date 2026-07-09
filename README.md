@@ -105,7 +105,7 @@ symbio export --format sharegpt --output data/exports/train.jsonl
 **接入与工具**
 - **Agent 接入 Claude Code / Codex** —— 单个 Symbio Agent 可把任务委托给本地 Claude Code / Codex CLI 执行（`ExternalBackedAgent`），编排、审批、沙箱、审计仍由 Symbio 掌控。
 - **个人微信扫码绑定机器人** —— 内置 iLink Bot 直连，Web UI 点「开始扫码登录」即出二维码，扫码后双向收发；消息自动分流（审批指令→HITL / 其它→对话管线）。无需任何外部部署，也兼容 Wechaty 等外部 bridge。
-- **外部 Agent 接管** —— 登记并控制本地 Codex / Claude Code 会话，导入 transcript，纳入统一审批 / 沙箱 / 审计控制面。
+- **外部 Agent 接管** —— 登记并控制本地 Codex / Claude Code 会话，导入 transcript，纳入统一审批 / 沙箱 / 审计控制面；工作台支持多开平铺、目录浏览选工作区，并可在网页里起**真交互终端**（PTY 跑 claude/codex/shell 的完整 TUI），或在终端内 resume 接管已有会话。
 - **Codex 风格沙箱** —— `read-only` / `workspace-write` / `danger-full-access` 三种访问模式 + 审批策略 + 工作区边界 + 审计。
 - **真 Docker 容器沙箱** —— 命令可在隔离容器内执行：默认断网（`--network none`）、只读根文件系统 + `/tmp` tmpfs、内存/CPU 限额、执行前引擎预检、超时按容器名兜底清理、宿主机环境与密钥绝不泄漏进容器。`GET /api/sandbox/docker/status` 查引擎状态，`POST /api/sandbox/docker/execute` 容器内执行。
 - **Computer Use 最小闭环** —— 浏览器会话控制、动作集、启发式规划、审计回放；Playwright 不可用时降级 dry-run。
@@ -124,19 +124,20 @@ symbio export --format sharegpt --output data/exports/train.jsonl
 | HITL + IM 多渠道审批 | ✅ 已实现 | 6+ 渠道 + 超时升级策略（拒绝/通过/转交管理员） |
 | 本体记忆图谱 | ✅ 已实现 | ontology memory + API + Web UI |
 | 模型池与模型路由 | ✅ 已实现 | 模型配置、路由策略、对话模型选择 |
-| 外部 Agent 接管 | ✅ 已实现 | Codex / Claude Code 会话登记、运行、导入 transcript |
+| 外部 Agent 接管 | ✅ 已实现 | Codex / Claude Code 会话登记、运行、导入 transcript；工作台多开平铺 + 网页真交互终端（PTY 跑 claude/codex/shell 的 TUI）+ 终端内接管 resume |
 | Agent 接入 Claude/Codex | ✅ 已实现 | 单 Agent 委托本地 Claude Code / Codex CLI 执行（ExternalBackedAgent） |
 | 个人微信扫码绑定机器人 | ✅ 已实现 | 内置 iLink Bot 直连，扫码登录 + 双向收发 + 审批/对话分流 |
 | **Token 成本五层优化** | ✅ 已实现 | 语义缓存 + 上下文剪枝 + 成本监控接入对话链路 + 成本仪表盘 |
 | **Prompt Injection 三层防火墙** | ✅ 已实现 | 接入对话入口，攻击样本自检拦截率 65%，编程话题零误伤 |
 | Skills 市场 | 🔧 部分实现 | 本地市场与安装记录已具备，远程生态待完善 |
 | MCP 工具网关 | 🔧 部分实现 | stdio JSON-RPC 桥接已具备，协议面待补齐 |
-| 沙箱与 K8s 路径 | 🔧 部分实现 | 本地工作区沙箱 + 真 Docker 容器隔离（断网/只读根/资源限额/引擎预检/孤儿清理）已具备；K8s pod 执行仍为桩 |
+| 沙箱与 K8s 路径 | 🔧 部分实现 | 本地工作区沙箱 + 真 Docker 容器隔离（断网/只读根/资源限额/引擎预检/孤儿清理）已具备；K8s pod 执行仍为桩，沙箱审计跨重启持久化待补 |
 | OpenTelemetry 可观测 | 🔧 部分实现 | trace/token heatmap + OTel Compose 部署包 |
 | 数据飞轮（四阶段闭环） | 🔧 部分实现 | 捕获/失效分析/SOP 蒸馏/反哺已打通，真实训练后端待补 |
 | Ray Actor 运行时 | 🔧 部分实现 | 本地 fallback 已有，集群调度待产品化 |
 | A2A 协议 | 🔧 部分实现 | 动态 AgentCard、入站走编排器管线、出站 poll 闭环、跨实例真 HTTP 往返、SSE 流式、webhook 推送、Bearer 鉴权；完整 OAuth/非文本 artifact 待补 |
 | **Computer Use 最小闭环** | 🔧 部分实现 | 会话/动作/截图/规划/审计/回放，待接 VLM 视觉规划 |
+| 多模态视觉记忆 | 🔧 部分实现 | Claude 视觉接入摄取管线（图片描述转可检索记忆）+ PDF/代码结构抽取；聊天图片自动摄取、描述缓存跨重启、OCR 待补 |
 | 隐私计算 / 联邦学习 | 📋 规划中 | 当前仅在路线图 |
 
 ---
@@ -169,6 +170,9 @@ symbio export --format sharegpt --output data/exports/train.jsonl
 | `GET /api/ontology` | 本体图谱 |
 | `POST /api/sandbox/execute` · `GET /api/sandbox/audit` | 本地沙箱执行 / 审计 |
 | `GET /api/sandbox/docker/status` · `POST /api/sandbox/docker/execute` | Docker 容器隔离执行 |
+| `WS /ws/terminal` | 网页真交互终端（PTY 跑 claude/codex/shell，默认仅本机可连） |
+| `GET /api/external-agents/transcripts` · `POST .../sessions` · `.../{id}/run` | 外部 Agent 会话登记 / 运行 / 导入 |
+| `GET /api/fs/dirs` | 服务端目录浏览（工作台选工作区文件夹） |
 | `GET /.well-known/agent.json` · `POST /api/a2a/tasks` | A2A AgentCard / 入站任务（可选 Bearer 鉴权） |
 | `GET /api/a2a/tasks/{id}/stream` | A2A 任务 SSE 流式订阅 |
 | `POST /api/a2a/sessions` · `.../{id}/send` · `.../{id}/poll` | A2A 出站会话（发送 + 拉回远端结果） |
