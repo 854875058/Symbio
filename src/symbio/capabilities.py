@@ -290,8 +290,8 @@ CAPABILITY_ITEMS: tuple[CapabilityItem, ...] = (
     {
         "id": "computer_use_loop",
         "module": "browser",
-        "claim": "Computer Use loop: screenshot understanding, coordinate planning, GUI action, replay audit.",
-        "status": "partial",
+        "claim": "Computer Use loop with VLM vision planning: the current screenshot's pixels are fed to Claude vision, which returns pixel-coordinate GUI actions (click x/y, type); three-tier fallback (vision -> text LLM -> heuristic) keeps the loop alive; full screenshot / action / replay audit. Real GUI-task success rate depends on the model.",
+        "status": "implemented",
         "evidence": [
             "src/symbio/tools/computer_use.py",
             "src/symbio/tools/registry.py",
@@ -300,7 +300,7 @@ CAPABILITY_ITEMS: tuple[CapabilityItem, ...] = (
             "tests/test_computer_use.py",
         ],
         "docs": ["README.md", "docs/features.md", "docs/feature-checklist.md"],
-        "next_step": "Wire an LLM/vision planner into ActionPlanner, add coordinate grounding from screenshots, and harden multi-tab/session lifecycle.",
+        "next_step": "Add screenshot-relative coordinate grounding aids (element boxes), harden multi-tab/session lifecycle, and add a self-verify step after each action.",
     },
     {
         "id": "multimodal_vision",

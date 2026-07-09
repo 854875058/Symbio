@@ -206,8 +206,8 @@ SOP 蒸馏、异步轨迹捕获、DatasetExporter，支持 ShareGPT/Alpaca/OpenA
 | 数据飞轮（四阶段闭环） | ✅ 已实现 | 捕获/失效分析/SOP 蒸馏/反哺全通 + 真 LoRA SFT 训练后端 + 后台任务 API 与网页提交监控 |
 | 多模态视觉记忆 | ✅ 已实现 | Claude 视觉摄取 + 聊天附件图片/PDF 自动摄取 + PDF/代码结构抽取 |
 | Ray Actor 运行时 | ✅ 已实现 | 真 Ray Actor 池跨进程执行子任务（提交/收集/取消，worker 内按名重建 Agent），配置开关接进 SubAgentManager，缺 Ray 自动回退 asyncio；本机真集群实测多进程，多机部署待验证 |
+| Computer Use 视觉闭环 | ✅ 已实现 | 截图像素喂 Claude 视觉，返回坐标动作（点 x/y、输入），三级回退保闭环；截图/动作/审计/回放齐全，真实 GUI 成功率取决于模型 |
 | 沙箱与 K8s 路径 | 🔧 部分实现 | 本地沙箱 + 真 Docker 容器隔离已具备；K8s pod 执行仍为桩 |
-| Computer Use 最小闭环 | 🔧 部分实现 | 会话/动作/截图/规划/审计/回放已具备，待接 VLM 视觉规划 |
 | 隐私计算 / 联邦学习 | 📋 规划中 | 当前仅在路线图 |
 
 运行时账本接口：

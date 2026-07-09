@@ -9,8 +9,8 @@
 
 | 状态 | 数量 | 说明 |
 | --- | ---: | --- |
-| `[x]` 已实现 | 17 | DAG-first、规划/审查、HITL IM 审批、本体图谱、模型路由、外部 Agent 接管、成本优化、注入防火墙、Skills 市场、MCP 网关、OTel 可观测、数据飞轮、A2A 协议、多模态视觉、微信机器人、外部后端 Agent、Ray Actor 分布式（真 Actor 池，本机多进程实测） |
-| `[~]` 部分实现 | 2 | 沙箱/K8s（K8s pod 仍为桩）、Computer Use（待接 VLM 视觉规划） |
+| `[x]` 已实现 | 18 | DAG-first、规划/审查、HITL IM 审批、本体图谱、模型路由、外部 Agent 接管、成本优化、注入防火墙、Skills 市场、MCP 网关、OTel 可观测、数据飞轮、A2A 协议、多模态视觉、微信机器人、外部后端 Agent、Ray Actor 分布式、Computer Use 视觉闭环（VLM 截图→坐标动作） |
+| `[~]` 部分实现 | 1 | 沙箱/K8s（K8s pod 仍为桩） |
 | `[ ]` 未实现 | 1 | 隐私计算 / 联邦学习（仅路线图） |
 
 运行时账本接口：`GET /api/capabilities`。

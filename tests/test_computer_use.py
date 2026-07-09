@@ -256,3 +256,133 @@ async def test_act_on_missing_session_404():
         resp = await client.post("/api/computer-use/sessions/nope/act",
                                  json={"action": "screenshot", "params": {}})
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# VLM 视觉规划
+# ---------------------------------------------------------------------------
+
+# 1x1 透明 PNG 的最小合法字节（用于让 latest_screenshot/_image_to_block 拿到真图）
+_TINY_PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+    "0000000a49444154789c6360000002000100" "05fe02fea7" "00000000"
+    "49454e44ae426082"
+)
+
+
+def _make_session_with_screenshot(tmp_path) -> ComputerUseSession:
+    """构造一个带真实截图文件的会话（绕过 Playwright，直接写审计步）。"""
+    session = ComputerUseSession("cu-vision")
+    png = tmp_path / "shot.png"
+    png.write_bytes(_TINY_PNG)
+    session._record(0, "screenshot", {}, True, result={"screenshot": str(png)})
+    return session
+
+
+def test_image_to_block_produces_base64(tmp_path):
+    from symbio.tools.computer_use import _image_to_block
+
+    png = tmp_path / "s.png"
+    png.write_bytes(_TINY_PNG)
+    block = _image_to_block(str(png))
+    assert block is not None
+    assert block["type"] == "image"
+    assert block["source"]["type"] == "base64"
+    assert block["source"]["media_type"] == "image/png"
+    assert len(block["source"]["data"]) > 0
+
+
+def test_image_to_block_missing_file_returns_none():
+    from symbio.tools.computer_use import _image_to_block
+
+    assert _image_to_block("no/such/file.png") is None
+
+
+def test_latest_screenshot_finds_recorded_shot(tmp_path):
+    session = _make_session_with_screenshot(tmp_path)
+    assert session.latest_screenshot() is not None
+    assert Path(session.latest_screenshot()).is_file()
+
+
+@pytest.mark.asyncio
+async def test_vision_plan_feeds_screenshot_to_model(tmp_path):
+    """核心：use_vision 时截图 base64 确实进了传给模型的 image_path，且回坐标动作。"""
+    session = _make_session_with_screenshot(tmp_path)
+    captured = {}
+
+    async def fake_complete(system, user, image_path=None):
+        captured["image_path"] = image_path
+        captured["system"] = system
+        return '{"action": "click", "params": {"x": 42, "y": 99}, "reason": "看到按钮"}'
+
+    plan = await LLMActionPlanner(complete=fake_complete).plan(
+        "点击登录", session, use_vision=True
+    )
+    # 图确实喂进去了
+    assert captured["image_path"] == session.latest_screenshot()
+    # 视觉提示进了 system
+    assert "视觉模式" in captured["system"]
+    # 产出坐标动作，planner 标记为 vlm
+    assert plan["planner"] == "vlm"
+    assert plan["action"] == "click"
+    assert plan["params"] == {"x": 42, "y": 99}
+
+
+@pytest.mark.asyncio
+async def test_vision_plan_without_screenshot_falls_back_to_text(tmp_path):
+    """没有截图时 use_vision 也不带图（image_path=None），planner 退为 llm 文本模式。"""
+    session = ComputerUseSession("cu-no-shot")
+    seen = {}
+
+    async def fake_complete(system, user, image_path=None):
+        seen["image_path"] = image_path
+        return '{"action": "screenshot", "params": {}, "reason": "先看看"}'
+
+    plan = await LLMActionPlanner(complete=fake_complete).plan(
+        "打开页面", session, use_vision=True
+    )
+    assert seen["image_path"] is None
+    assert plan["planner"] == "llm"
+
+
+@pytest.mark.asyncio
+async def test_vision_plan_tolerates_two_arg_backend(tmp_path):
+    """旧的两参 complete 后端在视觉模式下自动降级为纯文本，不报错。"""
+    session = _make_session_with_screenshot(tmp_path)
+
+    async def old_complete(system, user):  # 不接受 image_path
+        return '{"action": "wait", "params": {"ms": 0}, "reason": "ok"}'
+
+    plan = await LLMActionPlanner(complete=old_complete).plan(
+        "x", session, use_vision=True
+    )
+    assert plan["action"] == "wait"
+
+
+@pytest.mark.asyncio
+async def test_plan_api_use_vision_flag(monkeypatch, tmp_path):
+    """/plan use_vision=True：无截图时先自动截图，再带图规划。"""
+    import symbio.tools.computer_use as cu
+
+    got = {}
+
+    async def fake_complete(system, user, image_path=None):
+        got["image_path"] = image_path
+        return '{"action": "click", "params": {"x": 5, "y": 6}, "reason": "mock"}'
+    monkeypatch.setattr(cu.LLMActionPlanner, "_default_complete", lambda self: fake_complete)
+
+    mgr = get_computer_use_manager()
+    session = mgr.create_session()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            f"/api/computer-use/sessions/{session.session_id}/plan",
+            json={"goal": "点击", "auto_execute": False,
+                  "use_llm": True, "use_vision": True},
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    # dry-run 环境下 screenshot 无真实文件 → 视觉取不到图，planner 应为 llm（文本）
+    # 若有真实截图（装了 Playwright）则为 vlm；两种都接受，关键是接口链路通
+    assert body["plan"]["planner"] in ("vlm", "llm")
+    assert body["plan"]["action"] == "click"

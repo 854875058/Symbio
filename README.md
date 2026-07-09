@@ -108,7 +108,7 @@ symbio export --format sharegpt --output data/exports/train.jsonl
 - **外部 Agent 接管** —— 登记并控制本地 Codex / Claude Code 会话，导入 transcript，纳入统一审批 / 沙箱 / 审计控制面；工作台支持多开平铺、目录浏览选工作区，并可在网页里起**真交互终端**（PTY 跑 claude/codex/shell 的完整 TUI），或在终端内 resume 接管已有会话。
 - **Codex 风格沙箱** —— `read-only` / `workspace-write` / `danger-full-access` 三种访问模式 + 审批策略 + 工作区边界 + 审计。
 - **真 Docker 容器沙箱** —— 命令可在隔离容器内执行：默认断网（`--network none`）、只读根文件系统 + `/tmp` tmpfs、内存/CPU 限额、执行前引擎预检、超时按容器名兜底清理、宿主机环境与密钥绝不泄漏进容器。`GET /api/sandbox/docker/status` 查引擎状态，`POST /api/sandbox/docker/execute` 容器内执行。
-- **Computer Use 最小闭环** —— 浏览器会话控制、动作集、启发式规划、审计回放；Playwright 不可用时降级 dry-run。
+- **Computer Use 视觉闭环** —— 浏览器会话控制、动作集、审计回放；**VLM 视觉规划**把当前截图像素喂给 Claude 视觉，模型看屏产出坐标动作（点 x/y、输入），三级回退（视觉→文本 LLM→启发式）保闭环不断；Playwright 不可用时降级 dry-run。
 - **MCP 工具网关 / A2A 协议 / Skills 市场** —— 标准协议接入与本地工具生态；A2A 支持入站编排器执行、出站会话闭环、SSE 流式订阅、webhook 推送与 Bearer 鉴权。
 
 ---
@@ -136,8 +136,8 @@ symbio export --format sharegpt --output data/exports/train.jsonl
 | A2A 协议 | ✅ 已实现 | 动态 AgentCard、入站走编排器管线、出站 poll 闭环、跨进程真 HTTP 往返、SSE 流式、webhook 推送、Bearer 鉴权 |
 | 多模态视觉记忆 | ✅ 已实现 | Claude 视觉摄取管线（图片描述转可检索记忆）+ 聊天附件图片/PDF 自动摄取 + PDF/代码结构抽取 |
 | Ray Actor 运行时 | ✅ 已实现 | 真 Ray Actor 池跨进程执行子任务（提交/收集/取消/关闭，worker 内按名重建 Agent 免序列化 client），配置开关接进 SubAgentManager，Ray 关闭/缺失自动回退 asyncio；本机真集群实测任务跑在不同 worker 进程 PID，多机集群部署待验证 |
+| **Computer Use 视觉闭环** | ✅ 已实现 | 截图像素喂给 Claude 视觉，返回坐标动作（点 x/y、输入）；三级回退（视觉→文本 LLM→启发式）保闭环不断；截图/动作/审计/回放齐全，真实 GUI 任务成功率取决于模型 |
 | 沙箱与 K8s 路径 | 🔧 部分实现 | 本地工作区沙箱 + 真 Docker 容器隔离（断网/只读根/资源限额/引擎预检/孤儿清理）已具备；K8s pod 执行仍为桩，沙箱审计跨重启持久化待补 |
-| **Computer Use 最小闭环** | 🔧 部分实现 | 会话/动作/截图/规划/审计/回放，待接 VLM 视觉规划 |
 | 隐私计算 / 联邦学习 | 📋 规划中 | 当前仅在路线图 |
 
 ---

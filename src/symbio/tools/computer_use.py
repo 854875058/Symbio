@@ -40,6 +40,36 @@ def _playwright_available() -> bool:
         return False
 
 
+def _image_to_block(image_path: str) -> Optional[dict[str, Any]]:
+    """把 PNG 截图读成 Anthropic 视觉 image block；读不到返回 None。
+
+    VLM 视觉规划的关键一环：截图像素 → base64 → 多模态 message，让模型真正
+    "看到"页面而非只读文字描述。
+    """
+    import base64
+    import mimetypes
+
+    try:
+        p = Path(image_path)
+        if not p.is_file():
+            return None
+        data = p.read_bytes()
+        if not data:
+            return None
+        media_type = mimetypes.guess_type(str(p))[0] or "image/png"
+        return {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": media_type,
+                "data": base64.b64encode(data).decode("ascii"),
+            },
+        }
+    except Exception as exc:
+        logger.warning(f"截图转 base64 失败 {image_path}: {exc}")
+        return None
+
+
 class ComputerUseSession:
     """单个浏览器会话，维护页面状态与审计轨迹。"""
 
@@ -180,6 +210,15 @@ class ComputerUseSession:
         self.steps.append(step)
         return step
 
+    def latest_screenshot(self) -> Optional[str]:
+        """返回最近一次成功截图的文件路径；没有则 None（供视觉规划取图）。"""
+        for s in reversed(self.steps):
+            if s["action"] == "screenshot" and s.get("success"):
+                path = s.get("result", {}).get("screenshot")
+                if path and Path(path).is_file():
+                    return path
+        return None
+
     # ------------------------------------------------------------------
     # 回放
     # ------------------------------------------------------------------
@@ -262,6 +301,14 @@ _LLM_PLANNER_SYSTEM = (
     "不要输出任何额外文字或 markdown 代码块。"
 )
 
+_LLM_PLANNER_VISION_HINT = (
+    "\n\n【视觉模式】随本消息附带了当前页面的截图。请**看图**判断下一步：\n"
+    "- 需要点击时，用像素坐标定位：params 填 {\"x\": <横向像素>, \"y\": <纵向像素>}，"
+    "截图左上角为原点 (0,0)，向右 x 增大、向下 y 增大。\n"
+    "- 需要输入时，先 click 定位输入框，再 type({\"text\": ...})。\n"
+    "- 依据截图中实际可见的元素决策，不要臆测不可见的内容。"
+)
+
 
 class LLMActionPlanner:
     """LLM 驱动的动作规划器。
@@ -276,7 +323,19 @@ class LLMActionPlanner:
         self._complete = complete
         self._model = model
 
-    async def plan(self, goal: str, session: "ComputerUseSession") -> dict[str, Any]:
+    async def plan(
+        self,
+        goal: str,
+        session: "ComputerUseSession",
+        use_vision: bool = False,
+    ) -> dict[str, Any]:
+        """规划下一步动作。
+
+        use_vision=True 且能拿到当前截图时，把截图像素喂给 VLM（视觉规划），
+        让模型看着页面产出坐标动作；否则退纯文本规划。complete 注入的后端签名为
+        ``async (system, user, image_path=None) -> str``，向后兼容仅收两参的旧后端。
+        三级回退：视觉/文本 LLM → 启发式，任何失败都不中断闭环。
+        """
         complete = self._complete or self._default_complete()
         if complete is None:
             result = ActionPlanner.plan(goal, session)
@@ -284,19 +343,33 @@ class LLMActionPlanner:
             result["reason"] = "未配置 LLM，回退启发式规划：" + result.get("reason", "")
             return result
 
+        image_path = session.latest_screenshot() if use_vision else None
+        vision = image_path is not None
+        system = _LLM_PLANNER_SYSTEM + (_LLM_PLANNER_VISION_HINT if vision else "")
         user_prompt = self._build_prompt(goal, session)
         try:
-            raw = await complete(_LLM_PLANNER_SYSTEM, user_prompt)
+            raw = await self._invoke(complete, system, user_prompt, image_path)
             plan = self._parse(raw)
             if plan is None:
                 raise ValueError(f"无法解析 LLM 规划输出: {raw[:120]}")
-            plan["planner"] = "llm"
+            plan["planner"] = "vlm" if vision else "llm"
             return plan
         except Exception as e:
             logger.warning(f"LLM 规划失败，回退启发式: {e}")
             result = ActionPlanner.plan(goal, session)
             result["planner"] = "heuristic-fallback"
             return result
+
+    @staticmethod
+    async def _invoke(complete, system: str, user: str, image_path: Optional[str]) -> str:
+        """调用 complete，优先带图（三参签名）；旧的两参后端自动降级为纯文本。"""
+        if image_path is not None:
+            try:
+                return await complete(system, user, image_path=image_path)
+            except TypeError:
+                # 后端不接受 image_path（旧签名）→ 退纯文本
+                logger.debug("complete 后端不支持 image_path，降级纯文本")
+        return await complete(system, user)
 
     @staticmethod
     def _build_prompt(goal: str, session: "ComputerUseSession") -> str:
@@ -355,7 +428,11 @@ class LLMActionPlanner:
                 "reason": str(obj.get("reason", ""))}
 
     def _default_complete(self):
-        """从 settings 构建 Anthropic 文本补全函数；无 key 返回 None。"""
+        """从 settings 构建 Anthropic 补全函数；无 key 返回 None。
+
+        支持视觉：传入 image_path 时构造多模态 message（image block + 文本），
+        让 Claude 视觉看着截图规划；不传则纯文本（向后兼容）。
+        """
         try:
             from symbio.config.settings import get_settings
             settings = get_settings()
@@ -367,12 +444,20 @@ class LLMActionPlanner:
         except Exception:
             return None
 
-        async def _complete(system: str, user: str) -> str:
+        async def _complete(system: str, user: str, image_path: Optional[str] = None) -> str:
             import anthropic
             client = anthropic.AsyncAnthropic(api_key=api_key, base_url=base_url)
+            if image_path is not None:
+                block = _image_to_block(image_path)
+                if block is not None:
+                    content = [block, {"type": "text", "text": user}]
+                else:
+                    content = user  # 图读不到就退纯文本
+            else:
+                content = user
             resp = await client.messages.create(
                 model=model, max_tokens=512, system=system,
-                messages=[{"role": "user", "content": user}],
+                messages=[{"role": "user", "content": content}],
             )
             return "".join(getattr(b, "text", "") for b in resp.content)
 

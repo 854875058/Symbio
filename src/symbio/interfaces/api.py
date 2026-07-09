@@ -4731,6 +4731,7 @@ class ComputerUsePlanRequest(BaseModel):
     goal: str
     auto_execute: bool = True
     use_llm: bool = False
+    use_vision: bool = False  # 为真时把当前截图喂给 VLM 视觉规划（需 use_llm）
 
 
 @app.post("/api/computer-use/sessions", tags=["computer-use"])
@@ -4787,7 +4788,12 @@ async def computer_use_plan(session_id: str, payload: ComputerUsePlanRequest):
     if session is None:
         raise HTTPException(status_code=404, detail="会话不存在")
     if payload.use_llm:
-        plan = await LLMActionPlanner().plan(payload.goal, session)
+        # 视觉规划：先确保有当前截图（没有就截一张），再带图让 VLM 看屏决策
+        if payload.use_vision and session.latest_screenshot() is None:
+            await session.act("screenshot", {})
+        plan = await LLMActionPlanner().plan(
+            payload.goal, session, use_vision=payload.use_vision
+        )
     else:
         plan = ActionPlanner.plan(payload.goal, session)
         plan.setdefault("planner", "heuristic")
