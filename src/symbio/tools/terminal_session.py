@@ -29,10 +29,13 @@ logger = get_logger("tools.terminal_session")
 _SHELL_DEFAULT = "powershell.exe" if os.name == "nt" else (os.environ.get("SHELL") or "/bin/bash")
 
 
-def resolve_terminal_command(kind: str) -> list[str]:
+def resolve_terminal_command(kind: str, resume_id: str = "") -> list[str]:
     """把终端类型解析成可执行命令（含 Windows .CMD 完整路径）。
 
     kind: "claude-code" | "codex" | "shell"
+    resume_id: 非空时构造「交互式续接」命令，在终端里接管已有会话：
+        claude --resume <id>（不带 -p/--print 即为交互式 TUI）
+        codex resume <id>（顶层交互式 resume，区别于非交互的 `codex exec resume`）
     找不到对应 CLI 时抛 FileNotFoundError。
     """
     normalized = (kind or "shell").strip().lower()
@@ -45,6 +48,13 @@ def resolve_terminal_command(kind: str) -> list[str]:
     path = shutil.which(exe_name)
     if not path:
         raise FileNotFoundError(f"{exe_name} CLI not found on PATH")
+
+    resume_id = (resume_id or "").strip()
+    if resume_id:
+        if exe_name == "claude":
+            return [path, "--resume", resume_id]
+        # codex：顶层交互式 resume 子命令（非 exec resume）
+        return [path, "resume", resume_id]
     return [path]
 
 
@@ -127,20 +137,30 @@ class TerminalSession:
     def start_reader(self, loop: asyncio.AbstractEventLoop, queue: "asyncio.Queue[Optional[str]]") -> None:
         """起后台线程阻塞读 PTY 输出，把每块灌进 asyncio 队列；EOF 投 None。"""
 
+        def _safe_put(item):
+            # 事件循环可能已关闭（如断连/测试结束），投递失败静默即可
+            try:
+                loop.call_soon_threadsafe(queue.put_nowait, item)
+            except RuntimeError:
+                pass
+
         def _pump() -> None:
             while self._alive:
+                proc = self._proc
+                if proc is None:  # terminate() 已置空，安全退出
+                    break
                 try:
-                    data = self._proc.read(4096)
-                except EOFError:
+                    data = proc.read(4096)
+                except (EOFError, OSError, AttributeError):
                     break
                 except Exception:
                     break
                 if data:
-                    loop.call_soon_threadsafe(queue.put_nowait, data)
+                    _safe_put(data)
                 else:
                     break
             self._alive = False
-            loop.call_soon_threadsafe(queue.put_nowait, None)  # 结束信号
+            _safe_put(None)  # 结束信号
 
         self._reader = threading.Thread(target=_pump, name="terminal-pty-reader", daemon=True)
         self._reader.start()

@@ -61,6 +61,30 @@ def test_claude_alias_maps_to_claude():
         assert resolve_terminal_command("claude") == resolve_terminal_command("claude-code")
 
 
+def test_resume_id_builds_interactive_resume_command():
+    """接管：resume_id 非空时应构造交互式续接命令。"""
+    if shutil.which("claude"):
+        cmd = resolve_terminal_command("claude-code", resume_id="sess-abc")
+        # claude 交互式 resume：--resume <id>，不带 -p/--print
+        assert cmd[-2:] == ["--resume", "sess-abc"]
+        assert "-p" not in cmd and "--print" not in cmd
+    if shutil.which("codex"):
+        cmd = resolve_terminal_command("codex", resume_id="sess-xyz")
+        # codex 顶层交互式 resume 子命令（非 exec resume）
+        assert cmd[-2:] == ["resume", "sess-xyz"]
+        assert "exec" not in cmd
+
+
+def test_shell_ignores_resume_id():
+    assert resolve_terminal_command("shell", resume_id="whatever") == [_SHELL_DEFAULT]
+
+
+def test_empty_resume_id_stays_fresh():
+    if shutil.which("claude"):
+        assert resolve_terminal_command("claude-code", resume_id="") == resolve_terminal_command("claude-code")
+        assert resolve_terminal_command("claude-code", resume_id="   ") == resolve_terminal_command("claude-code")
+
+
 # ---------- 真实 PTY 往返（需要 PTY 后端）----------
 
 @requires_pty

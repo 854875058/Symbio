@@ -3792,10 +3792,11 @@ async def websocket_terminal(websocket: WebSocket):
                     continue  # 已启动，忽略重复 start
                 kind = msg.get("kind", "shell")
                 cwd = msg.get("cwd") or None
+                resume_id = msg.get("resume_id", "")
                 cols = int(msg.get("cols", 100))
                 rows = int(msg.get("rows", 30))
                 try:
-                    command = resolve_terminal_command(kind)
+                    command = resolve_terminal_command(kind, resume_id=resume_id)
                 except (ValueError, FileNotFoundError) as exc:
                     await websocket.send_text(json.dumps({"type": "error", "message": str(exc)}))
                     continue

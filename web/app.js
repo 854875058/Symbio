@@ -5987,35 +5987,26 @@ async function wbCreateNewPane() {
   } catch (e) { toast('error', '新建窗格失败', e.message); }
 }
 
-async function wbAttachPane() {
+// 接管已有会话：直接在交互终端里 resume（claude --resume / codex resume），
+// 而不是旧的 tail 轮询只读窗格。这样能真正在原会话里继续交互。
+function wbAttachPane() {
   const idx = $('#wb-transcript')?.value;
   const t = state.workbench.transcripts[Number(idx)];
   if (!t) { toast('error', '接管失败', '没有可接管的会话'); return; }
-  try {
-    const res = await fetch(`${API}/external-agents/live/attach`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      // 带上已解析的 external_session_id：codex 的转录文件名是
-      // rollout-<时间>-<uuid>.jsonl，若后端回退用文件名 stem 当会话 id，
-      // codex exec resume 会找不到会话。claude-code 的文件名恰好是 uuid 故无碍。
-      body: JSON.stringify({
-        provider: t.provider,
-        transcript_path: t.path,
-        external_session_id: t.external_session_id || '',
-        from_start: true,
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
-    state.workbench.seq += 1;
-    const pane = {
-      id: `pane-${state.workbench.seq}`, provider: t.provider, mode: 'attached',
-      liveId: data.session.session_id, subtitle: t.external_session_id || '',
-      messages: [], draft: '', busy: false,
-    };
-    state.workbench.panes.push(pane);
-    renderWorkbench();
-    wbPollOne(pane);  // 立刻拉一次历史
-  } catch (e) { toast('error', '接管会话失败', e.message); }
+  if (typeof Terminal === 'undefined') {
+    toast('error', '终端不可用', 'xterm.js 未加载');
+    return;
+  }
+  const resumeId = t.external_session_id || '';
+  if (!resumeId) { toast('error', '接管失败', '该会话缺少可续接的 session id'); return; }
+  state.workbench.seq += 1;
+  state.workbench.panes.push({
+    id: `pane-${state.workbench.seq}`, provider: t.provider, mode: 'terminal',
+    termKind: t.provider, resumeId, subtitle: `接管 ${resumeId}`,
+    cwd: ($('#wb-workspace')?.value || '.').trim() || '.',
+    term: null, fit: null, ws: null, started: false,
+  });
+  renderWorkbench();
 }
 
 async function wbSend(paneId, text) {
@@ -6161,6 +6152,7 @@ function wbConnectTerminal(p) {
   ws.onopen = () => {
     ws.send(JSON.stringify({
       type: 'start', kind: p.termKind, cwd: p.cwd,
+      resume_id: p.resumeId || '',
       cols: p.term?.cols || 100, rows: p.term?.rows || 30,
     }));
     // 键盘输入 → PTY
