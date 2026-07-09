@@ -3847,6 +3847,40 @@ textarea::placeholder { color:var(--text-tertiary); }
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* ===== LoRA 微调训练面板 ===== */
+.finetune-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  margin-bottom: 14px;
+}
+.finetune-field { display: flex; flex-direction: column; gap: 4px; min-width: 180px; flex: 1; }
+.finetune-field-sm { min-width: 90px; flex: 0 0 90px; }
+.finetune-field span { font-size: 0.72rem; color: var(--text-secondary); }
+.finetune-jobs { display: flex; flex-direction: column; gap: 10px; }
+.ft-job {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+}
+.ft-job-completed { border-color: color-mix(in srgb, var(--green) 40%, var(--border)); }
+.ft-job-failed { border-color: color-mix(in srgb, var(--red) 40%, var(--border)); }
+.ft-job-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.ft-job-model { font-size: 0.82rem; font-weight: 600; color: var(--text-primary); }
+.ft-job-status { font-size: 0.72rem; color: var(--text-secondary); }
+.ft-job-bar { height: 6px; border-radius: 3px; background: var(--bg-hover, rgba(0,0,0,0.06)); overflow: hidden; }
+.ft-job-bar-fill { height: 100%; background: var(--brand-grad-h, var(--accent)); transition: width 0.4s ease; }
+.ft-job-meta { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 6px; font-size: 0.7rem; color: var(--text-tertiary); }
+.ft-job-err { color: var(--red); }
+.ft-badge-lora, .ft-badge-stub {
+  font-size: 0.62rem; padding: 1px 6px; border-radius: 6px; margin-left: 6px; vertical-align: middle;
+}
+.ft-badge-lora { background: var(--green-dim); color: var(--green); }
+.ft-badge-stub { background: var(--amber-dim); color: var(--amber); }
+
 .evolution-suite-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));

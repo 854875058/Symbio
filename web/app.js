@@ -4963,8 +4963,106 @@ async function loadEvolution() {
     loadFlywheel(),
     previewConversationExport(),
     loadEvaluationSuites(),
+    loadFinetuneDatasets(),
+    loadFinetuneJobs(),
   ]);
 }
+
+// ============ LoRA 微调训练（真训练后端）============
+state.finetune = { pollTimer: null };
+
+async function loadFinetuneDatasets() {
+  const sel = $('#ft-dataset');
+  if (!sel) return;
+  try {
+    const res = await fetch(`${API}/flywheel/datasets`);
+    const data = await res.json();
+    const items = data.datasets || [];
+    sel.innerHTML = items.length
+      ? items.map(d => `<option value="${esc(d.path)}">${esc(d.name)} · ${d.samples} 样本 · ${d.size_kb}KB</option>`).join('')
+      : `<option value="">（先在上方"数据集导出"写出 JSONL）</option>`;
+  } catch (e) {
+    sel.innerHTML = `<option value="">加载数据集失败</option>`;
+  }
+}
+
+async function startFinetune() {
+  const dataset = $('#ft-dataset')?.value || '';
+  if (!dataset) { toast('error', '无法开始', '请先选择一个数据集（在上方导出）'); return; }
+  const payload = {
+    dataset_path: dataset,
+    model_name: ($('#ft-model')?.value || 'sshleifer/tiny-gpt2').trim(),
+    epochs: parseInt($('#ft-epochs')?.value || '1', 10),
+    lora_rank: parseInt($('#ft-rank')?.value || '8', 10),
+  };
+  try {
+    const res = await fetch(`${API}/flywheel/finetune`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    toast('success', '训练已提交', `作业 ${data.job_id.slice(0,8)} 已在后台开始`);
+    loadFinetuneJobs();
+    startFinetunePolling();
+  } catch (e) {
+    toast('error', '提交训练失败', e.message);
+  }
+}
+
+async function loadFinetuneJobs() {
+  const box = $('#finetune-jobs');
+  if (!box) return;
+  try {
+    const res = await fetch(`${API}/flywheel/finetune`);
+    const data = await res.json();
+    renderFinetuneJobs(data.jobs || []);
+    // 有运行中的作业才继续轮询，全部结束就停
+    const running = (data.jobs || []).some(j => ['pending','preparing','training','evaluating'].includes(j.status));
+    if (running) startFinetunePolling(); else stopFinetunePolling();
+  } catch (e) { /* 静默 */ }
+}
+
+function renderFinetuneJobs(jobs) {
+  const box = $('#finetune-jobs');
+  if (!box) return;
+  if (!jobs.length) { box.innerHTML = `<div class="cost-table-empty">还没有训练作业</div>`; return; }
+  const statusLabel = { pending:'排队', preparing:'准备', training:'训练中', evaluating:'评估', completed:'完成', failed:'失败', cancelled:'已取消' };
+  box.innerHTML = jobs.map(j => {
+    const pct = Math.round((j.progress_ratio || 0) * 100);
+    const loss = j.final_loss != null ? Number(j.final_loss).toFixed(4) : '—';
+    const params = j.trainable_params ? `${formatNumber(j.trainable_params)}/${formatNumber(j.total_params)} 参数` : '';
+    const backend = j.backend === 'stub' ? '<span class="ft-badge-stub">stub</span>' : (j.backend === 'lora' ? '<span class="ft-badge-lora">真LoRA</span>' : '');
+    return `
+    <div class="ft-job ft-job-${esc(j.status)}">
+      <div class="ft-job-head">
+        <span class="ft-job-model">${esc(j.model_name)} ${backend}</span>
+        <span class="ft-job-status">${statusLabel[j.status] || j.status}</span>
+      </div>
+      <div class="ft-job-bar"><div class="ft-job-bar-fill" style="width:${pct}%"></div></div>
+      <div class="ft-job-meta">
+        <span>step ${j.metrics?.length || 0} · loss ${loss}</span>
+        <span>${params}</span>
+        ${j.error_message ? `<span class="ft-job-err">${esc(j.error_message)}</span>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function startFinetunePolling() {
+  if (state.finetune.pollTimer) return;
+  state.finetune.pollTimer = setInterval(() => {
+    const page = document.getElementById('page-evolution');
+    if (page && !page.classList.contains('active')) { stopFinetunePolling(); return; }
+    loadFinetuneJobs();
+  }, 2000);
+}
+function stopFinetunePolling() {
+  if (state.finetune.pollTimer) { clearInterval(state.finetune.pollTimer); state.finetune.pollTimer = null; }
+}
+
+$('#btn-start-finetune')?.addEventListener('click', startFinetune);
+$('#btn-refresh-finetune')?.addEventListener('click', () => { loadFinetuneDatasets(); loadFinetuneJobs(); });
 
 // ============ Data Flywheel (4-stage closed loop) ============
 const FAILURE_CATEGORIES = ['logic_error','timeout','resource','external_api','input_invalid','permission','model_error','tool_error','context_overflow','unknown'];

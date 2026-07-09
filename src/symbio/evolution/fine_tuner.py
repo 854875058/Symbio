@@ -614,6 +614,7 @@ class OfflineFineTuner:
 
         if os.environ.get("SYMBIO_FT_STUB") == "1":
             logger.info(f"SYMBIO_FT_STUB=1，使用训练桩: job_id={job.job_id}")
+            job.metadata["backend"] = "stub"
             job.status = JobStatus.TRAINING
             self._run_training_stub(job)
             return

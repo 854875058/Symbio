@@ -611,6 +611,44 @@
             <pre class="evolution-preview" id="evolution-export-preview">尚未加载导出预览。</pre>
           </section>
 
+          <!-- LoRA 微调训练（真训练后端） -->
+          <section class="evolution-panel">
+            <div class="evolution-panel-head">
+              <div>
+                <h3>LoRA 微调训练</h3>
+                <p>选一个已导出的数据集，用真 LoRA 后端（transformers+peft）微调，产出 adapter 权重。后台异步跑，实时看 loss。</p>
+              </div>
+              <button class="btn-outline" id="btn-refresh-finetune">刷新作业</button>
+            </div>
+            <div class="finetune-form">
+              <label class="finetune-field">
+                <span>数据集</span>
+                <select class="select-input" id="ft-dataset"><option value="">（先在上方导出数据集）</option></select>
+              </label>
+              <label class="finetune-field">
+                <span>基座模型</span>
+                <input class="text-input" id="ft-model" list="ft-model-presets" value="sshleifer/tiny-gpt2" placeholder="HF 模型名或本地路径">
+                <datalist id="ft-model-presets">
+                  <option value="sshleifer/tiny-gpt2">tiny-gpt2（冒烟用，极小）</option>
+                  <option value="Qwen/Qwen2.5-0.5B-Instruct">Qwen2.5-0.5B（8GB 可跑）</option>
+                  <option value="gpt2">gpt2（124M）</option>
+                </datalist>
+              </label>
+              <label class="finetune-field finetune-field-sm">
+                <span>Epochs</span>
+                <input class="text-input" id="ft-epochs" type="number" value="1" min="1" max="50">
+              </label>
+              <label class="finetune-field finetune-field-sm">
+                <span>LoRA rank</span>
+                <input class="text-input" id="ft-rank" type="number" value="8" min="1" max="256">
+              </label>
+              <button class="btn-primary" id="btn-start-finetune">开始训练</button>
+            </div>
+            <div class="finetune-jobs" id="finetune-jobs">
+              <div class="cost-table-empty">还没有训练作业</div>
+            </div>
+          </section>
+
           <section class="evolution-panel">
             <div class="evolution-panel-head">
               <div>

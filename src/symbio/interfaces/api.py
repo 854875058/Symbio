@@ -16,6 +16,7 @@ import json
 import os
 import re
 import inspect
+import threading
 import uuid
 import time
 import yaml
@@ -1492,6 +1493,18 @@ class DistillRequest(BaseModel):
     duration_ms: int = 0
 
 
+class FineTuneStartRequest(BaseModel):
+    """提交一个 LoRA 微调作业。"""
+    dataset_path: str = Field(..., description="训练数据集 JSONL 绝对/相对路径")
+    model_name: str = Field(default="sshleifer/tiny-gpt2", description="基座模型（HF 名或本地路径）")
+    epochs: int = Field(default=1, ge=1, le=50)
+    learning_rate: float = Field(default=2e-4, gt=0, le=1.0)
+    batch_size: int = Field(default=1, ge=1, le=64)
+    max_seq_length: int = Field(default=512, ge=32, le=8192)
+    lora_rank: int = Field(default=8, ge=1, le=256)
+    lora_alpha: int = Field(default=16, ge=1, le=512)
+
+
 @app.get("/api/flywheel/overview")
 async def flywheel_overview():
     """数据飞轮四阶段总览：捕获 / 失效分析 / SOP 蒸馏 / 反哺优化。"""
@@ -1547,6 +1560,125 @@ async def flywheel_collect_feedback(payload: FeedbackRequest):
     """收集一条显式反馈（阶段四）。"""
     from symbio.evolution.flywheel import get_flywheel
     return await get_flywheel().collect_feedback(payload.model_dump())
+
+
+def _get_fine_tuner():
+    """进程内共享的 OfflineFineTuner（作业状态存内存，供轮询查进度）。"""
+    tuner = getattr(app.state, "fine_tuner", None)
+    if tuner is not None:
+        return tuner
+    from symbio.evolution.fine_tuner import OfflineFineTuner
+
+    tuner = OfflineFineTuner(base_output_dir="data/fine_tuning")
+    app.state.fine_tuner = tuner
+    return tuner
+
+
+def _job_payload(job) -> dict[str, Any]:
+    """把 FineTuneJob 拍成前端要的 JSON（状态/进度/loss 曲线/产物）。"""
+    return {
+        "job_id": job.job_id,
+        "status": job.status.value,
+        "model_name": job.config.model_name,
+        "dataset_path": job.config.dataset_path,
+        "epochs": job.config.epochs,
+        "backend": job.metadata.get("backend", ""),
+        "error_message": job.error_message,
+        "progress_ratio": round(job.progress_ratio, 3),
+        "duration_seconds": job.duration_seconds,
+        "output_path": job.output_path,
+        "trainable_params": job.metadata.get("trainable_params"),
+        "total_params": job.metadata.get("total_params"),
+        "final_loss": (job.metrics[-1].loss if job.metrics else None),
+        "metrics": [
+            {"step": m.step, "epoch": m.epoch, "loss": m.loss, "learning_rate": m.learning_rate}
+            for m in job.metrics
+        ],
+    }
+
+
+@app.get("/api/flywheel/datasets")
+async def flywheel_list_datasets():
+    """列出可用于训练的已导出 JSONL 数据集（data/exports 与 data/fine_tuning/datasets）。"""
+    seen: dict[str, dict] = {}
+    for base in ("data/exports", "data/fine_tuning/datasets"):
+        root = Path(base)
+        if not root.exists():
+            continue
+        for f in sorted(root.rglob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True):
+            if f.name.startswith("."):
+                continue
+            key = str(f.resolve())
+            if key in seen:
+                continue
+            try:
+                lines = sum(1 for _ in f.open("r", encoding="utf-8"))
+            except OSError:
+                lines = 0
+            seen[key] = {"path": str(f), "name": f.name, "samples": lines,
+                         "size_kb": round(f.stat().st_size / 1024, 1)}
+    return {"datasets": list(seen.values())}
+
+
+@app.post("/api/flywheel/finetune")
+async def flywheel_start_finetune(payload: FineTuneStartRequest):
+    """提交 LoRA 微调作业（后台线程异步跑，立即返回 job_id）。"""
+    from symbio.evolution.fine_tuner import FineTuneConfig, JobStatus, FineTuneJob
+
+    if not Path(payload.dataset_path).exists():
+        raise HTTPException(status_code=404, detail=f"数据集不存在: {payload.dataset_path}")
+
+    tuner = _get_fine_tuner()
+    config = FineTuneConfig(
+        model_name=payload.model_name,
+        dataset_path=payload.dataset_path,
+        output_dir="data/fine_tuning/output",
+        epochs=payload.epochs,
+        learning_rate=payload.learning_rate,
+        batch_size=payload.batch_size,
+        max_seq_length=payload.max_seq_length,
+        lora_rank=payload.lora_rank,
+        lora_alpha=payload.lora_alpha,
+    )
+    # 先建一个 PENDING 作业登记进 tuner，后台线程再真正跑，避免 HTTP 阻塞
+    job = FineTuneJob(config=config)
+    job.status = JobStatus.PENDING
+    tuner._jobs[job.job_id] = job
+
+    def _run() -> None:
+        from datetime import datetime as _dt
+        job.started_at = _dt.now()
+        try:
+            if config.use_ray:
+                tuner._start_ray_training(job)
+            else:
+                tuner._start_local_training(job)
+        except Exception as exc:  # noqa: BLE001 后台线程兜底，错误写进 job
+            job.status = JobStatus.FAILED
+            job.error_message = str(exc)
+            job.completed_at = _dt.now()
+            logger.error(f"微调作业 {job.job_id} 失败: {exc}")
+
+    threading.Thread(target=_run, name=f"finetune-{job.job_id[:8]}", daemon=True).start()
+    return {"job_id": job.job_id, "status": job.status.value}
+
+
+@app.get("/api/flywheel/finetune")
+async def flywheel_list_finetune():
+    """列出所有微调作业（最新在前）。"""
+    tuner = _get_fine_tuner()
+    return {"jobs": [_job_payload(j) for j in tuner.list_jobs()]}
+
+
+@app.get("/api/flywheel/finetune/{job_id}")
+async def flywheel_get_finetune(job_id: str):
+    """查单个微调作业状态 + 实时 loss 曲线。"""
+    tuner = _get_fine_tuner()
+    try:
+        job = tuner.get_job_status(job_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="微调作业不存在")
+    return _job_payload(job)
 
 
 @app.get("/api/evaluation/suites")
