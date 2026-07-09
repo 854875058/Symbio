@@ -199,12 +199,13 @@ SOP 蒸馏、异步轨迹捕获、DatasetExporter，支持 ShareGPT/Alpaca/OpenA
 | 个人微信扫码绑定机器人 | ✅ 已实现 | 内置 iLink Bot 直连，扫码登录 + 双向收发 + 审批/对话分流 |
 | Token 成本五层优化 | ✅ 已实现 | 语义缓存 + 上下文剪枝 + 成本监控接入对话链路，含成本仪表盘与月度预算 |
 | Prompt Injection 三层防火墙 | ✅ 已实现 | 接入对话入口，攻击样本自检拦截率 65%，编程话题零误伤 |
-| A2A 协议 | 🔧 部分实现 | AgentCard、入站/出站任务、多轮会话 |
-| Skills 市场 | 🔧 部分实现 | 本地市场与安装记录已具备 |
-| MCP 工具网关 | 🔧 部分实现 | stdio JSON-RPC 桥接 + UI 管理页面 |
-| 沙箱与 K8s 路径 | 🔧 部分实现 | 本地沙箱已具备 |
-| OpenTelemetry 可观测 | 🔧 部分实现 | trace 基础 + OTel Compose 部署包 |
-| 数据飞轮（四阶段闭环） | 🔧 部分实现 | 捕获/失效分析/SOP 蒸馏/反哺已打通 API+UI，训练后端待补 |
+| A2A 协议 | ✅ 已实现 | 动态 AgentCard、入站走编排器、出站 poll 闭环、跨进程真 HTTP 往返、SSE 流式、webhook 推送、Bearer 鉴权 |
+| Skills 市场 | ✅ 已实现 | 浏览/搜索 + 安装真实落盘 + 从 GitHub 仓库导入真实 Agent Skills |
+| MCP 工具网关 | ✅ 已实现 | 原生 MCP stdio JSON-RPC 工具桥接 + 配置发现 + UI 管理页面 |
+| OpenTelemetry 可观测 | ✅ 已实现 | trace/metrics/token 热力图 + Grafana 面板 + OTel Compose 部署包 |
+| 数据飞轮（四阶段闭环） | ✅ 已实现 | 捕获/失效分析/SOP 蒸馏/反哺全通 + 真 LoRA SFT 训练后端 + 后台任务 API 与网页提交监控 |
+| 多模态视觉记忆 | ✅ 已实现 | Claude 视觉摄取 + 聊天附件图片/PDF 自动摄取 + PDF/代码结构抽取 |
+| 沙箱与 K8s 路径 | 🔧 部分实现 | 本地沙箱 + 真 Docker 容器隔离已具备；K8s pod 执行仍为桩 |
 | Ray Actor 运行时 | 🔧 部分实现 | 本地 fallback 已有，集群调度待产品化 |
 | Computer Use 最小闭环 | 🔧 部分实现 | 会话/动作/截图/规划/审计/回放已具备，待接 VLM 视觉规划 |
 | 隐私计算 / 联邦学习 | 📋 规划中 | 当前仅在路线图 |

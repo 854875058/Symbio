@@ -129,7 +129,7 @@ CAPABILITY_ITEMS: tuple[CapabilityItem, ...] = (
         "id": "skills_marketplace",
         "module": "skills",
         "claim": "Browse/search skills, install with real on-disk materialization, and import real Agent Skills from GitHub repositories.",
-        "status": "partial",
+        "status": "implemented",
         "evidence": [
             "src/symbio/skills/marketplace.py",
             "src/symbio/skills/remote_source.py",
@@ -145,7 +145,7 @@ CAPABILITY_ITEMS: tuple[CapabilityItem, ...] = (
         "id": "mcp_gateway",
         "module": "tools",
         "claim": "Native MCP stdio JSON-RPC tool bridge and config discovery.",
-        "status": "partial",
+        "status": "implemented",
         "evidence": [
             "src/symbio/tools/mcp.py",
             "src/symbio/interfaces/api.py",
@@ -226,7 +226,7 @@ CAPABILITY_ITEMS: tuple[CapabilityItem, ...] = (
         "id": "observability_otel",
         "module": "observability",
         "claim": "OpenTelemetry trace, metrics, token heatmap, and trace visualization.",
-        "status": "partial",
+        "status": "implemented",
         "evidence": [
             "src/symbio/core/tracer.py",
             "web/app.js",
@@ -236,13 +236,13 @@ CAPABILITY_ITEMS: tuple[CapabilityItem, ...] = (
             "config/grafana/provisioning/datasources/datasource.yml",
         ],
         "docs": ["README.md", "docs/features.md", "docs/feature-checklist.md"],
-        "next_step": "Add Grafana dashboards JSON and Symbio metrics endpoint; wire OTLP exporter in production settings.",
+        "next_step": "Wire the OTLP exporter into production settings and add per-node latency SLO panels to the Grafana dashboard.",
     },
     {
         "id": "data_flywheel",
         "module": "evolution",
-        "claim": "Trajectory capture, SOP distillation, dataset export, and a real LoRA SFT training backend (transformers+peft, real adapter weights and loss; stub fallback when deps/GPU absent).",
-        "status": "partial",
+        "claim": "Trajectory capture, SOP distillation, dataset export, and a real LoRA SFT training backend (transformers+peft, real adapter weights and loss; stub fallback when deps/GPU absent), wired to a background-job API + web submit/monitor UI.",
+        "status": "implemented",
         "evidence": [
             "src/symbio/evolution/sop_distiller.py",
             "src/symbio/evolution/dataset_exporter.py",
@@ -252,9 +252,10 @@ CAPABILITY_ITEMS: tuple[CapabilityItem, ...] = (
             "web/app.js",
             "tests/test_evolution_api.py",
             "tests/test_lora_trainer.py",
+            "tests/test_finetune_api.py",
         ],
         "docs": ["README.md", "docs/features.md", "docs/feature-checklist.md"],
-        "next_step": "Wire the LoRA trainer to an API/UI submit-and-monitor path, add full eval run reports, and support larger base models / quantized (QLoRA) training.",
+        "next_step": "Add full eval run reports and support larger base models / quantized (QLoRA) training.",
     },
     {
         "id": "ray_actor_runtime",
@@ -272,7 +273,7 @@ CAPABILITY_ITEMS: tuple[CapabilityItem, ...] = (
         "id": "a2a_protocol",
         "module": "external_agents",
         "claim": "Agent-to-Agent protocol: dynamic AgentCard, inbound tasks routed through the full Orchestrator pipeline, outbound sessions with poll-based reply pull-back, a proven two-process cross-instance round-trip over real HTTP, SSE streaming task updates, webhook push notifications, and optional Bearer-token auth.",
-        "status": "partial",
+        "status": "implemented",
         "evidence": [
             "src/symbio/interfaces/a2a.py",
             "src/symbio/interfaces/api.py",
@@ -301,8 +302,8 @@ CAPABILITY_ITEMS: tuple[CapabilityItem, ...] = (
     {
         "id": "multimodal_vision",
         "module": "memory",
-        "claim": "Multi-modal memory: real image understanding via Claude vision wired into the ingestion pipeline (described images become searchable memories), plus PDF/code structure extraction.",
-        "status": "partial",
+        "claim": "Multi-modal memory: real image understanding via Claude vision wired into the ingestion pipeline (described images become searchable memories), auto-ingest of chat-attached images/PDFs, plus PDF/code structure extraction.",
+        "status": "implemented",
         "evidence": [
             "src/symbio/memory/multimodal.py",
             "src/symbio/memory/manager.py",
@@ -311,7 +312,7 @@ CAPABILITY_ITEMS: tuple[CapabilityItem, ...] = (
             "tests/test_memory_multimodal_ingest.py",
         ],
         "docs": ["README.md", "docs/feature-checklist.md"],
-        "next_step": "Auto-ingest images attached in chat turns, persist cached descriptions across restarts, and add OCR for text-heavy images.",
+        "next_step": "Persist cached image descriptions across restarts and add OCR for text-heavy images.",
     },
     {
         "id": "federated_privacy",

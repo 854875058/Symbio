@@ -5,11 +5,13 @@
 
 ## 当前汇总
 
+> 汇总以运行时账本 `GET /api/capabilities`（`src/symbio/capabilities.py`）为准，下表与其保持一致。
+
 | 状态 | 数量 | 说明 |
 | --- | ---: | --- |
-| `[x]` 已实现 | 5 | DAG-first、规划/审查策略、HITL IM 审批、本体图谱、模型配置 |
-| `[~]` 部分实现 | 6 | Skills Marketplace、MCP、沙箱/K8s、OpenTelemetry、数据飞轮、Ray Actor |
-| `[ ]` 未实现 | 2 | A2A、Computer Use 完整闭环 |
+| `[x]` 已实现 | 16 | DAG-first、规划/审查、HITL IM 审批、本体图谱、模型路由、外部 Agent 接管、成本优化、注入防火墙、Skills 市场、MCP 网关、OTel 可观测、数据飞轮、A2A 协议、多模态视觉、微信机器人、外部后端 Agent |
+| `[~]` 部分实现 | 3 | 沙箱/K8s（K8s pod 仍为桩）、Ray Actor（无真集群调度）、Computer Use（待接 VLM 视觉规划） |
+| `[ ]` 未实现 | 1 | 隐私计算 / 联邦学习（仅路线图） |
 
 运行时账本接口：`GET /api/capabilities`。
 

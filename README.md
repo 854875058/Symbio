@@ -100,7 +100,7 @@ symbio export --format sharegpt --output data/exports/train.jsonl
 
 **记忆与进化**
 - **本体记忆图谱** —— 概念、实体、关系、属性组织成可查询、可视化、可零 Token 推理的图谱。
-- **数据飞轮四阶段闭环** —— 轨迹捕获 → 失效分析（根因归纳）→ SOP 蒸馏 → 反哺优化，全部暴露成可点击的 `/api/flywheel/*`。
+- **数据飞轮四阶段闭环** —— 轨迹捕获 → 失效分析（根因归纳）→ SOP 蒸馏 → 反哺优化，全部暴露成可点击的 `/api/flywheel/*`；含**真 LoRA SFT 训练后端**（transformers+peft，产出真实 adapter 权重与 loss，缺依赖/GPU 时回退桩），网页可选飞轮导出数据集、挑基座模型、后台异步提交并监控训练进度。
 
 **接入与工具**
 - **Agent 接入 Claude Code / Codex** —— 单个 Symbio Agent 可把任务委托给本地 Claude Code / Codex CLI 执行（`ExternalBackedAgent`），编排、审批、沙箱、审计仍由 Symbio 掌控。
@@ -129,15 +129,15 @@ symbio export --format sharegpt --output data/exports/train.jsonl
 | 个人微信扫码绑定机器人 | ✅ 已实现 | 内置 iLink Bot 直连，扫码登录 + 双向收发 + 审批/对话分流 |
 | **Token 成本五层优化** | ✅ 已实现 | 语义缓存 + 上下文剪枝 + 成本监控接入对话链路 + 成本仪表盘；可复现基准见 `benchmarks/`（分层路由 LLM 避免率 85%、上下文剪枝压缩到 25%、语义缓存改写命中率 30%） |
 | **Prompt Injection 三层防火墙** | ✅ 已实现 | 接入对话入口，攻击样本自检拦截率 65%，编程话题零误伤 |
-| Skills 市场 | 🔧 部分实现 | 本地市场与安装记录已具备，远程生态待完善 |
-| MCP 工具网关 | 🔧 部分实现 | stdio JSON-RPC 桥接已具备，协议面待补齐 |
+| Skills 市场 | ✅ 已实现 | 浏览/搜索 + 安装真实落盘 + 从 GitHub 仓库导入真实 Agent Skills |
+| MCP 工具网关 | ✅ 已实现 | 原生 MCP stdio JSON-RPC 工具桥接 + 配置发现 |
+| OpenTelemetry 可观测 | ✅ 已实现 | trace/metrics/token 热力图 + Grafana 面板 + OTel Compose 部署包 |
+| 数据飞轮（四阶段闭环） | ✅ 已实现 | 捕获/失效分析/SOP 蒸馏/反哺全通 + 真 LoRA SFT 训练后端（transformers+peft，真实 adapter 权重与 loss，缺依赖/GPU 回退桩）+ 后台任务 API 与网页提交监控 |
+| A2A 协议 | ✅ 已实现 | 动态 AgentCard、入站走编排器管线、出站 poll 闭环、跨进程真 HTTP 往返、SSE 流式、webhook 推送、Bearer 鉴权 |
+| 多模态视觉记忆 | ✅ 已实现 | Claude 视觉摄取管线（图片描述转可检索记忆）+ 聊天附件图片/PDF 自动摄取 + PDF/代码结构抽取 |
 | 沙箱与 K8s 路径 | 🔧 部分实现 | 本地工作区沙箱 + 真 Docker 容器隔离（断网/只读根/资源限额/引擎预检/孤儿清理）已具备；K8s pod 执行仍为桩，沙箱审计跨重启持久化待补 |
-| OpenTelemetry 可观测 | 🔧 部分实现 | trace/token heatmap + OTel Compose 部署包 |
-| 数据飞轮（四阶段闭环） | 🔧 部分实现 | 捕获/失效分析/SOP 蒸馏/反哺已打通；真 LoRA SFT 训练后端已落地（transformers+peft，产出真实 adapter 权重与 loss，缺依赖/GPU 时回退桩）；待接 API/UI 提交监控与更大模型 |
 | Ray Actor 运行时 | 🔧 部分实现 | 本地 fallback 已有，集群调度待产品化 |
-| A2A 协议 | 🔧 部分实现 | 动态 AgentCard、入站走编排器管线、出站 poll 闭环、跨实例真 HTTP 往返、SSE 流式、webhook 推送、Bearer 鉴权；完整 OAuth/非文本 artifact 待补 |
 | **Computer Use 最小闭环** | 🔧 部分实现 | 会话/动作/截图/规划/审计/回放，待接 VLM 视觉规划 |
-| 多模态视觉记忆 | 🔧 部分实现 | Claude 视觉接入摄取管线（图片描述转可检索记忆）+ PDF/代码结构抽取；聊天图片自动摄取、描述缓存跨重启、OCR 待补 |
 | 隐私计算 / 联邦学习 | 📋 规划中 | 当前仅在路线图 |
 
 ---

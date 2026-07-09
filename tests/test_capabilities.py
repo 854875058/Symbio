@@ -24,8 +24,9 @@ def test_capability_report_marks_claim_statuses_and_evidence():
     assert "src/symbio/core/dag_runtime.py" in items["dynamic_dag"]["evidence"]
     assert items["hitl_im_approval"]["status"] == "implemented"
     assert "src/symbio/core/hitl_notifier.py" in items["hitl_im_approval"]["evidence"]
-    assert items["a2a_protocol"]["status"] == "partial"
-    # Computer Use 已实现最小闭环（会话/动作/截图/规划/审计/回放），状态升级为 partial
+    # A2A 核心声称（入站/出站/SSE/webhook/Bearer/跨进程真 HTTP）已全部兑现并有测试覆盖
+    assert items["a2a_protocol"]["status"] == "implemented"
+    # Computer Use 仍为 partial：最小闭环已具备，但尚未接 VLM 视觉规划（声称超前于实现）
     assert items["computer_use_loop"]["status"] == "partial"
     # 仍保留诚实的 missing 项：隐私计算/联邦学习当前仅在路线图
     assert items["federated_privacy"]["status"] == "missing"
