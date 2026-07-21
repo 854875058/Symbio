@@ -83,7 +83,7 @@ def _get_default_eval_suite_dir() -> Path | None:
 app = FastAPI(
     title="Symbio API",
     description="AI Infra 级多 Agent 协同框架",
-    version="0.1.0",
+    version="0.2.3",
 )
 
 # CORS
