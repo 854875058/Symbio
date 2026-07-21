@@ -175,10 +175,14 @@ class ExecutionPlanner:
 
     @staticmethod
     def _task_metadata(task: Task) -> dict[str, Any]:
-        return {
+        meta = {
             str(key): ExecutionPlanner._json_value(value)
             for key, value in task.metadata.items()
         }
+        # Preserve model selection through DAG pipeline
+        if task.model:
+            meta["selected_model"] = task.model
+        return meta
 
     @staticmethod
     def _decomposition_rejection_reason(
