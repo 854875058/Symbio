@@ -546,7 +546,7 @@ class Orchestrator:
             执行结果
         """
         # 查找合适的 Agent
-        agent = self.registry.find_best(task.intent)
+        agent = await self.registry.find_best(task.intent)
 
         if not agent:
             logger.warning("未找到合适的 Agent，使用默认 GeneralAgent")
@@ -964,6 +964,11 @@ class Orchestrator:
                 "tools": task.intent.requires_tools,
             })
             task.metadata["available_tools"] = [s.name for s in tool_schemas]
+            # Pass full tool definitions for agent tool loop
+            task.metadata["tool_definitions"] = [
+                s.model_dump() if hasattr(s, "model_dump") else {"name": s.name, "description": getattr(s, "description", "")}
+                for s in tool_schemas
+            ]
             if tool_schemas:
                 logger.debug(
                     f"工具懒加载完成: task_id={task.task_id}, "

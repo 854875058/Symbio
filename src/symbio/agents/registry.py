@@ -54,8 +54,8 @@ class AgentRegistry:
         """获取 Agent"""
         return self._agents.get(name)
 
-    def find_best(self, intent: Intent) -> Optional[BaseAgent]:
-        """查找最适合的 Agent
+    async def find_best(self, intent: Intent) -> Optional[BaseAgent]:
+        """查找最适合的 Agent（异步并发评分）
 
         Args:
             intent: 用户意图
@@ -63,16 +63,28 @@ class AgentRegistry:
         Returns:
             最适合的 Agent，如果没有找到返回 None
         """
-        candidates = []
+        import asyncio
 
-        for agent in self._agents.values():
-            # 跳过不可用的 Agent
-            if agent.state not in [AgentState.IDLE, AgentState.COMPLETED]:
-                continue
+        # 收集可用候选
+        available = [
+            agent for agent in self._agents.values()
+            if agent.state in [AgentState.IDLE, AgentState.COMPLETED]
+        ]
 
-            # 检查是否能处理
-            if agent.can_handle(intent):
-                candidates.append(agent)
+        if not available:
+            logger.warning(f"无可用 Agent")
+            return None
+
+        # 并发检查每个 Agent 能否处理该意图
+        async def _check(agent: BaseAgent) -> tuple[BaseAgent, bool]:
+            try:
+                can = await agent.can_handle(intent)
+                return (agent, can)
+            except Exception:
+                return (agent, False)
+
+        results = await asyncio.gather(*[_check(a) for a in available])
+        candidates = [agent for agent, can in results if can]
 
         if not candidates:
             logger.warning(f"未找到能处理意图的 Agent: {intent.raw_text[:50]}...")

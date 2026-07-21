@@ -173,7 +173,7 @@ class SubAgentManager:
         start_time = time.monotonic()
 
         # 1. 选择 Agent
-        agent = self._resolve_agent(subtask)
+        agent = await self._resolve_agent(subtask)
         agent_name = agent.name if agent else "unknown"
 
         # 广播 AGENT_SPAWNED
@@ -293,7 +293,7 @@ class SubAgentManager:
         """
         submissions = []  # (subtask, agent_name, ref) 或 (subtask, agent_name, None, error)
         for subtask in group:
-            agent = self._resolve_agent(subtask)
+            agent = await self._resolve_agent(subtask)
             agent_name = agent.name if agent else "unknown"
 
             await self._emit_event(
@@ -381,7 +381,7 @@ class SubAgentManager:
     # Agent 选择
     # ------------------------------------------------------------------
 
-    def _resolve_agent(self, subtask: SubTask) -> Optional[BaseAgent]:
+    async def _resolve_agent(self, subtask: SubTask) -> Optional[BaseAgent]:
         """为子任务选择最佳 Agent。
 
         优先使用 ``suggested_agent``，其次通过 ``registry.find_best``，
