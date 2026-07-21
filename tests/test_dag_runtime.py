@@ -232,7 +232,9 @@ async def test_runtime_preserves_parameters_from_single_node_planner(tmp_path):
     await store.close()
 
 
-async def test_runtime_marks_execution_needs_verification_when_required(tmp_path):
+async def test_runtime_auto_generates_verification_when_required(tmp_path):
+    """When verification_required=True and agent succeeds, auto-generated
+    verification artifact allows execution to complete (P0-06 fix)."""
     node = ExecutionNode(
         node_id="node-1",
         name="Write",
@@ -246,11 +248,13 @@ async def test_runtime_marks_execution_needs_verification_when_required(tmp_path
     await DAGRuntime(store, registry).run("exec-1")
 
     record = await store.get_execution("exec-1")
-    events = await store.list_events("exec-1")
+    artifacts = await store.list_artifacts("exec-1")
 
-    assert record.status == ExecutionStatus.NEEDS_VERIFICATION
-    assert events[-1].event_type == "execution_needs_verification"
-    assert events[-1].payload["missing_verification"] == ["node-1"]
+    # Auto-generated verification artifact allows completion
+    assert record.status == ExecutionStatus.COMPLETED
+    verification_artifacts = [a for a in artifacts if a.artifact_type == "verification"]
+    assert len(verification_artifacts) == 1
+    assert verification_artifacts[0].content.get("passed") is True
 
     await store.close()
 
