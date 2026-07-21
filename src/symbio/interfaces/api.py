@@ -2220,6 +2220,18 @@ async def create_model(model: ModelCreate):
         base_url=model.base_url,
         enabled=model.enabled,
     )
+
+    # 同步到运行中的 ModelRouter
+    orchestrator = getattr(app.state, "orchestrator", None)
+    if orchestrator is not None and hasattr(orchestrator, "router"):
+        from symbio.core.router import ModelInfo
+        orchestrator.router.register_model(ModelInfo(
+            model_id=model.model_id,
+            provider=model.provider,
+            display_name=model.display_name or model.model_id,
+            enabled=model.enabled,
+        ))
+
     return {"model": _public_model_payload(new_model)}
 
 
@@ -2230,6 +2242,12 @@ async def delete_model(model_id: str):
     deleted = await db.delete_model(model_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="模型不存在")
+
+    # 同步到运行中的 ModelRouter
+    orchestrator = getattr(app.state, "orchestrator", None)
+    if orchestrator is not None and hasattr(orchestrator, "router"):
+        orchestrator.router.unregister_model(model_id)
+
     return {"success": True}
 
 

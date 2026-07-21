@@ -133,6 +133,24 @@ class ModelRouter:
         else:  # HIGH
             return self.settings.model.model_high
 
+    def is_available(self, model_id: str) -> bool:
+        """检查模型是否在运行时池中可用且启用。"""
+        model = self._model_pool.get(model_id)
+        return model is not None and model.enabled
+
+    def register_model(self, model_info: ModelInfo) -> None:
+        """运行时注册新模型（供 /api/models 等热路径调用）。"""
+        self._model_pool[model_info.model_id] = model_info
+        logger.info(f"注册模型: {model_info.model_id} (provider={model_info.provider})")
+
+    def unregister_model(self, model_id: str) -> bool:
+        """运行时移除模型。"""
+        if model_id in self._model_pool:
+            del self._model_pool[model_id]
+            logger.info(f"注销模型: {model_id}")
+            return True
+        return False
+
     def get_model_info(self, model_id: str) -> Optional[ModelInfo]:
         """获取模型信息"""
         return self._model_pool.get(model_id)
