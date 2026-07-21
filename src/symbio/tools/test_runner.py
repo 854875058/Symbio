@@ -26,8 +26,12 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from symbio.core.dag_engine import NodeObservation
 from symbio.utils.logger import get_logger
+
+try:
+    from symbio.core.dag_engine import NodeObservation
+except ImportError:
+    NodeObservation = None  # type: ignore[misc,assignment]
 
 logger = get_logger("test_runner")
 
