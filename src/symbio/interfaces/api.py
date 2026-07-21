@@ -1917,8 +1917,13 @@ async def chat(request: ChatRequest):
         api_key = settings.model.anthropic_api_key
         base_url = settings.model.anthropic_base_url
 
-        if not api_key:
-            error_msg = "错误: 未配置 API Key，请在 Models 页面配置 LLM 或编辑 symbio.yaml"
+        # 检查是否有任意可用的 LLM provider
+        has_anthropic = bool(settings.model.anthropic_api_key)
+        has_openai = bool(settings.model.openai_api_key)
+        has_local = settings.model.local_model_enabled
+
+        if not (has_anthropic or has_openai or has_local):
+            error_msg = "错误: 未配置任何 LLM provider，请在 Models 页面配置或编辑 symbio.yaml"
             await db.create_message(f"msg-{uuid.uuid4().hex[:12]}", session_id, "assistant", error_msg, time.strftime("%Y-%m-%dT%H:%M:%S"), 0)
             return ChatResponse(
                 success=False, content=error_msg, session_id=session_id,
@@ -1971,9 +1976,8 @@ async def chat(request: ChatRequest):
         messages, prune_info = pipeline.prune_history(messages)
 
         # Route through Orchestrator when available (enables model routing, tools, DAG, etc.)
-        # Only use Orchestrator if we have a valid API key (Orchestrator also needs LLM access)
         orchestrator = getattr(app.state, "orchestrator", None)
-        if orchestrator is not None and api_key:
+        if orchestrator is not None:
             from symbio.utils.types import Message, MessageSource
             orch_message = Message(
                 source=MessageSource.WEB,
