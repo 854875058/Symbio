@@ -97,6 +97,7 @@ class Database:
                 content TEXT NOT NULL,
                 timestamp TEXT NOT NULL,
                 tokens INTEGER DEFAULT 0,
+                sequence INTEGER,
                 FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
             );
 
@@ -171,6 +172,16 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
         """)
         await self.db.commit()
+
+        # Migration: add sequence column to existing messages table
+        try:
+            await self.db.execute(
+                "ALTER TABLE messages ADD COLUMN sequence INTEGER"
+            )
+            await self.db.commit()
+        except Exception:
+            pass  # Column already exists
+
         logger.info("数据表结构已初始化")
 
     # ================================================================
@@ -494,9 +505,16 @@ class Database:
         """
         timestamp = timestamp or time.strftime("%Y-%m-%dT%H:%M:%S")
 
+        # Auto-increment sequence within session for stable ordering
+        cursor = await self.db.execute(
+            "SELECT COALESCE(MAX(sequence), 0) + 1 FROM messages WHERE session_id = ?",
+            (session_id,),
+        )
+        next_seq = (await cursor.fetchone())[0]
+
         await self.db.execute(
-            "INSERT INTO messages (id, session_id, role, content, timestamp, tokens) VALUES (?, ?, ?, ?, ?, ?)",
-            (message_id, session_id, role, content, timestamp, tokens),
+            "INSERT INTO messages (id, session_id, role, content, timestamp, tokens, sequence) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (message_id, session_id, role, content, timestamp, tokens, next_seq),
         )
         await self.db.commit()
 
@@ -513,7 +531,7 @@ class Database:
         }
 
     async def list_messages_by_session(self, session_id: str) -> list[dict]:
-        """获取指定会话的消息列表，按时间正序排列
+        """获取指定会话的消息列表，按 sequence 正序排列（sequence 为空时回退到 timestamp）
 
         Args:
             session_id: 会话 ID
@@ -523,7 +541,7 @@ class Database:
         """
         cursor = await self.db.execute(
             "SELECT id, session_id, role, content, timestamp, tokens FROM messages "
-            "WHERE session_id = ? ORDER BY timestamp ASC",
+            "WHERE session_id = ? ORDER BY COALESCE(sequence, 0), timestamp ASC",
             (session_id,),
         )
         rows = await cursor.fetchall()
@@ -801,6 +819,7 @@ class Database:
 
         rows = await cursor.fetchall()
         tasks = []
+        task_ids = []
         for row in rows:
             task = {
                 "id": row[0],
@@ -811,10 +830,32 @@ class Database:
                 "completed_at": row[5],
                 "description": row[6],
                 "result": row[7],
+                "steps": [],
             }
-            # 附带步骤信息
-            task["steps"] = await self.list_task_steps(task["id"])
             tasks.append(task)
+            task_ids.append(row[0])
+
+        # Batch query all steps at once to avoid N+1
+        if task_ids:
+            placeholders = ",".join("?" for _ in task_ids)
+            cursor = await self.db.execute(
+                f"SELECT id, task_id, name, status, duration FROM task_steps "
+                f"WHERE task_id IN ({placeholders}) ORDER BY id ASC",
+                task_ids,
+            )
+            steps = await cursor.fetchall()
+            steps_by_task: dict[str, list[dict]] = {}
+            for step in steps:
+                step_dict = {
+                    "id": step[0],
+                    "task_id": step[1],
+                    "name": step[2],
+                    "status": step[3],
+                    "duration": step[4],
+                }
+                steps_by_task.setdefault(step[1], []).append(step_dict)
+            for task in tasks:
+                task["steps"] = steps_by_task.get(task["id"], [])
 
         return tasks
 
