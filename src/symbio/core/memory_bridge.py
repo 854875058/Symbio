@@ -153,7 +153,7 @@ class MemoryBridge:
         if self.memory_manager:
             try:
                 search_results = await self.memory_manager.search(
-                    query, max_results=max_memories
+                    query, max_results=max_memories, session_id=session_id
                 )
                 if search_results:
                     lines: list[str] = ["=== 相关记忆 ==="]
