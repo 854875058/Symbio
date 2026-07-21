@@ -3138,10 +3138,29 @@ async def update_config(update: ConfigUpdate):
 
     settings.to_yaml(config_path)
 
-    # 同时清除缓存的 settings 实例
-    from symbio.config.settings import get_settings
-    get_settings.cache_clear()
-    app.state.hitl_notifier = HITLNotifier.from_settings(settings)
+    # 重新加载全局 settings 缓存
+    from symbio.config.settings import reload_settings
+    reloaded = reload_settings()
+
+    # 同步运行中的 HITLNotifier
+    app.state.hitl_notifier = HITLNotifier.from_settings(reloaded)
+
+    # 同步运行中的 ModelRouter（模型池更新）
+    orchestrator = getattr(app.state, "orchestrator", None)
+    if orchestrator is not None and hasattr(orchestrator, "router"):
+        router = orchestrator.router
+        router.settings = reloaded
+        # 刷新模型池中本地模型的状态
+        if reloaded.model.local_model_enabled:
+            from symbio.core.router import ModelInfo
+            router._model_pool[reloaded.model.local_model_name] = ModelInfo(
+                model_id=reloaded.model.local_model_name,
+                provider="ollama",
+                display_name=f"Local ({reloaded.model.local_model_name})",
+                is_local=True,
+                cost_per_1k_input=0.0,
+                cost_per_1k_output=0.0,
+            )
 
     return {"success": True}
 
