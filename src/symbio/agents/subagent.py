@@ -403,7 +403,7 @@ class SubAgentManager:
             action=subtask.action,
             parameters=subtask.parameters,
         )
-        agent = self.registry.find_best(intent)
+        agent = await self.registry.find_best(intent)
         if agent is not None:
             logger.debug(
                 f"子任务 '{subtask.name}' 通过意图匹配 Agent: {agent.name}"
