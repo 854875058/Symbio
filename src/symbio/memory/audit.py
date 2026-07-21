@@ -299,7 +299,7 @@ class MemoryAuditor:
         # 按标记类型统计
         flags_by_type: dict[str, int] = {}
         for result in results:
-            for flag in flag.flags:
+            for flag in result.flags:
                 key = flag.flag.value
                 flags_by_type[key] = flags_by_type.get(key, 0) + 1
 
