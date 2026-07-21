@@ -120,8 +120,12 @@ class BudgetGateStage(PipelineStage):
             except Exception as exc:
                 logger.warning(f"月度预算检查失败（不阻断）: {exc}")
 
-        # 2. 签发资源票据
-        ctx.budget_ticket = self.guardrail.issue_ticket(task.task_id)
+        # 2. 签发资源票据（如果尚未签发）
+        existing = self.guardrail._tickets.get(task.task_id)
+        if existing is not None:
+            ctx.budget_ticket = existing
+        else:
+            ctx.budget_ticket = self.guardrail.issue_ticket(task.task_id)
         return StageResult.continue_()
 
 

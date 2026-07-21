@@ -96,6 +96,9 @@ class Orchestrator:
         self.dag_orchestrator = DAGOrchestrator(registry=self.registry, guardrail=self.guardrail)
         self._pending_hitl_tasks: dict[str, Task] = {}  # request_id -> Task
 
+        # 构建执行管道（延迟初始化，因为依赖自身）
+        self._pipeline = None
+
     def _maybe_build_ray_executor(self):
         """按配置构建 Ray 分布式执行器；未开启或 Ray 不可用则返回 None（走 asyncio）。"""
         settings = get_settings()
@@ -115,6 +118,14 @@ class Orchestrator:
         except Exception as exc:
             logger.warning(f"Ray 执行器启动失败，回退 asyncio: {exc}")
             return None
+
+    @property
+    def pipeline(self) -> "ExecutionPipeline":
+        """延迟初始化执行管道。"""
+        if self._pipeline is None:
+            from symbio.core.pipeline import build_pipeline
+            self._pipeline = build_pipeline(self)
+        return self._pipeline
 
     async def initialize_memory(self) -> None:
         """初始化记忆系统（在首次处理消息时调用）"""
@@ -394,7 +405,8 @@ class Orchestrator:
                 },
             )
 
-        return await self._execute_via_dag(task, root_span=root_span, release_ticket=True)
+        # 通过执行管道运行（模型解析→预算→执行策略→验证）
+        return await self.pipeline.execute(task, root_span=root_span)
 
     _VALID_ACTIONS: set[str] = {
         "chat", "code_review", "write_code", "analyze_data",
