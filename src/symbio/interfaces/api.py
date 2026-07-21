@@ -245,6 +245,21 @@ async def startup():
         app.state.execution_store = ExecutionStateStore(EXECUTION_DB_PATH)
         logger.warning(f"HITL Orchestrator 初始化失败（审批 API 仍可用）: {e}")
     logger.info("HITL ApprovalGateway 已初始化")
+
+    # 初始化 OTel tracer（如果配置启用）
+    try:
+        from symbio.config.settings import get_settings as _gs
+        _s = _gs()
+        if _s.otel and _s.otel.enabled:
+            from symbio.core.tracer import get_tracer
+            tracer = get_tracer()
+            if tracer is not None and hasattr(tracer, "start"):
+                await tracer.start()
+                app.state.tracer = tracer
+                logger.info(f"OTel tracer 已初始化: {_s.otel.endpoint}")
+    except Exception as e:
+        logger.warning(f"OTel tracer 初始化失败（不影响主流程）: {e}")
+
     # 尝试恢复微信登录态（重启免重扫码）；token 过期则 recv loop 自动回落
     try:
         bridge = get_wechat_bridge()
