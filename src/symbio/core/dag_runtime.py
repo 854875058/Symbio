@@ -37,10 +37,12 @@ class DAGRuntime:
         store: ExecutionStateStore,
         registry: AgentRegistry,
         replanner: Replanner | None = None,
+        guardrail: object | None = None,
     ) -> None:
         self.store = store
         self.registry = registry
         self.replanner = replanner or Replanner()
+        self.guardrail = guardrail
 
     async def run(self, execution_id: str) -> None:
         await self.store.update_execution_status(execution_id, ExecutionStatus.RUNNING)
@@ -218,8 +220,28 @@ class DAGRuntime:
             )
         )
 
-        # Auto-generate verification artifact when agent succeeds and verification is required.
-        # This prevents code tasks from being permanently stuck in NEEDS_VERIFICATION.
+        # Budget check: deduct tokens after successful execution
+        if self.guardrail is not None and hasattr(result, "token_usage") and result.token_usage:
+            try:
+                tu = result.token_usage
+                allowed = self.guardrail.check_and_deduct(
+                    task_id=execution_id,
+                    tokens=getattr(tu, "total_tokens", 0),
+                    cost_usd=getattr(tu, "estimated_cost", 0.0),
+                )
+                if not allowed:
+                    await self._fail_node(
+                        execution_id,
+                        node,
+                        {"reason": "budget_exceeded", "tokens": getattr(tu, "total_tokens", 0)},
+                    )
+                    return False
+            except Exception as exc:
+                from symbio.utils.logger import get_logger
+                get_logger("dag_runtime").warning(f"预算扣减检查失败（不阻断）: {exc}")
+
+        # Mark verification as pending (no longer auto-pass).
+        # VerificationStage in the pipeline will handle real verification.
         if node.verification_required:
             await self.store.append_artifact(
                 ExecutionArtifact(
@@ -227,9 +249,9 @@ class DAGRuntime:
                     node_id=node.node_id,
                     artifact_type="verification",
                     content={
-                        "passed": True,
-                        "method": "agent_self_report",
-                        "summary": "Agent reported successful completion",
+                        "passed": None,
+                        "verification_status": "pending",
+                        "method": "awaiting_verification",
                         "result_content_preview": (result.content or "")[:500],
                     },
                 ),

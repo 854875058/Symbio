@@ -93,7 +93,7 @@ class Orchestrator:
         self.hitl_gateway = ApprovalGateway(persist_path=DEFAULT_HITL_DB_PATH)
         self.hitl_notifier = HITLNotifier.from_settings()
         self.tool_loader = ToolLazyLoader()
-        self.dag_orchestrator = DAGOrchestrator(registry=self.registry)
+        self.dag_orchestrator = DAGOrchestrator(registry=self.registry, guardrail=self.guardrail)
         self._pending_hitl_tasks: dict[str, Task] = {}  # request_id -> Task
 
     def _maybe_build_ray_executor(self):

@@ -21,6 +21,7 @@ class DAGOrchestrator:
         runtime: DAGRuntime | None = None,
         reducer: ResultReducer | None = None,
         registry: AgentRegistry | None = None,
+        guardrail: object | None = None,
     ) -> None:
         resolved_store = store or ExecutionStateStore()
         resolved_registry = registry or get_registry()
@@ -28,7 +29,7 @@ class DAGOrchestrator:
 
         self.planner = planner or ExecutionPlanner()
         self.store = resolved_store
-        self.runtime = runtime or DAGRuntime(resolved_store, resolved_registry)
+        self.runtime = runtime or DAGRuntime(resolved_store, resolved_registry, guardrail=guardrail)
         self.reducer = reducer or ResultReducer()
         self.registry = resolved_registry
 
