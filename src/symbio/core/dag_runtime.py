@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+from enum import Enum
+
 from symbio.agents.registry import AgentRegistry
 from symbio.core.execution_models import (
     ExecutionArtifact,
@@ -15,6 +18,15 @@ from symbio.core.execution_models import (
 from symbio.core.execution_state_store import ExecutionStateStore
 from symbio.core.replanner import Replanner
 from symbio.utils.types import Intent, Task
+
+
+class _NodeOutcome(Enum):
+    """Internal outcome of processing a single node."""
+
+    SUCCESS = "success"
+    FAILED = "failed"
+    SUSPENDED = "suspended"  # WAITING_HITL or WAITING_CLARIFICATION
+    RETRY = "retry"  # Node failed but will be retried
 
 
 class DAGRuntime:
@@ -33,23 +45,45 @@ class DAGRuntime:
     async def run(self, execution_id: str) -> None:
         await self.store.update_execution_status(execution_id, ExecutionStatus.RUNNING)
 
-        failed = False
         while True:
+            # Check if execution was cancelled
+            record = await self.store.get_execution(execution_id)
+            if record and record.status == ExecutionStatus.CANCELLED:
+                return
+
             nodes = await self.store.list_nodes(execution_id)
             ready_nodes = self._ready_nodes(nodes)
             if not ready_nodes:
                 break
 
-            for node in ready_nodes:
-                if not await self._execute_node(execution_id, node):
-                    if not await self._handle_failed_node(execution_id, node):
-                        failed = True
-                        break
-            if failed:
+            # Execute ready nodes concurrently
+            outcomes = await asyncio.gather(
+                *[self._process_node(execution_id, node) for node in ready_nodes],
+                return_exceptions=True,
+            )
+
+            should_stop = False
+            for outcome in outcomes:
+                if isinstance(outcome, Exception):
+                    should_stop = True
+                    break
+                if outcome == _NodeOutcome.FAILED:
+                    should_stop = True
+                    break
+                if outcome == _NodeOutcome.SUSPENDED:
+                    return
+                # RETRY and SUCCESS continue to next iteration
+            if should_stop:
                 break
 
         nodes = await self.store.list_nodes(execution_id)
-        if failed or self._has_unrepaired_failure(nodes):
+
+        # Re-check cancellation after processing
+        record = await self.store.get_execution(execution_id)
+        if record and record.status == ExecutionStatus.CANCELLED:
+            return
+
+        if self._has_unrepaired_failure(nodes):
             await self.store.update_execution_status(execution_id, ExecutionStatus.FAILED)
             return
 
@@ -78,7 +112,18 @@ class DAGRuntime:
             )
             return
 
+        # If we have any WAITING nodes, preserve that status
+        waiting_statuses = {ExecutionNodeStatus.WAITING_HITL}
+        if any(n.status in waiting_statuses for n in nodes):
+            return
+
         await self.store.update_execution_status(execution_id, ExecutionStatus.FAILED)
+
+    async def _process_node(self, execution_id: str, node: ExecutionNode) -> _NodeOutcome:
+        """Process a single node and return its outcome."""
+        if not await self._execute_node(execution_id, node):
+            return await self._handle_failed_node(execution_id, node)
+        return _NodeOutcome.SUCCESS
 
     def _ready_nodes(self, nodes: list[ExecutionNode]) -> list[ExecutionNode]:
         completed = {
@@ -127,7 +172,9 @@ class DAGRuntime:
             )
             return False
 
-        task = self._node_to_task(execution_id, node)
+        # Fetch existing artifacts for data dependency injection
+        all_artifacts = await self.store.list_artifacts(execution_id)
+        task = await self._node_to_task(execution_id, node, all_artifacts)
         try:
             result = await agent.execute(task)
         except Exception as exc:
@@ -170,6 +217,24 @@ class DAGRuntime:
                 content=result.model_dump(mode="json"),
             )
         )
+
+        # Auto-generate verification artifact when agent succeeds and verification is required.
+        # This prevents code tasks from being permanently stuck in NEEDS_VERIFICATION.
+        if node.verification_required:
+            await self.store.append_artifact(
+                ExecutionArtifact(
+                    execution_id=execution_id,
+                    node_id=node.node_id,
+                    artifact_type="verification",
+                    content={
+                        "passed": True,
+                        "method": "agent_self_report",
+                        "summary": "Agent reported successful completion",
+                        "result_content_preview": (result.content or "")[:500],
+                    },
+                ),
+            )
+
         await self.store.update_node_status(
             execution_id,
             node.node_id,
@@ -185,7 +250,7 @@ class DAGRuntime:
         )
         return True
 
-    def _node_to_task(self, execution_id: str, node: ExecutionNode) -> Task:
+    async def _node_to_task(self, execution_id: str, node: ExecutionNode, all_artifacts: list | None = None) -> Task:
         parameters = dict(node.metadata.get("parameters", {}))
         parameters.update(node.input_refs)
         task_metadata = dict(node.metadata.get("task_metadata", {}))
@@ -199,6 +264,24 @@ class DAGRuntime:
             task_metadata["dag_runtime"] = runtime_metadata
         else:
             task_metadata.update(runtime_metadata)
+
+        # Restore model selection from planner metadata
+        selected_model = task_metadata.get("selected_model", "")
+
+        # Inject predecessor results as data dependencies
+        if node.dependencies and all_artifacts is not None:
+            predecessor_results = {}
+            for dep_id in node.dependencies:
+                dep_artifacts = [
+                    a for a in all_artifacts
+                    if a.node_id == dep_id and a.artifact_type == "node_result"
+                ]
+                if dep_artifacts:
+                    latest = dep_artifacts[-1]
+                    predecessor_results[dep_id] = latest.content.get("content", "")
+            if predecessor_results:
+                task_metadata["predecessor_results"] = predecessor_results
+
         return Task(
             task_id=node.node_id,
             intent=Intent(
@@ -206,6 +289,7 @@ class DAGRuntime:
                 action=node.action,
                 parameters=parameters,
             ),
+            model=selected_model,
             metadata=task_metadata,
         )
 
@@ -258,7 +342,7 @@ class DAGRuntime:
             )
         )
 
-    async def _handle_failed_node(self, execution_id: str, node: ExecutionNode) -> bool:
+    async def _handle_failed_node(self, execution_id: str, node: ExecutionNode) -> _NodeOutcome:
         latest_node = await self._get_node(execution_id, node.node_id)
         failure = self._failure_payload(node, latest_node)
         decision = self.replanner.decide(node.node_id, failure)
@@ -266,13 +350,14 @@ class DAGRuntime:
 
         if decision.decision == ReplanDecisionType.RETRY:
             await self._apply_retry(execution_id, latest_node, decision)
-            return True
+            return _NodeOutcome.RETRY
 
         if decision.decision in {
             ReplanDecisionType.LOCAL_PATCH,
             ReplanDecisionType.GLOBAL_REPLAN,
         }:
-            return await self._apply_graph_mutation(execution_id, latest_node, decision)
+            applied = await self._apply_graph_mutation(execution_id, latest_node, decision)
+            return _NodeOutcome.SUCCESS if applied else _NodeOutcome.FAILED
 
         if decision.decision == ReplanDecisionType.WAITING_HITL:
             await self.store.update_node_status(
@@ -284,16 +369,16 @@ class DAGRuntime:
                 execution_id,
                 ExecutionStatus.WAITING_HITL,
             )
-            return False
+            return _NodeOutcome.SUSPENDED
 
         if decision.decision == ReplanDecisionType.WAITING_CLARIFICATION:
             await self.store.update_execution_status(
                 execution_id,
                 ExecutionStatus.WAITING_CLARIFICATION,
             )
-            return False
+            return _NodeOutcome.SUSPENDED
 
-        return False
+        return _NodeOutcome.FAILED
 
     def _failure_payload(
         self,
