@@ -42,6 +42,9 @@ def main(
 
     if config:
         ctx.obj = {"config": config}
+        # Ensure get_settings() picks up the explicit config file
+        import os
+        os.environ["SYMBIO_CONFIG_FILE"] = config
 
     if ctx.invoked_subcommand is None:
         _start_web(host="0.0.0.0", port=9090, reload=False)

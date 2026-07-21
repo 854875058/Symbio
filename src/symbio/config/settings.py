@@ -263,10 +263,34 @@ class Settings(BaseSettings):
             )
 
 
+_CONFIG_SEARCH_PATHS = [
+    Path("symbio.yaml"),
+    Path.home() / ".symbio" / "config.yaml",
+]
+
+
 @lru_cache
 def get_settings() -> Settings:
-    """Get cached settings instance."""
+    """Get cached settings instance.
+
+    Resolution order:
+    1. ``SYMBIO_CONFIG_FILE`` env var (via ``Settings.config_file``)
+    2. ``./symbio.yaml`` in the current working directory
+    3. ``~/.symbio/config.yaml`` in the user home directory
+    4. Environment variables only (default ``Settings()``)
+    """
     settings = Settings()
     if settings.config_file:
-        settings = Settings.from_yaml(settings.config_file)
+        return Settings.from_yaml(settings.config_file)
+
+    for candidate in _CONFIG_SEARCH_PATHS:
+        if candidate.exists():
+            return Settings.from_yaml(candidate)
+
     return settings
+
+
+def reload_settings() -> Settings:
+    """Force-reload settings, clearing the LRU cache first."""
+    get_settings.cache_clear()
+    return get_settings()
