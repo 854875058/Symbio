@@ -317,6 +317,9 @@ class MemoryManager:
 
             self._initialized = True
 
+            # Restore existing memories from LanceDB into in-memory indices
+            await self._restore_from_persistence()
+
             # 启动衰减检查
             if self._config.enable_decay:
                 self._start_decay_task()
@@ -345,6 +348,47 @@ class MemoryManager:
     def _is_optional_vector_backend_error(exc: BaseException) -> bool:
         error_text = f"{type(exc).__name__}: {exc}"
         return any(hint in error_text for hint in OPTIONAL_VECTOR_BACKEND_ERROR_HINTS)
+
+    async def _restore_from_persistence(self) -> None:
+        """Restore existing memories from LanceDB into in-memory indices."""
+        if self._table is None:
+            return
+        try:
+            rows = await asyncio.to_thread(self._table.to_pandas().to_dict, "records")
+            restored = 0
+            for row in rows:
+                try:
+                    memory_id = row.get("memory_id", "")
+                    if not memory_id:
+                        continue
+                    memory = MemoryItem(
+                        memory_id=memory_id,
+                        content=row.get("content", ""),
+                        memory_type=MemoryType(row.get("memory_type", "short_term")),
+                        priority=MemoryPriority(row.get("priority", "medium")),
+                        status=MemoryStatus(row.get("status", "active")),
+                        session_id=row.get("session_id"),
+                        user_id=row.get("user_id"),
+                        source=row.get("source", ""),
+                        tags=json.loads(row.get("tags_json", "[]") or "[]"),
+                        importance=float(row.get("importance", 0.5)),
+                        access_count=int(row.get("access_count", 0)),
+                        created_at=row.get("created_at", ""),
+                        last_accessed=row.get("last_accessed", ""),
+                        expires_at=row.get("expires_at"),
+                        metadata=json.loads(row.get("metadata_json", "{}") or "{}"),
+                    )
+                    if memory.memory_type == MemoryType.SHORT_TERM:
+                        self._short_term[memory_id] = memory
+                    else:
+                        self._long_term[memory_id] = memory
+                    restored += 1
+                except Exception:
+                    continue
+            if restored:
+                logger.info(f"从持久化存储恢复 {restored} 条记忆")
+        except Exception as exc:
+            logger.debug(f"记忆恢复跳过（不影响运行）: {exc}")
 
     async def close(self) -> None:
         """关闭管理器"""
@@ -709,9 +753,10 @@ class MemoryManager:
         for result in results[:max_results]:
             result.memory.update_access()
 
+        top_score = results[0].score if results else 0.0
         logger.info(
             f"语义检索: query={query[:50]}, results={len(results)}, "
-            f"top_score={results[0].score:.4f if results else 0}"
+            f"top_score={top_score:.4f}"
         )
         return results[:max_results]
 
