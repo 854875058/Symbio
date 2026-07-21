@@ -144,6 +144,7 @@ class BaseTool(ABC):
     author: str = ""
     tags: list[str] = []
     permission: ToolPermission = ToolPermission()
+    enabled: bool = True
 
     # ------------------------------------------------------------------
     # 抽象接口
@@ -172,6 +173,7 @@ class BaseTool(ABC):
             author=self.author,
             tags=list(self.tags),
             permission=self.permission,
+            enabled=self.enabled,
         )
 
     def __repr__(self) -> str:
@@ -264,12 +266,14 @@ class ToolRegistry:
             enabled_only: 是否仅返回启用的工具。
         """
         if enabled_only:
-            return [t.name for t in self._tools.values() if t.permission.level or True]
+            return [t.name for t in self._tools.values() if t.enabled]
         return list(self._tools.keys())
 
     def list_metadata(self, enabled_only: bool = True) -> list[ToolMetadata]:
         """列出所有工具的元数据。"""
         tools = self._tools.values()
+        if enabled_only:
+            return [t.get_metadata() for t in tools if t.enabled]
         return [t.get_metadata() for t in tools]
 
     def get_by_tag(self, tag: str) -> list[BaseTool]:
