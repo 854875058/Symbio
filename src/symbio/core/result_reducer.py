@@ -30,7 +30,7 @@ class ResultReducer:
             "artifact_count": len(artifacts),
         }
 
-        content = self._final_content(record, artifacts)
+        content = self._final_content(record, artifacts, nodes)
         missing_verification_nodes = self._missing_verification_nodes(nodes, artifacts)
         if missing_verification_nodes:
             data["status"] = ExecutionStatus.NEEDS_VERIFICATION.value
@@ -56,7 +56,33 @@ class ResultReducer:
         self,
         record: ExecutionRecord,
         artifacts: list[ExecutionArtifact],
+        nodes: list[ExecutionNode] | None = None,
     ) -> str:
+        # Aggregate results from sink nodes (nodes with no successors)
+        if nodes:
+            node_ids = {n.node_id for n in nodes}
+            has_successor = set()
+            for n in nodes:
+                for dep in n.dependencies:
+                    has_successor.add(dep)
+            sink_ids = node_ids - has_successor
+
+            sink_results = []
+            for artifact in reversed(artifacts):
+                if (
+                    artifact.artifact_type == "node_result"
+                    and artifact.node_id in sink_ids
+                ):
+                    content = artifact.content.get("content")
+                    if content:
+                        sink_results.append(str(content))
+
+            if sink_results:
+                if len(sink_results) == 1:
+                    return sink_results[0]
+                return "\n\n---\n\n".join(reversed(sink_results))
+
+        # Fallback: last node_result
         for artifact in reversed(artifacts):
             if artifact.artifact_type == "node_result":
                 content = artifact.content.get("content")
