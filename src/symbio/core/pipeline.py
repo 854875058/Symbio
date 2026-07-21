@@ -159,7 +159,11 @@ class ExecutionStrategyStage(PipelineStage):
 
 
 class VerificationStage(PipelineStage):
-    """阶段 4：验证执行结果。"""
+    """阶段 4：验证执行结果。
+
+    遍历执行产物中 verification_status="pending" 的验证记录，
+    调用 TestingAgent 或基本证据检查来判定是否真正通过。
+    """
 
     def __init__(self, testing_agent: Any = None) -> None:
         self.testing_agent = testing_agent
@@ -169,18 +173,99 @@ class VerificationStage(PipelineStage):
         if ctx.result is not None and not ctx.result.success:
             return StageResult.continue_()
 
-        # 当前阶段：基于结果内容做基本证据检查
-        # 后续迭代可接入 TestingAgent 做深度验证
+        # 从执行产物中提取待验证项
+        execution_id = None
+        if ctx.result and ctx.result.data:
+            execution_id = ctx.result.data.get("execution_id")
+
+        if not execution_id:
+            # 没有执行 ID（非 DAG 路径），只做基本结果检查
+            return self._basic_result_check(ctx)
+
+        # 获取执行产物中的验证记录
+        try:
+            store = self._get_execution_store()
+            if store is None:
+                return self._basic_result_check(ctx)
+
+            artifacts = await store.list_artifacts(execution_id)
+            pending_verifications = [
+                a for a in artifacts
+                if a.artifact_type == "verification"
+                and a.content.get("verification_status") == "pending"
+            ]
+
+            if not pending_verifications:
+                return StageResult.continue_()
+
+            # 逐个验证
+            for artifact in pending_verifications:
+                verification = await self._verify_artifact(ctx, artifact)
+                if not verification["passed"]:
+                    ctx.result = Result(
+                        task_id=ctx.task.task_id,
+                        success=False,
+                        content=f"验证失败: {verification.get('reason', '未通过验证')}",
+                    )
+                    return StageResult.short_circuit(ctx.result)
+
+        except Exception as exc:
+            logger.warning(f"验证阶段异常（不阻断）: {exc}")
+
+        return StageResult.continue_()
+
+    async def _verify_artifact(self, ctx: PipelineContext, artifact: Any) -> dict:
+        """验证单个产物。"""
+        preview = artifact.content.get("result_content_preview", "")
+
+        # 基本证据检查
+        if not preview:
+            return {"passed": False, "reason": "无执行结果内容"}
+
+        # 检查是否包含明显错误
+        lower = preview.lower()
+        if "traceback" in lower and ("error" in lower or "exception" in lower):
+            return {"passed": False, "reason": "结果包含错误堆栈"}
+
+        # 如果有 TestingAgent，做深度验证
+        if self.testing_agent is not None:
+            try:
+                result = await self.testing_agent.verify(
+                    task_description=ctx.task.intent.raw_text,
+                    execution_result=preview,
+                )
+                if hasattr(result, "passed"):
+                    return {"passed": result.passed, "reason": getattr(result, "reason", "")}
+            except Exception as exc:
+                logger.warning(f"TestingAgent 验证失败（降级到基本检查）: {exc}")
+
+        return {"passed": True, "method": "evidence_check"}
+
+    def _basic_result_check(self, ctx: PipelineContext) -> StageResult:
+        """无执行 ID 时的基本结果检查。"""
         if ctx.result is not None and ctx.result.content:
             content = ctx.result.content
-            if "error" in content.lower() and "traceback" in content.lower():
+            lower = content.lower()
+            if "traceback" in lower and ("error" in lower or "exception" in lower):
                 ctx.result = Result(
                     task_id=ctx.task.task_id,
                     success=False,
-                    content=f"验证失败: 结果包含错误信息",
+                    content="验证失败: 结果包含错误信息",
                 )
-
         return StageResult.continue_()
+
+    def _get_execution_store(self) -> Any:
+        """获取执行状态存储（延迟导入避免循环依赖）。"""
+        try:
+            # 从全局 app.state 获取（API 模式）
+            import importlib
+            mod = importlib.import_module("symbio.interfaces.api")
+            app = getattr(mod, "app", None)
+            if app is not None:
+                return getattr(app.state, "execution_store", None)
+        except Exception:
+            pass
+        return None
 
 
 # ---------------------------------------------------------------------------
