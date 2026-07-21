@@ -819,12 +819,9 @@ def _manifest_keywords(manifest: Optional[dict]) -> list:
 
 
 async def _load_llm_settings():
-    """加载 LLM 配置（从 symbio.yaml）"""
-    from symbio.config.settings import HITLConfig, Settings
-    config_path = Path("symbio.yaml")
-    if config_path.exists():
-        return Settings.from_yaml(config_path)
-    return Settings()
+    """加载 LLM 配置（统一从 get_settings() 读取，确保单一权威来源）"""
+    from symbio.config.settings import get_settings
+    return get_settings()
 
 
 # ============ 对话常量 ============
@@ -1916,8 +1913,6 @@ async def chat(request: ChatRequest):
         await db.update_session(session_id, title=request.message[:30])
 
     try:
-        import anthropic
-
         settings = await _load_llm_settings()
         api_key = settings.model.anthropic_api_key
         base_url = settings.model.anthropic_base_url
@@ -1930,6 +1925,7 @@ async def chat(request: ChatRequest):
                 attachments_ingested=attachments_ingested or None,
             )
 
+        import anthropic
         client = anthropic.AsyncAnthropic(api_key=api_key, base_url=base_url)
         model = request.model or settings.model.model_medium
 
@@ -1974,23 +1970,43 @@ async def chat(request: ChatRequest):
         # 成本优化管线：上下文剪枝（超出预算时裁剪历史）
         messages, prune_info = pipeline.prune_history(messages)
 
-        response = await client.messages.create(
-            model=model,
-            max_tokens=4096,
-            system=SYMBIO_SYSTEM_PROMPT,
-            messages=messages,
-        )
-
-        content = ""
-        for block in response.content:
-            if hasattr(block, "text"):
-                content += block.text
-
-        token_usage = {
-            "input": response.usage.input_tokens,
-            "output": response.usage.output_tokens,
-            "total": response.usage.input_tokens + response.usage.output_tokens,
-        }
+        # Route through Orchestrator when available (enables model routing, tools, DAG, etc.)
+        # Only use Orchestrator if we have a valid API key (Orchestrator also needs LLM access)
+        orchestrator = getattr(app.state, "orchestrator", None)
+        if orchestrator is not None and api_key:
+            from symbio.utils.types import Message, MessageSource
+            orch_message = Message(
+                source=MessageSource.WEB,
+                user_id="web-user",
+                content=request.message,
+                session_id=session_id,
+                metadata={"model_override": request.model} if request.model else {},
+            )
+            orch_result = await orchestrator.process(orch_message)
+            content = orch_result.content or ""
+            token_usage_data = orch_result.token_usage
+            token_usage = {
+                "input": token_usage_data.input_tokens,
+                "output": token_usage_data.output_tokens,
+                "total": token_usage_data.total_tokens,
+            }
+        else:
+            # Fallback: direct Anthropic call when Orchestrator is unavailable
+            response = await client.messages.create(
+                model=model,
+                max_tokens=4096,
+                system=SYMBIO_SYSTEM_PROMPT,
+                messages=messages,
+            )
+            content = ""
+            for block in response.content:
+                if hasattr(block, "text"):
+                    content += block.text
+            token_usage = {
+                "input": response.usage.input_tokens,
+                "output": response.usage.output_tokens,
+                "total": response.usage.input_tokens + response.usage.output_tokens,
+            }
 
         # 保存 AI 回复
         await db.create_message(
@@ -3075,7 +3091,7 @@ async def get_config():
 @app.post("/api/config")
 async def update_config(update: ConfigUpdate):
     """保存 LLM 配置到 symbio.yaml"""
-    from symbio.config.settings import Settings
+    from symbio.config.settings import HITLConfig, Settings
 
     config_path = Path("symbio.yaml")
     if config_path.exists():
@@ -3784,23 +3800,43 @@ async def websocket_chat(websocket: WebSocket):
                     # 成本优化管线：上下文剪枝
                     messages, _prune_info = pipeline.prune_history(messages)
 
-                    # 流式调用
-                    async with client.messages.stream(
-                        model=model,
-                        max_tokens=4096,
-                        system=SYMBIO_SYSTEM_PROMPT,
-                        messages=messages,
-                    ) as stream:
-                        async for text in stream.text_stream:
-                            full_response += text
-                            await websocket.send_text(json.dumps({
-                                "type": "token",
-                                "content": text,
-                            }))
-
-                        final = await stream.get_final_message()
-                        token_input = final.usage.input_tokens
-                        token_output = final.usage.output_tokens
+                    # Route through Orchestrator when available
+                    orchestrator = getattr(app.state, "orchestrator", None)
+                    if orchestrator is not None:
+                        from symbio.utils.types import Message, MessageSource
+                        orch_message = Message(
+                            source=MessageSource.WEB,
+                            user_id="web-user",
+                            content=content,
+                            session_id=session_id,
+                            metadata={"model_override": model_override} if model_override else {},
+                        )
+                        orch_result = await orchestrator.process(orch_message)
+                        full_response = orch_result.content or ""
+                        token_input = orch_result.token_usage.input_tokens
+                        token_output = orch_result.token_usage.output_tokens
+                        # Send as single chunk (Orchestrator doesn't stream yet)
+                        await websocket.send_text(json.dumps({
+                            "type": "token",
+                            "content": full_response,
+                        }))
+                    else:
+                        # Fallback: streaming Anthropic call
+                        async with client.messages.stream(
+                            model=model,
+                            max_tokens=4096,
+                            system=SYMBIO_SYSTEM_PROMPT,
+                            messages=messages,
+                        ) as stream:
+                            async for text in stream.text_stream:
+                                full_response += text
+                                await websocket.send_text(json.dumps({
+                                    "type": "token",
+                                    "content": text,
+                                }))
+                            final = await stream.get_final_message()
+                            token_input = final.usage.input_tokens
+                            token_output = final.usage.output_tokens
 
                     # 成本优化管线：记录用量 + 回写语义缓存
                     await pipeline.record_usage(
