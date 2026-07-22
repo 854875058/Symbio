@@ -390,7 +390,10 @@ class SemanticCacheEngine:
         # 3. 找到第一个满足所有条件的条目
         for row in rows:
             distance = row.get("_distance", 1.0)
-            similarity = 1.0 - distance  # LanceDB 默认 L2 距离，转为相似度
+            # 修复：L2 距离不能简单用 1.0 - distance 转换
+            # L2 距离范围是 [0, +∞)，1.0 - distance 会产生负数
+            # 使用公式 similarity = 1.0 / (1.0 + distance) 确保结果在 (0, 1] 范围
+            similarity = 1.0 / (1.0 + distance)
 
             if similarity < self._config.similarity_threshold:
                 continue
@@ -605,15 +608,17 @@ class SemanticCacheEngine:
             await self.initialize()
 
         try:
-            # 重建空表
-            if self._config.table_name in await asyncio.to_thread(self._db.table_names):
-                await asyncio.to_thread(self._db.drop_table, self._config.table_name)
+            # 重建空表，使用实例的实际维度，而不是硬编码的 1536
+            # 本地降级后端实际维度是 384/256，硬编码会导致维度不匹配
+            table_name = self._config.table_name
+            if table_name in await asyncio.to_thread(self._db.table_names):
+                await asyncio.to_thread(self._db.drop_table, table_name)
             self._table = await asyncio.to_thread(
                 self._db.create_table,
-                self._config.table_name,
-                schema=CACHE_TABLE_SCHEMA,
+                table_name,
+                schema=build_cache_schema(self._effective_dim),  # 使用实例的实际维度
             )
-            logger.warning("全部缓存已清空")
+            logger.warning(f"全部缓存已清空（维度: {self._effective_dim}）")
         except Exception as e:
             logger.error(f"清空缓存失败: {e}")
             raise
