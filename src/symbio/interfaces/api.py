@@ -5341,27 +5341,42 @@ class MCPServerAdd(BaseModel):
 
 
 # Allowed MCP server command prefixes (security whitelist)
+# 安全原则：禁止所有 shell 解释器（bash/sh/zsh），因为它们可以执行任意命令
 _MCP_ALLOWED_COMMANDS = {
+    # 包管理器和运行时
     "npx",
     "node",
-    "python",
-    "python3",
     "uvx",
     "uv",
     "pip",
+    # 容器运行时
     "docker",
     "podman",
-    "java",
+    # 编译器（不是解释器）
     "javac",
     "dotnet",
+    "rustc",
+    # 编程语言运行时（需要谨慎使用）
+    "python",
+    "python3",
+    "java",
     "go",
     "cargo",
-    "rustc",
     "ruby",
     "perl",
+}
+
+# 危险的 shell 解释器 - 不允许在 MCP 中使用
+# 这些解释器可以执行任意命令，包括 rm -rf / 等破坏性操作
+_MCP_DANGEROUS_SHELLS = {
     "bash",
     "sh",
     "zsh",
+    "csh",
+    "ksh",
+    "fish",
+    "dash",
+    "ash",
 }
 
 
@@ -5380,6 +5395,16 @@ def _validate_mcp_command(command: str) -> None:
     cmd = parts[0]
     # Extract base command name (handle paths like /usr/bin/node)
     cmd_name = Path(cmd).name
+
+    # 安全检查：禁止 shell 解释器
+    # shell 解释器可以执行任意命令，包括破坏性操作
+    if cmd_name in _MCP_DANGEROUS_SHELLS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"安全限制: 禁止使用 shell 解释器 '{cmd_name}'。"
+            f"Shell 可以执行任意命令，包括破坏性操作。"
+            f"请使用直接的程序命令，而不是通过 shell 包装。",
+        )
 
     if cmd_name not in _MCP_ALLOWED_COMMANDS:
         raise HTTPException(
