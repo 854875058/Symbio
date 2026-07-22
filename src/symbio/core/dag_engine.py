@@ -610,8 +610,13 @@ class DAGEngine:
         """
         applied: list[str] = []  # 已应用的变更描述，用于回滚
         # 保存快照用于回滚
+        # 修复：需要单独保存 callable_ref，因为 model_dump(exclude={"callable_ref"}) 会丢失它
         snapshot_nodes = {
             nid: node.model_dump(exclude={"callable_ref"}) for nid, node in self._nodes.items()
+        }
+        # 单独保存 callable_ref
+        snapshot_callable_refs = {
+            nid: node.callable_ref for nid, node in self._nodes.items()
         }
         snapshot_edges = list(self._graph.edges())
         snapshot_graph_nodes = list(self._graph.nodes())
@@ -648,7 +653,7 @@ class DAGEngine:
                 f"Rolling back {len(applied)} applied change(s)."
             )
             # 回滚：恢复到快照
-            self._rollback(snapshot_nodes, snapshot_edges, snapshot_graph_nodes)
+            self._rollback(snapshot_nodes, snapshot_edges, snapshot_graph_nodes, snapshot_callable_refs)
             raise ValueError(f"Topology change failed and was rolled back: {exc}") from exc
 
     def _rollback(
@@ -656,8 +661,16 @@ class DAGEngine:
         snapshot_nodes: dict[str, dict],
         snapshot_edges: list[tuple[str, str]],
         snapshot_graph_nodes: list[str],
+        snapshot_callable_refs: dict[str, Optional[NodeCallable]] = None,
     ) -> None:
-        """将 DAG 恢复到快照状态。"""
+        """将 DAG 恢复到快照状态。
+
+        Args:
+            snapshot_nodes: 节点数据快照（不含 callable_ref）
+            snapshot_edges: 边列表快照
+            snapshot_graph_nodes: 图节点列表快照
+            snapshot_callable_refs: callable_ref 备份（修复回滚丢失问题）
+        """
         self._graph.clear()
         for nid in snapshot_graph_nodes:
             self._graph.add_node(nid)
@@ -666,9 +679,11 @@ class DAGEngine:
 
         self._nodes.clear()
         for nid, ndata in snapshot_nodes.items():
-            # callable_ref 在 snapshot 中丢失（excluded），需要从当前 nodes 恢复
-            # 如果当前 nodes 中没有（被 remove 了），则设为 None
+            # 修复：从备份中恢复 callable_ref
+            # 如果备份中没有（新增的节点），则设为 None
             callable_ref = None
+            if snapshot_callable_refs and nid in snapshot_callable_refs:
+                callable_ref = snapshot_callable_refs[nid]
             self._nodes[nid] = DAGNode(**ndata, callable_ref=callable_ref)
 
         logger.warning("DAG state rolled back to snapshot")
