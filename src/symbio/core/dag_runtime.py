@@ -16,6 +16,7 @@ from symbio.core.execution_models import (
     ReplanDecisionType,
 )
 from symbio.core.execution_state_store import ExecutionStateStore
+from symbio.core.guardrail import BudgetExceededError
 from symbio.core.replanner import Replanner
 from symbio.utils.types import Intent, Task
 
@@ -228,6 +229,14 @@ class DAGRuntime:
                         {"reason": "budget_exceeded", "tokens": getattr(tu, "total_tokens", 0)},
                     )
                     return False
+            except BudgetExceededError:
+                # 预算超限必须抛出，不能吞掉
+                await self._fail_node(
+                    execution_id,
+                    node,
+                    {"reason": "budget_exceeded", "tokens": getattr(tu, "total_tokens", 0)},
+                )
+                raise
             except Exception as exc:
                 from symbio.utils.logger import get_logger
 
