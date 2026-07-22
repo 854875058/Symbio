@@ -25,6 +25,7 @@ from symbio.evolution.federated import (
 
 # ---------- FedAvg 数学（不依赖训练）----------
 
+
 def test_fedavg_weighted_average():
     """全1 与 全3、样本数 1:3 → 加权平均 (1+9)/4 = 2.5。"""
     a = {"w": torch.ones(4)}
@@ -65,6 +66,7 @@ def test_fedavg_empty_or_bad_weights():
 
 # ---------- 差分隐私 ----------
 
+
 def test_dp_clip_reduces_norm():
     """大范数权重被裁到不超过 clip_norm。"""
     big = {"w": torch.full((4,), 10.0)}  # L2 = 20
@@ -98,14 +100,14 @@ def test_dp_does_not_mutate_input():
 
 # ---------- FedAvg 落盘（safetensors 往返，不依赖训练）----------
 
+
 def test_fedavg_aggregate_writes_global_adapter(tmp_path):
     """构造两个假 adapter 目录 → 聚合 → 全局 adapter 文件生成、权重为加权平均。"""
     from safetensors.torch import save_file
 
     def make_adapter(d: Path, val: float):
         d.mkdir(parents=True, exist_ok=True)
-        save_file({"lora.weight": torch.full((3,), val)},
-                  str(d / "adapter_model.safetensors"))
+        save_file({"lora.weight": torch.full((3,), val)}, str(d / "adapter_model.safetensors"))
         (d / "adapter_config.json").write_text(json.dumps({"r": 8}), encoding="utf-8")
 
     c1 = tmp_path / "c1"
@@ -120,6 +122,7 @@ def test_fedavg_aggregate_writes_global_adapter(tmp_path):
     assert (out / "adapter_config.json").is_file()  # 复用模板配置
 
     from safetensors.torch import load_file
+
     agg = load_file(str(out / "adapter_model.safetensors"))
     # (1*2 + 3*6)/4 = 5.0
     assert torch.allclose(agg["lora.weight"], torch.full((3,), 5.0))
@@ -132,15 +135,16 @@ def test_fedavg_aggregate_with_dp(tmp_path):
     for name, val in [("c1", 2.0), ("c2", 6.0)]:
         d = tmp_path / name
         d.mkdir()
-        save_file({"lora.weight": torch.full((3,), val)},
-                  str(d / "adapter_model.safetensors"))
+        save_file({"lora.weight": torch.full((3,), val)}, str(d / "adapter_model.safetensors"))
         (d / "adapter_config.json").write_text("{}", encoding="utf-8")
 
     out = tmp_path / "global"
     report = fedavg_aggregate(
         [str(tmp_path / "c1"), str(tmp_path / "c2")],
-        weights=[1, 1], output_dir=str(out),
-        dp_clip_norm=1.0, dp_noise_multiplier=0.5,
+        weights=[1, 1],
+        output_dir=str(out),
+        dp_clip_norm=1.0,
+        dp_noise_multiplier=0.5,
     )
     assert report["dp_applied"] is True
     assert (out / "adapter_model.safetensors").is_file()
@@ -148,9 +152,11 @@ def test_fedavg_aggregate_with_dp(tmp_path):
 
 # ---------- 端到端：两客户端真训练 + 聚合（slow）----------
 
+
 def _training_ready() -> bool:
     try:
         from symbio.evolution.lora_trainer import ensure_training_deps
+
         ensure_training_deps()
         return True
     except Exception:
@@ -170,10 +176,18 @@ def test_federated_round_end_to_end(tmp_path):
     # 两个客户端各自的本地数据集（内容不同，模拟数据分布差异）
     def make_dataset(path: Path, texts: list[str]):
         path.write_text(
-            "\n".join(json.dumps({"messages": [
-                {"role": "user", "content": t},
-                {"role": "assistant", "content": f"回答:{t}"},
-            ]}, ensure_ascii=False) for t in texts),
+            "\n".join(
+                json.dumps(
+                    {
+                        "messages": [
+                            {"role": "user", "content": t},
+                            {"role": "assistant", "content": f"回答:{t}"},
+                        ]
+                    },
+                    ensure_ascii=False,
+                )
+                for t in texts
+            ),
             encoding="utf-8",
         )
 
@@ -198,8 +212,18 @@ def test_federated_round_end_to_end(tmp_path):
     except Exception as exc:
         # 极小模型需联网下载；网络不可用则跳过（非逻辑错误），与 test_lora_trainer 一致
         msg = str(exc).lower()
-        if any(k in msg for k in ("connection", "download", "http", "offline",
-                                  "resolve", "timeout", "couldn't connect")):
+        if any(
+            k in msg
+            for k in (
+                "connection",
+                "download",
+                "http",
+                "offline",
+                "resolve",
+                "timeout",
+                "couldn't connect",
+            )
+        ):
             pytest.skip(f"tiny model unavailable offline: {exc}")
         raise
 

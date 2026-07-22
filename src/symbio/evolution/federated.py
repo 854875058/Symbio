@@ -18,8 +18,7 @@
 
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
@@ -35,6 +34,7 @@ class FederatedError(RuntimeError):
 # ---------------------------------------------------------------------------
 # safetensors 张量读写（FedAvg 直接在权重字典上算，不碰基座模型）
 # ---------------------------------------------------------------------------
+
 
 def _find_adapter_weights(adapter_dir: str) -> Path:
     """定位一个 adapter 目录里的权重文件（peft 存为 adapter_model.safetensors）。"""
@@ -87,6 +87,7 @@ def _save_state_dict(state_dict: dict[str, Any], out_dir: str, template_dir: str
 # 差分隐私：L2 裁剪 + 高斯噪声（DP-SGD 风格）
 # ---------------------------------------------------------------------------
 
+
 def apply_dp_noise(
     state_dict: dict[str, Any],
     clip_norm: float = 1.0,
@@ -110,7 +111,7 @@ def apply_dp_noise(
     for t in state_dict.values():
         if torch.is_floating_point(t):
             total_sq += float(torch.sum(t.double() * t.double()))
-    global_norm = total_sq ** 0.5
+    global_norm = total_sq**0.5
     scale = 1.0
     if global_norm > clip_norm and global_norm > 0:
         scale = clip_norm / global_norm
@@ -124,8 +125,11 @@ def apply_dp_noise(
         clipped = t * scale
         if std > 0:
             noise = torch.normal(
-                mean=0.0, std=std, size=clipped.shape,
-                generator=generator, dtype=clipped.dtype,
+                mean=0.0,
+                std=std,
+                size=clipped.shape,
+                generator=generator,
+                dtype=clipped.dtype,
             )
             out[name] = clipped + noise
         else:
@@ -141,12 +145,13 @@ def state_dict_l2_norm(state_dict: dict[str, Any]) -> float:
     for t in state_dict.values():
         if torch.is_floating_point(t):
             total_sq += float(torch.sum(t.double() * t.double()))
-    return total_sq ** 0.5
+    return total_sq**0.5
 
 
 # ---------------------------------------------------------------------------
 # FedAvg 聚合：按样本量加权平均各客户端 adapter 权重
 # ---------------------------------------------------------------------------
+
 
 def fedavg_state_dicts(
     state_dicts: list[dict[str, Any]],
@@ -183,7 +188,9 @@ def fedavg_state_dicts(
             contrib = t.double() * (w / total_w)
             acc = contrib if acc is None else acc + contrib
         # 还原回原 dtype
-        agg[k] = acc.to(state_dicts[0][k].dtype) if torch.is_floating_point(state_dicts[0][k]) else acc
+        agg[k] = (
+            acc.to(state_dicts[0][k].dtype) if torch.is_floating_point(state_dicts[0][k]) else acc
+        )
     return agg
 
 
@@ -215,8 +222,7 @@ def fedavg_aggregate(
     for adir in client_adapters:
         sd = _load_state_dict(adir)
         if dp_clip_norm > 0:
-            sd = apply_dp_noise(sd, clip_norm=dp_clip_norm,
-                                noise_multiplier=dp_noise_multiplier)
+            sd = apply_dp_noise(sd, clip_norm=dp_clip_norm, noise_multiplier=dp_noise_multiplier)
         state_dicts.append(sd)
 
     agg = fedavg_state_dicts(state_dicts, weights)
@@ -245,14 +251,15 @@ def fedavg_aggregate(
 # 联邦客户端 / 协调器
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class FederatedClient:
     """一个联邦客户端：持有本地数据集，本地训练出 adapter（数据不外传）。"""
 
     client_id: str
-    dataset_path: str          # 本地数据集，只在本地读
-    num_samples: int = 0       # 本地样本数，作为 FedAvg 权重
-    adapter_dir: str = ""      # 本地训练产出的 adapter 目录
+    dataset_path: str  # 本地数据集，只在本地读
+    num_samples: int = 0  # 本地样本数，作为 FedAvg 权重
+    adapter_dir: str = ""  # 本地训练产出的 adapter 目录
 
     def train_local(
         self,
@@ -325,12 +332,14 @@ class FederatedCoordinator:
         weights = [float(c.num_samples or 1) for c in self.clients]
         global_dir = str(Path(output_root) / "global_adapter")
         report = fedavg_aggregate(
-            adapters, weights=weights, output_dir=global_dir,
-            dp_clip_norm=dp_clip_norm, dp_noise_multiplier=dp_noise_multiplier,
+            adapters,
+            weights=weights,
+            output_dir=global_dir,
+            dp_clip_norm=dp_clip_norm,
+            dp_noise_multiplier=dp_noise_multiplier,
         )
         report["clients"] = [
-            {"client_id": c.client_id, "num_samples": c.num_samples,
-             "adapter_dir": c.adapter_dir}
+            {"client_id": c.client_id, "num_samples": c.num_samples, "adapter_dir": c.adapter_dir}
             for c in self.clients
         ]
         report["global_adapter_dir"] = global_dir

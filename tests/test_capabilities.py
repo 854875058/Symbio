@@ -52,8 +52,7 @@ async def test_capabilities_api_exposes_claim_ledger():
     assert data["summary"]["total"] == len(data["items"])
     assert any(item["id"] == "dynamic_dag" for item in data["items"])
     # 每项状态合法（不再强制存在 missing 项——账本已全部落地或部分落地）
-    assert all(item["status"] in ("implemented", "partial", "missing")
-               for item in data["items"])
+    assert all(item["status"] in ("implemented", "partial", "missing") for item in data["items"])
 
 
 @pytest.mark.asyncio
