@@ -63,6 +63,7 @@ logs/
 data/*.log
 
 # Runtime local state
+data/.encryption_key
 data/sanitizer.key
 data/external_agents.json
 data/external_live_sessions.json
