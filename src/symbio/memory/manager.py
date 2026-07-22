@@ -379,11 +379,23 @@ class MemoryManager:
                     memory_id = row.get("memory_id", "")
                     if not memory_id:
                         continue
+
+                    # 修复：处理无效的枚举值
+                    # MemoryPriority 没有 "medium"，应该是 "normal"
+                    priority_str = row.get("priority", "normal")
+                    if priority_str == "medium":
+                        priority_str = "normal"  # 兼容旧数据
+                    try:
+                        priority = MemoryPriority(priority_str)
+                    except ValueError:
+                        logger.warning(f"无效的优先级值 '{priority_str}'，使用默认值 'normal'")
+                        priority = MemoryPriority.NORMAL
+
                     memory = MemoryItem(
                         memory_id=memory_id,
                         content=row.get("content", ""),
                         memory_type=MemoryType(row.get("memory_type", "short_term")),
-                        priority=MemoryPriority(row.get("priority", "medium")),
+                        priority=priority,
                         status=MemoryStatus(row.get("status", "active")),
                         session_id=row.get("session_id"),
                         user_id=row.get("user_id"),
@@ -401,7 +413,9 @@ class MemoryManager:
                     else:
                         self._long_term[memory_id] = memory
                     restored += 1
-                except Exception:
+                except Exception as e:
+                    # 修复：记录错误而不是静默吞掉
+                    logger.warning(f"跳过无效记忆记录: {e}")
                     continue
             if restored:
                 logger.info(f"从持久化存储恢复 {restored} 条记忆")
@@ -727,7 +741,10 @@ class MemoryManager:
 
                 for row in rows:
                     distance = row.get("_distance", 1.0)
-                    similarity = 1.0 - distance
+                    # 修复：L2 距离不能简单用 1.0 - distance 转换
+                    # L2 距离范围是 [0, +∞)，1.0 - distance 会产生负数
+                    # 使用公式 similarity = 1.0 / (1.0 + distance) 确保结果在 (0, 1] 范围
+                    similarity = 1.0 / (1.0 + distance)
 
                     if similarity < threshold:
                         continue
