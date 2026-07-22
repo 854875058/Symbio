@@ -495,9 +495,11 @@ class ConsensusDetector:
         3. 各角色置信度收敛程度
         4. 历史轮次的趋势
         """
-        # 计算内容重叠度 (简化版: 基于关键词集合交集)
-        proposal_words = set(proposal.content)
-        refinement_words = set(refinement.content)
+        # 修复：set(字符串) 会得到字符集，而不是词集
+        # 对于中文，字符集交集会被系统性放大，导致共识判断失真
+        # 使用分词来正确计算内容重叠度
+        proposal_words = set(proposal.content.split())
+        refinement_words = set(refinement.content.split())
         if proposal_words or refinement_words:
             overlap = len(proposal_words & refinement_words) / max(
                 len(proposal_words | refinement_words), 1
