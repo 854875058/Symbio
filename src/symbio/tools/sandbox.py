@@ -1088,7 +1088,7 @@ class SandboxExecutor:
         effective_perm_level = perm_level
         if approved and policy.access_mode == SandboxAccessMode.DANGER_FULL_ACCESS:
             effective_perm_level = PermissionLevel.EXECUTE
-            logger.debug(f"DANGER_FULL_ACCESS approved, using EXECUTE permission level")
+            logger.debug("DANGER_FULL_ACCESS approved, using EXECUTE permission level")
 
         result = await self.execute(
             command=command,

@@ -615,9 +615,7 @@ class DAGEngine:
             nid: node.model_dump(exclude={"callable_ref"}) for nid, node in self._nodes.items()
         }
         # 单独保存 callable_ref
-        snapshot_callable_refs = {
-            nid: node.callable_ref for nid, node in self._nodes.items()
-        }
+        snapshot_callable_refs = {nid: node.callable_ref for nid, node in self._nodes.items()}
         snapshot_edges = list(self._graph.edges())
         snapshot_graph_nodes = list(self._graph.nodes())
 
@@ -653,7 +651,9 @@ class DAGEngine:
                 f"Rolling back {len(applied)} applied change(s)."
             )
             # 回滚：恢复到快照
-            self._rollback(snapshot_nodes, snapshot_edges, snapshot_graph_nodes, snapshot_callable_refs)
+            self._rollback(
+                snapshot_nodes, snapshot_edges, snapshot_graph_nodes, snapshot_callable_refs
+            )
             raise ValueError(f"Topology change failed and was rolled back: {exc}") from exc
 
     def _rollback(

