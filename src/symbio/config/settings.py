@@ -250,7 +250,7 @@ class Settings(BaseSettings):
 
     # General
     app_name: str = Field(default="Symbio", description="Application name")
-    version: str = Field(default="0.2.3", description="Application version")
+    version: str = Field(default="0.2.5", description="Application version")
     log_level: LogLevel = Field(default=LogLevel.INFO, description="Log level")
     log_file: Optional[str] = Field(default=None, description="Log file path")
     config_file: Optional[str] = Field(default=None, description="Config file path")

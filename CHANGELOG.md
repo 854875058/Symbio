@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] - 2026-07-22
+
+### Fixed
+
+#### 安全漏洞修复
+- 修复沙箱 READ_ONLY 白名单击穿问题：移除可编程解释器，防止任意文件读写和代码执行
+- 修复 MCP 命令白名单可被绕过问题：禁止 shell 解释器，防止任意命令执行
+- 修复 GitTool 存在 shell 注入问题：使用 create_subprocess_exec 替代 create_subprocess_shell
+
+#### 核心逻辑修复
+- 修复 DAG 预算熔断失效问题：确保 BudgetExceededError 不被吞掉
+- 修复语义缓存 invalidate_all 维度写错问题：使用实例的实际维度替代硬编码
+- 修复 RateLimiter 退避永不生效 + 内存泄漏问题：使用 model 作为 key 替代 id(error)
+- 修复 Agent 单例并发状态错乱问题：改为工厂模式，每次创建新实例
+
+#### 数据一致性修复
+- 修复 DAG 回滚丢失所有 callable_ref 问题：单独保存 callable_ref 备份
+- 修复语义缓存把 L2 距离当相似度问题：使用 1.0 / (1.0 + distance) 公式
+- 修复持久化恢复几乎必然失败问题：处理无效枚举值，记录错误而非静默吞掉
+- 修复 dataset_exporter 并发去重失效问题：添加 threading.Lock 保护共享状态
+
+#### 逻辑错误修复
+- 修复仿真 ERROR 步骤误判 PASSED 问题：ERROR 步骤正确计入 failed_steps
+- 修复 debate 共识检测用 set(字符串) 问题：使用 split() 分词替代直接取字符集
+
 ## [0.2.2] - 2026-06-17
 
 ### Added
