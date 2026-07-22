@@ -6,9 +6,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
+import secrets
 import uuid
 import time
+from base64 import b64decode, b64encode
 from pathlib import Path
 from typing import Any, Optional
 
@@ -17,6 +21,85 @@ import aiosqlite
 from symbio.utils.logger import get_logger
 
 logger = get_logger("database")
+
+
+# ---------------------------------------------------------------------------
+# Simple encryption for sensitive fields (API keys, tokens)
+# Uses PBKDF2 + XOR cipher. For production, consider using 'cryptography' lib.
+# ---------------------------------------------------------------------------
+
+class _FieldEncryptor:
+    """Encrypt/decrypt sensitive database fields."""
+
+    def __init__(self) -> None:
+        self._key: Optional[bytes] = None
+
+    def _get_key(self) -> bytes:
+        if self._key is None:
+            # Read encryption key from environment or generate one
+            env_key = os.environ.get("SYMBIO_ENCRYPTION_KEY", "")
+            if not env_key:
+                # Use a file-based key for persistence
+                key_file = Path("data/.encryption_key")
+                if key_file.exists():
+                    env_key = key_file.read_text().strip()
+                else:
+                    # Generate and persist a new key
+                    env_key = secrets.token_hex(32)
+                    key_file.parent.mkdir(parents=True, exist_ok=True)
+                    key_file.write_text(env_key)
+                    # Restrict file permissions (Unix only)
+                    try:
+                        os.chmod(key_file, 0o600)
+                    except (OSError, AttributeError):
+                        pass
+                    logger.warning("已生成新的加密密钥并保存到 data/.encryption_key")
+
+            # Derive a 32-byte key using PBKDF2
+            self._key = hashlib.pbkdf2_hmac(
+                "sha256",
+                env_key.encode("utf-8"),
+                b"symbio-field-encryption",
+                iterations=100_000,
+                dklen=32,
+            )
+        return self._key
+
+    def encrypt(self, plaintext: str) -> str:
+        """Encrypt a string value. Returns base64-encoded ciphertext."""
+        if not plaintext:
+            return ""
+        key = self._get_key()
+        # XOR cipher with key-derived pad
+        data = plaintext.encode("utf-8")
+        pad = hashlib.sha256(key + b"pad").digest()
+        # Repeat pad to match data length
+        repeated_pad = (pad * ((len(data) // len(pad)) + 1))[: len(data)]
+        encrypted = bytes(a ^ b for a, b in zip(data, repeated_pad))
+        return b64encode(encrypted).decode("ascii")
+
+    def decrypt(self, ciphertext: str) -> str:
+        """Decrypt a base64-encoded ciphertext. Returns plaintext."""
+        if not ciphertext:
+            return ""
+        # Check if value looks like base64 (encrypted) vs plaintext (legacy)
+        try:
+            encrypted = b64decode(ciphertext)
+        except Exception:
+            # Not valid base64, assume legacy plaintext
+            return ciphertext
+        key = self._get_key()
+        pad = hashlib.sha256(key + b"pad").digest()
+        repeated_pad = (pad * ((len(encrypted) // len(pad)) + 1))[: len(encrypted)]
+        decrypted = bytes(a ^ b for a, b in zip(encrypted, repeated_pad))
+        try:
+            return decrypted.decode("utf-8")
+        except UnicodeDecodeError:
+            # Decryption failed, might be legacy plaintext
+            return ciphertext
+
+
+_encryptor = _FieldEncryptor()
 
 # 默认数据库路径
 DEFAULT_DB_PATH = "./data/symbio.db"
@@ -626,10 +709,13 @@ class Database:
         record_id = f"m-{uuid.uuid4().hex[:8]}"
         created_at = created_at or time.strftime("%Y-%m-%dT%H:%M:%S")
 
+        # Encrypt API key before storing
+        encrypted_key = _encryptor.encrypt(api_key) if api_key else ""
+
         await self.db.execute(
             "INSERT INTO models (id, model_id, provider, display_name, api_key, base_url, enabled, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (record_id, model_id, provider, display_name or model_id, api_key, base_url, enabled, created_at),
+            (record_id, model_id, provider, display_name or model_id, encrypted_key, base_url, enabled, created_at),
         )
         await self.db.commit()
         logger.info(f"模型已添加: {display_name or model_id}")
@@ -639,7 +725,7 @@ class Database:
             "model_id": model_id,
             "provider": provider,
             "display_name": display_name or model_id,
-            "api_key": api_key,
+            "api_key": api_key,  # Return original key, not encrypted
             "base_url": base_url,
             "enabled": enabled,
             "created_at": created_at,
@@ -662,7 +748,7 @@ class Database:
                 "model_id": row[1],
                 "provider": row[2],
                 "display_name": row[3],
-                "api_key": row[4],
+                "api_key": _encryptor.decrypt(row[4]) if row[4] else "",
                 "base_url": row[5],
                 "enabled": bool(row[6]),
                 "created_at": row[7],
@@ -692,7 +778,7 @@ class Database:
             "model_id": row[1],
             "provider": row[2],
             "display_name": row[3],
-            "api_key": row[4],
+            "api_key": _encryptor.decrypt(row[4]) if row[4] else "",
             "base_url": row[5],
             "enabled": bool(row[6]),
             "created_at": row[7],
@@ -717,6 +803,10 @@ class Database:
 
         if not updates:
             return existing
+
+        # Encrypt api_key if being updated
+        if "api_key" in updates and updates["api_key"]:
+            updates["api_key"] = _encryptor.encrypt(updates["api_key"])
 
         set_clause = ", ".join(f"{k} = ?" for k in updates)
         values = list(updates.values()) + [model_id]
