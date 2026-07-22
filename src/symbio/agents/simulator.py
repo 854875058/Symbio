@@ -391,9 +391,11 @@ class SimulationSandbox:
             step_result = await self._execute_step(step)
             result.step_results.append(step_result)
 
+            # 修复：ERROR 状态也应该计入失败步骤
+            # 原代码只检查 PASSED 和 FAILED，ERROR 步骤被忽略
             if step_result.status == ScenarioStatus.PASSED:
                 result.passed_steps += 1
-            elif step_result.status == ScenarioStatus.FAILED:
+            elif step_result.status in (ScenarioStatus.FAILED, ScenarioStatus.ERROR):
                 result.failed_steps += 1
 
             result.total_assertions += len(step_result.assertions)
