@@ -86,11 +86,29 @@ app = FastAPI(
     version="0.2.3",
 )
 
-# CORS
+# CORS - read from config, default to localhost only
+def _get_cors_origins() -> list[str]:
+    """Parse CORS origins from settings."""
+    try:
+        from symbio.config.settings import get_settings
+        settings = get_settings()
+        origins_str = getattr(settings.server, "cors_origins", "")
+        if not origins_str:
+            return ["http://localhost:9090", "http://127.0.0.1:9090"]
+        if origins_str.strip() == "*":
+            return ["*"]
+        return [o.strip() for o in origins_str.split(",") if o.strip()]
+    except Exception:
+        return ["http://localhost:9090", "http://127.0.0.1:9090"]
+
+
+_cors_origins = _get_cors_origins()
+_allow_credentials = "*" not in _cors_origins  # credentials + wildcard is insecure
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -3101,14 +3119,25 @@ async def update_skill_file(skill_id: str, req: FileUpdateRequest):
 
 @app.get("/api/config")
 async def get_config():
-    """获取 LLM 配置"""
+    """获取 LLM 配置（密钥脱敏）"""
     settings = await _load_llm_settings()
     from symbio.config.settings import HITLConfig
     hitl = getattr(settings, "hitl", None) or HITLConfig()
+
+    def _mask_key(key: str | None) -> bool:
+        """Return True if key is set, never expose actual value."""
+        return bool(key and key.strip())
+
+    def _mask_token(token: str | None) -> str:
+        """Mask webhook token, show only last 4 chars."""
+        if not token or len(token) < 8:
+            return "***" if token else ""
+        return f"****{token[-4:]}"
+
     return {
-        "anthropic_api_key": settings.model.anthropic_api_key,
+        "has_anthropic_key": _mask_key(settings.model.anthropic_api_key),
         "anthropic_base_url": settings.model.anthropic_base_url,
-        "openai_api_key": settings.model.openai_api_key,
+        "has_openai_key": _mask_key(settings.model.openai_api_key),
         "openai_base_url": settings.model.openai_base_url,
         "model_low": settings.model.model_low,
         "model_medium": settings.model.model_medium,
@@ -3118,7 +3147,7 @@ async def get_config():
             "high_risk_auto_suspend": hitl.high_risk_auto_suspend,
             "approval_timeout": hitl.approval_timeout,
             "callback_base_url": hitl.callback_base_url,
-            "im_webhook_token": hitl.im_webhook_token,
+            "im_webhook_token": _mask_token(hitl.im_webhook_token),
             "notify_timeout": hitl.notify_timeout,
             "notify_targets": hitl.notify_targets,
         },
@@ -4925,6 +4954,40 @@ class MCPServerAdd(BaseModel):
     description: str = ""
 
 
+# Allowed MCP server command prefixes (security whitelist)
+_MCP_ALLOWED_COMMANDS = {
+    "npx", "node", "python", "python3", "uvx", "uv", "pip",
+    "docker", "podman",
+    "java", "javac",
+    "dotnet",
+    "go", "cargo", "rustc",
+    "ruby", "perl",
+    "bash", "sh", "zsh",
+}
+
+
+def _validate_mcp_command(command: str) -> None:
+    """Validate MCP server command against whitelist."""
+    import shlex
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"命令格式无效: {command}")
+
+    if not parts:
+        raise HTTPException(status_code=400, detail="命令不能为空")
+
+    cmd = parts[0]
+    # Extract base command name (handle paths like /usr/bin/node)
+    cmd_name = Path(cmd).name
+
+    if cmd_name not in _MCP_ALLOWED_COMMANDS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"不允许的命令: {cmd_name}。允许的命令: {', '.join(sorted(_MCP_ALLOWED_COMMANDS))}"
+        )
+
+
 _mcp_servers_persist = Path("data") / "mcp_servers.json"
 
 
@@ -4962,6 +5025,7 @@ async def list_mcp_servers():
 @app.post("/api/mcp/servers", tags=["mcp"])
 async def add_mcp_server(req: MCPServerAdd):
     """添加一个 MCP 服务器配置。"""
+    _validate_mcp_command(req.command)  # Security: validate command against whitelist
     servers = _load_mcp_servers()
     new_srv = req.model_dump()
     new_srv["id"] = f"mcp-{uuid.uuid4().hex[:12]}"
