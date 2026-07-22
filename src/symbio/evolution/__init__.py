@@ -110,6 +110,14 @@ from symbio.evolution.eval_pipeline import (
     ToolCallAccuracyResult,
     ToolCallEvaluator,
 )
+from symbio.evolution.federated import (
+    FederatedClient,
+    FederatedCoordinator,
+    FederatedError,
+    apply_dp_noise,
+    fedavg_aggregate,
+    fedavg_state_dicts,
+)
 
 __all__ = [
     # sop_distiller
@@ -200,4 +208,11 @@ __all__ = [
     "TestSuiteLoader",
     "ToolCallAccuracyResult",
     "ToolCallEvaluator",
+    # federated
+    "FederatedClient",
+    "FederatedCoordinator",
+    "FederatedError",
+    "apply_dp_noise",
+    "fedavg_aggregate",
+    "fedavg_state_dicts",
 ]

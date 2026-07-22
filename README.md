@@ -138,7 +138,7 @@ symbio export --format sharegpt --output data/exports/train.jsonl
 | Ray Actor 运行时 | ✅ 已实现 | 真 Ray Actor 池跨进程执行子任务（提交/收集/取消/关闭，worker 内按名重建 Agent 免序列化 client），配置开关接进 SubAgentManager，Ray 关闭/缺失自动回退 asyncio；本机真集群实测任务跑在不同 worker 进程 PID，多机集群部署待验证 |
 | **Computer Use 视觉闭环** | ✅ 已实现 | 截图像素喂给 Claude 视觉，返回坐标动作（点 x/y、输入）；三级回退（视觉→文本 LLM→启发式）保闭环不断；截图/动作/审计/回放齐全，真实 GUI 任务成功率取决于模型 |
 | 沙箱与 K8s 路径 | 🔧 部分实现 | 本地工作区沙箱 + 真 Docker 容器隔离（断网/只读根/资源限额/引擎预检/孤儿清理）已具备；K8s pod 执行仍为桩，沙箱审计跨重启持久化待补 |
-| 隐私计算 / 联邦学习 | 📋 规划中 | 当前仅在路线图 |
+| 联邦学习 + 差分隐私 | 🔧 部分实现 | 联邦 LoRA：各客户端本地数据训 adapter（数据不出本地），只按样本量 FedAvg 加权平均权重 + 差分隐私（L2 裁剪 + 高斯噪声）；单机多客户端端到端验证，跨机安全传输/抗梯度泄露待补 |
 
 ---
 
@@ -248,7 +248,7 @@ pytest                 # 395 passed
 
 ## 当前状态
 
-Symbio 仍处于 Alpha 阶段。核心调度、HITL（多渠道审批 + 超时升级）、记忆、外部 Agent 接管、沙箱（本地 + Docker 容器隔离）、Token 成本优化、Prompt Injection 防火墙、数据飞轮闭环和 Web UI 已形成可运行能力；Computer Use 已具备最小闭环；A2A 已支持编排器执行、跨实例往返、SSE 流式、推送与鉴权；企业级部署、安全隔离、远程 Skill 生态、完整 MCP 协议面、真实训练后端和隐私计算还在持续实现。
+Symbio 仍处于 Alpha 阶段。核心调度、HITL（多渠道审批 + 超时升级）、记忆、外部 Agent 接管、沙箱（本地 + Docker 容器隔离）、Token 成本优化、Prompt Injection 防火墙、数据飞轮闭环和 Web UI 已形成可运行能力；Computer Use 已具备最小闭环；A2A 已支持编排器执行、跨实例往返、SSE 流式、推送与鉴权；联邦学习 + 差分隐私（联邦 LoRA FedAvg 聚合 + DP 噪声）已完成单机多客户端端到端验证；跨机安全传输、K8s pod 真集群执行等企业级部署仍在持续实现。
 
 ---
 

@@ -10,8 +10,8 @@
 | 状态 | 数量 | 说明 |
 | --- | ---: | --- |
 | `[x]` 已实现 | 18 | DAG-first、规划/审查、HITL IM 审批、本体图谱、模型路由、外部 Agent 接管、成本优化、注入防火墙、Skills 市场、MCP 网关、OTel 可观测、数据飞轮、A2A 协议、多模态视觉、微信机器人、外部后端 Agent、Ray Actor 分布式、Computer Use 视觉闭环（VLM 截图→坐标动作） |
-| `[~]` 部分实现 | 1 | 沙箱/K8s（K8s pod 仍为桩） |
-| `[ ]` 未实现 | 1 | 隐私计算 / 联邦学习（仅路线图） |
+| `[~]` 部分实现 | 2 | 沙箱/K8s（K8s pod 仍为桩）、联邦学习+差分隐私（FedAvg+DP 单机多客户端已验证，跨机安全传输待补） |
+| `[ ]` 未实现 | 0 | —（账本所有承诺已全部落地或部分落地） |
 
 运行时账本接口：`GET /api/capabilities`。
 
@@ -110,7 +110,7 @@
 
 - [~] Ray-Native SubAgent 目前本地 asyncio 为主，Ray Actor 投递仍待产品化 - `src/symbio/agents/subagent.py`
 - [~] Edge/mobile/IoT 管理模块存在，但仍是平台适配底座，不是完整产品入口 - `src/symbio/interfaces/edge/*`
-- [ ] 隐私计算、联邦学习、差分隐私当前主要是路线图/白皮书承诺，未进入产品闭环
+- [~] 联邦学习 + 差分隐私：联邦 LoRA（客户端本地训 adapter、数据不出本地）+ FedAvg 加权聚合 + 差分隐私（L2 裁剪+高斯噪声）已落地，单机多客户端端到端验证；跨机安全传输、抗梯度泄露、拜占庭鲁棒聚合待补 - `src/symbio/evolution/federated.py`
 
 ## 本批实现记录
 

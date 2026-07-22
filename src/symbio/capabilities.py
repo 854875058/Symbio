@@ -320,11 +320,15 @@ CAPABILITY_ITEMS: tuple[CapabilityItem, ...] = (
     {
         "id": "federated_privacy",
         "module": "platform",
-        "claim": "Privacy computing, federated learning, and differential privacy for enterprise data.",
-        "status": "missing",
-        "evidence": [],
+        "claim": "Federated LoRA learning with FedAvg aggregation (clients train adapters on local data that never leaves; only weights are averaged by sample count) plus differential privacy (L2-clip + Gaussian noise, DP-SGD style) on uploaded weights. Verified on a single machine with multiple client dirs end-to-end; cross-machine secure transport, gradient-leakage defense, and Byzantine-robust aggregation are not yet implemented.",
+        "status": "partial",
+        "evidence": [
+            "src/symbio/evolution/federated.py",
+            "src/symbio/evolution/lora_trainer.py",
+            "tests/test_federated.py",
+        ],
         "docs": ["docs/feature-checklist.md", "docs/roadmap.md"],
-        "next_step": "Currently roadmap/whitepaper only; implement a federated aggregation path and DP noise injection before claiming support.",
+        "next_step": "Add secure cross-machine weight transport, gradient-leakage defenses, Byzantine-robust aggregation, and wire federated rounds to an API/UI.",
     },
 )
 

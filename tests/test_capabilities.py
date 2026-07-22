@@ -17,7 +17,9 @@ def test_capability_report_marks_claim_statuses_and_evidence():
     assert report["summary"]["total"] >= 10
     assert report["summary"]["implemented"] >= 1
     assert report["summary"]["partial"] >= 1
-    assert report["summary"]["missing"] >= 1
+    # 账本自洽：各状态之和等于总数
+    s = report["summary"]
+    assert s["implemented"] + s["partial"] + s["missing"] == s["total"]
 
     items = {item["id"]: item for item in report["items"]}
     assert items["dynamic_dag"]["status"] == "implemented"
@@ -28,8 +30,9 @@ def test_capability_report_marks_claim_statuses_and_evidence():
     assert items["a2a_protocol"]["status"] == "implemented"
     # Computer Use 已接 VLM 视觉规划（截图像素→坐标动作，三级回退），升级为 implemented
     assert items["computer_use_loop"]["status"] == "implemented"
-    # 仍保留诚实的 missing 项：隐私计算/联邦学习当前仅在路线图
-    assert items["federated_privacy"]["status"] == "missing"
+    # 联邦学习 + DP 已落地（FedAvg 聚合 + 差分隐私，单机多客户端端到端验证），升级为 partial
+    assert items["federated_privacy"]["status"] == "partial"
+    assert "src/symbio/evolution/federated.py" in items["federated_privacy"]["evidence"]
 
     for item in report["items"]:
         assert item["claim"]
@@ -48,7 +51,9 @@ async def test_capabilities_api_exposes_claim_ledger():
     data = resp.json()
     assert data["summary"]["total"] == len(data["items"])
     assert any(item["id"] == "dynamic_dag" for item in data["items"])
-    assert any(item["status"] == "missing" for item in data["items"])
+    # 每项状态合法（不再强制存在 missing 项——账本已全部落地或部分落地）
+    assert all(item["status"] in ("implemented", "partial", "missing")
+               for item in data["items"])
 
 
 @pytest.mark.asyncio
