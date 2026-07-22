@@ -110,7 +110,10 @@ class RateLimiter:
         Raises:
             RateLimitExhaustedError: 重试次数耗尽
         """
-        retry_key = f"{model}:{id(error)}"
+        # 修复：使用 model 作为 key，而不是 id(error)
+        # id(error) 每次都是不同的值，导致 retry_count 永远从 1 开始
+        # 这样就无法正确计数重试次数，导致内存泄漏
+        retry_key = model
         self._retry_counts[retry_key] += 1
         retry_count = self._retry_counts[retry_key]
 
