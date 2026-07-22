@@ -3968,27 +3968,30 @@ async function saveConfig() {
   }
 
   try {
+    const body = {
+      anthropic_base_url: anthropicUrl,
+      openai_base_url: openaiUrl,
+      model_low: modelLow,
+      model_medium: modelMedium,
+      model_high: modelHigh,
+      hitl: {
+        enabled: document.getElementById('config-hitl-enabled')?.checked || false,
+        high_risk_auto_suspend: document.getElementById('config-hitl-high-risk')?.checked || false,
+        approval_timeout: Number(document.getElementById('config-hitl-approval-timeout')?.value || 300),
+        callback_base_url: document.getElementById('config-hitl-callback-base-url')?.value?.trim() || '',
+        im_webhook_token: document.getElementById('config-hitl-im-token')?.value?.trim() || '',
+        notify_timeout: Number(document.getElementById('config-hitl-notify-timeout')?.value || 5),
+        notify_targets: hitlTargets,
+      },
+    };
+    // Only send API keys if user entered new values (non-empty)
+    if (anthropicKey) body.anthropic_api_key = anthropicKey;
+    if (openaiKey) body.openai_api_key = openaiKey;
+
     const res = await fetch(`${API}/config`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        anthropic_api_key: anthropicKey,
-        anthropic_base_url: anthropicUrl,
-        openai_api_key: openaiKey,
-        openai_base_url: openaiUrl,
-        model_low: modelLow,
-        model_medium: modelMedium,
-        model_high: modelHigh,
-        hitl: {
-          enabled: document.getElementById('config-hitl-enabled')?.checked || false,
-          high_risk_auto_suspend: document.getElementById('config-hitl-high-risk')?.checked || false,
-          approval_timeout: Number(document.getElementById('config-hitl-approval-timeout')?.value || 300),
-          callback_base_url: document.getElementById('config-hitl-callback-base-url')?.value?.trim() || '',
-          im_webhook_token: document.getElementById('config-hitl-im-token')?.value?.trim() || '',
-          notify_timeout: Number(document.getElementById('config-hitl-notify-timeout')?.value || 5),
-          notify_targets: hitlTargets,
-        },
-      }),
+      body: JSON.stringify(body),
     });
 
     if (res.ok) {
@@ -4070,8 +4073,8 @@ function renderConfig() {
           <div class="config-group">
             <div class="config-section-title">Anthropic</div>
             <div class="form-group">
-              <label>API Key</label>
-              <input type="password" id="config-anthropic-key" value="${esc(c.anthropic_api_key || '')}" placeholder="sk-ant-...">
+              <label>API Key ${c.has_anthropic_key ? '<span style="color:#22c55e;font-size:12px">✓ 已配置</span>' : '<span style="color:#ef4444;font-size:12px">✗ 未配置</span>'}</label>
+              <input type="password" id="config-anthropic-key" value="" placeholder="${c.has_anthropic_key ? '留空保持不变，输入新值覆盖' : 'sk-ant-...'}">
             </div>
             <div class="form-group">
               <label>Base URL</label>
@@ -4081,8 +4084,8 @@ function renderConfig() {
           <div class="config-group">
             <div class="config-section-title">OpenAI 兼容</div>
             <div class="form-group">
-              <label>API Key</label>
-              <input type="password" id="config-openai-key" value="${esc(c.openai_api_key || '')}" placeholder="sk-...">
+              <label>API Key ${c.has_openai_key ? '<span style="color:#22c55e;font-size:12px">✓ 已配置</span>' : '<span style="color:#ef4444;font-size:12px">✗ 未配置</span>'}</label>
+              <input type="password" id="config-openai-key" value="" placeholder="${c.has_openai_key ? '留空保持不变，输入新值覆盖' : 'sk-...'}">
             </div>
             <div class="form-group">
               <label>Base URL</label>
