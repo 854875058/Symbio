@@ -234,7 +234,8 @@ async def test_runtime_preserves_parameters_from_single_node_planner(tmp_path):
 
 async def test_runtime_auto_generates_verification_when_required(tmp_path):
     """When verification_required=True and agent succeeds, auto-generated
-    verification artifact allows execution to complete (P0-06 fix)."""
+    verification artifact is created with pending status, and execution
+    moves to NEEDS_VERIFICATION until VerificationStage completes it."""
     node = ExecutionNode(
         node_id="node-1",
         name="Write",
@@ -250,11 +251,14 @@ async def test_runtime_auto_generates_verification_when_required(tmp_path):
     record = await store.get_execution("exec-1")
     artifacts = await store.list_artifacts("exec-1")
 
-    # Auto-generated verification artifact allows completion
-    assert record.status == ExecutionStatus.COMPLETED
+    # Verification artifact is created with pending status
     verification_artifacts = [a for a in artifacts if a.artifact_type == "verification"]
     assert len(verification_artifacts) == 1
-    assert verification_artifacts[0].content.get("passed") is True
+    assert verification_artifacts[0].content.get("verification_status") == "pending"
+    assert verification_artifacts[0].content.get("passed") is None
+
+    # Execution waits for verification to complete
+    assert record.status == ExecutionStatus.NEEDS_VERIFICATION
 
     await store.close()
 
