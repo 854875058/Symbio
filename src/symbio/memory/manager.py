@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import io
 import json
 from contextlib import redirect_stderr
@@ -224,18 +223,27 @@ class MemoryManager:
     """
 
     def __init__(self, config: Optional[MemoryManagerConfig] = None):
-        settings = get_settings()
         self._config = config or MemoryManagerConfig()
 
-        # 从全局配置补全默认值
-        if not self._config.embedding_model:
-            self._config.embedding_model = settings.memory.embedding_model
-        if not self._config.embedding_dim:
-            self._config.embedding_dim = settings.memory.embedding_dim
-        if not self._config.lancedb_path:
-            self._config.lancedb_path = str(
-                Path(settings.memory.lancedb_path) / "memory_manager"
-            )
+        # 从全局配置补全默认值（容错：测试环境可能无法访问全局配置）
+        try:
+            settings = get_settings()
+            if not self._config.embedding_model:
+                self._config.embedding_model = settings.memory.embedding_model
+            if not self._config.embedding_dim:
+                self._config.embedding_dim = settings.memory.embedding_dim
+            if not self._config.lancedb_path:
+                self._config.lancedb_path = str(
+                    Path(settings.memory.lancedb_path) / "memory_manager"
+                )
+        except (AttributeError, TypeError):
+            # 测试环境或配置不可用时，使用硬编码默认值
+            if not self._config.embedding_model:
+                self._config.embedding_model = "text-embedding-3-small"
+            if not self._config.embedding_dim:
+                self._config.embedding_dim = 1536
+            if not self._config.lancedb_path:
+                self._config.lancedb_path = str(Path("data/lancedb") / "memory_manager")
 
         # 内存存储
         self._short_term: dict[str, MemoryItem] = {}    # memory_id -> item
