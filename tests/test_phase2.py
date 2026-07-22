@@ -90,6 +90,8 @@ def _make_mock_settings(api_key="test-api-key"):
     mock_settings.model.model_high = "claude-opus-4-20250514"
     mock_settings.model.openai_api_key = ""
     mock_settings.model.openai_base_url = "https://api.openai.com/v1"
+    mock_settings.model.local_model_name = ""
+    mock_settings.model.local_model_enabled = False
     return mock_settings
 
 
