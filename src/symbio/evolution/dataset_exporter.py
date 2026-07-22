@@ -10,6 +10,7 @@ import asyncio
 import hashlib
 import json
 import re
+import threading
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -506,11 +507,15 @@ class QualityFilter:
 
 
 class DataCleaner:
-    """数据清洗管道：去重、去噪、格式标准化。"""
+    """数据清洗管道：去重、去噪、格式标准化。
+
+    线程安全：使用锁保护共享状态 _seen_hashes。
+    """
 
     def __init__(self, config: ExportConfig) -> None:
         self._config = config
         self._seen_hashes: set[str] = set()
+        self._lock = threading.Lock()  # 保护并发访问
         self._load_existing_hashes()
 
     def _load_existing_hashes(self) -> None:
@@ -529,9 +534,11 @@ class DataCleaner:
         """持久化内容哈希集合。"""
         hash_file = Path(self._config.output_dir) / ".content_hashes.json"
         hash_file.parent.mkdir(parents=True, exist_ok=True)
+        with self._lock:
+            hashes_copy = list(self._seen_hashes)
         with open(hash_file, "w", encoding="utf-8") as f:
             json.dump(
-                {"hashes": list(self._seen_hashes), "updated_at": datetime.now().isoformat()},
+                {"hashes": hashes_copy, "updated_at": datetime.now().isoformat()},
                 f,
                 ensure_ascii=False,
             )
@@ -554,7 +561,7 @@ class DataCleaner:
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
     def is_duplicate(self, messages: list[dict[str, str]]) -> bool:
-        """检查消息列表是否重复。
+        """检查消息列表是否重复（线程安全）。
 
         Args:
             messages: [{"role": ..., "content": ...}, ...]
@@ -565,13 +572,15 @@ class DataCleaner:
         if not self._config.dedup_by_hash:
             return False
         content_hash = self.compute_content_hash(messages)
-        return content_hash in self._seen_hashes
+        with self._lock:
+            return content_hash in self._seen_hashes
 
     def mark_seen(self, messages: list[dict[str, str]]) -> None:
-        """标记消息列表为已处理。"""
+        """标记消息列表为已处理（线程安全）。"""
         if self._config.dedup_by_hash:
             content_hash = self.compute_content_hash(messages)
-            self._seen_hashes.add(content_hash)
+            with self._lock:
+                self._seen_hashes.add(content_hash)
 
     @staticmethod
     def clean_text(text: str) -> str:
