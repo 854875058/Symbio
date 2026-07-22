@@ -334,7 +334,10 @@ class MCPTool(BaseTool):
     version = "1.0.0"
     author = "symbio"
     tags = ["mcp", "external"]
-    permission = ToolPermission(level=PermissionLevel.READ_ONLY, requires_approval=False)
+    # Default to WRITE (not READ_ONLY) - external MCP tools may have side effects.
+    # Explicitly set permission=ToolPermission(level=PermissionLevel.READ_ONLY) only
+    # when the tool is verified to be read-only.
+    permission = ToolPermission(level=PermissionLevel.WRITE, requires_approval=False)
 
     def __init__(
         self,
