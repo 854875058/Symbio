@@ -171,7 +171,9 @@ DANGEROUS_COMMAND_PATTERNS: list[re.Pattern] = [
 ]
 
 # Read-Only 模式下允许的命令白名单
+# 安全原则：只允许只读操作的命令，禁止所有可编程解释器（python/node/bash 等）
 READ_ONLY_ALLOWED_COMMANDS: set[str] = {
+    # 文件查看
     "ls",
     "dir",
     "cat",
@@ -180,11 +182,6 @@ READ_ONLY_ALLOWED_COMMANDS: set[str] = {
     "tail",
     "more",
     "less",
-    "grep",
-    "find",
-    "which",
-    "where",
-    "whereis",
     "file",
     "stat",
     "wc",
@@ -192,6 +189,19 @@ READ_ONLY_ALLOWED_COMMANDS: set[str] = {
     "tree",
     "du",
     "df",
+    # 文本处理
+    "grep",
+    "find",
+    "sed",
+    "awk",
+    "tr",
+    "cut",
+    "sort",
+    "uniq",
+    # 系统信息
+    "which",
+    "where",
+    "whereis",
     "free",
     "uptime",
     "date",
@@ -204,20 +214,34 @@ READ_ONLY_ALLOWED_COMMANDS: set[str] = {
     "echo",
     "printf",
     "pwd",
-    "cd",
-    "pushd",
-    "popd",
+    # 版本控制（只读操作）
     "git",
+}
+
+# 可编程解释器 - 不允许在 READ_ONLY 模式下运行
+# 这些解释器可以执行任意代码，包括文件写入和网络访问
+INTERPRETER_COMMANDS: set[str] = {
     "python",
     "python3",
     "node",
-    "npm",
-    "pip",
-    "pytest",
-    "jest",
-    "mocha",
-    "cargo",
+    "ruby",
+    "perl",
+    "php",
+    "lua",
+    "r",
+    "R",
+    "julia",
+    "scala",
+    "groovy",
+    "kotlin",
+    "swift",
+    "rust",
     "go",
+    "cargo",
+    "java",
+    "javac",
+    "dotnet",
+    "csharp",
 }
 
 # Write 模式下额外允许的命令
@@ -458,6 +482,15 @@ class CommandValidator:
             return False, "Empty command"
 
         cmd_name = Path(parts[0]).name  # 处理带路径的命令
+
+        # 安全检查：禁止在 READ_ONLY 模式下运行可编程解释器
+        # 这些解释器可以执行任意代码，绕过所有安全控制
+        if level == PermissionLevel.READ_ONLY and cmd_name in INTERPRETER_COMMANDS:
+            return False, (
+                f"Interpreter '{cmd_name}' is not allowed in READ_ONLY mode. "
+                f"Interpreters can execute arbitrary code and bypass security controls. "
+                f"Use EXECUTE permission level with caution."
+            )
 
         if level == PermissionLevel.READ_ONLY:
             if cmd_name not in READ_ONLY_ALLOWED_COMMANDS:
@@ -1050,9 +1083,16 @@ class SandboxExecutor:
                 self._record_audit(command, result, policy, approved, False, False, reason)
                 return result
 
+        # 修复：如果已批准且是 DANGER_FULL_ACCESS 模式，使用 EXECUTE 权限级别
+        # 这样可以绕过 READ_ONLY 模式下对可编程解释器的限制
+        effective_perm_level = perm_level
+        if approved and policy.access_mode == SandboxAccessMode.DANGER_FULL_ACCESS:
+            effective_perm_level = PermissionLevel.EXECUTE
+            logger.debug(f"DANGER_FULL_ACCESS approved, using EXECUTE permission level")
+
         result = await self.execute(
             command=command,
-            permission_level=perm_level,
+            permission_level=effective_perm_level,
             timeout=timeout,
             working_dir=work_dir,
             env=env,
