@@ -82,13 +82,14 @@ class ChatSecurityGateway:
 
         guard = self._get_guard()
         if guard is None:
-            return self._allow_result(text, reason="防火墙不可用，默认放行")
+            logger.error("防火墙不可用，安全策略要求拦截输入")
+            return self._block_result(text, reason="安全检测服务不可用，为保障安全已拦截输入")
 
         try:
             record = guard.analyze(text, session_id=session_id)
         except Exception as e:
-            logger.warning(f"注入检测异常，默认放行: {e}")
-            return self._allow_result(text, reason="检测异常，默认放行")
+            logger.error(f"注入检测异常，安全策略要求拦截: {e}")
+            return self._block_result(text, reason="安全检测异常，为保障安全已拦截输入")
 
         action = record.action_taken
         should_block = block_enabled and action in _BLOCK_ACTIONS
@@ -119,6 +120,17 @@ class ChatSecurityGateway:
             "threat_level": "safe",
             "attack_type": "none",
             "action": "allow",
+            "sanitized": text,
+            "reason": reason,
+        }
+
+    @staticmethod
+    def _block_result(text: str, reason: str) -> dict[str, Any]:
+        return {
+            "allowed": False,
+            "threat_level": "high",
+            "attack_type": "unknown",
+            "action": "block",
             "sanitized": text,
             "reason": reason,
         }
