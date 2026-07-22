@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from symbio.config.settings import get_settings
 from symbio.utils.logger import get_logger
@@ -15,6 +15,7 @@ logger = get_logger("router")
 
 class ModelInfo(BaseModel):
     """模型信息"""
+
     model_id: str
     provider: str = "anthropic"
     display_name: str = ""
@@ -27,6 +28,7 @@ class ModelInfo(BaseModel):
 
 class TaskModelBinding(BaseModel):
     """任务-模型绑定策略"""
+
     task_type: str
     complexity: TaskComplexity
     preferred_model: str
@@ -176,12 +178,15 @@ class ModelRouter:
         """更新任务-模型绑定"""
         # 移除旧绑定
         self._bindings = [
-            b for b in self._bindings
+            b
+            for b in self._bindings
             if not (b.task_type == binding.task_type and b.complexity == binding.complexity)
         ]
         # 添加新绑定
         self._bindings.append(binding)
-        logger.info(f"更新绑定: {binding.task_type} ({binding.complexity}) -> {binding.preferred_model}")
+        logger.info(
+            f"更新绑定: {binding.task_type} ({binding.complexity}) -> {binding.preferred_model}"
+        )
 
     def estimate_cost(
         self,

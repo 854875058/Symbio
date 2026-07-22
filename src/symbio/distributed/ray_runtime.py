@@ -37,6 +37,7 @@ def ray_available() -> bool:
 # worker 侧：重建 registry + 执行单个子任务（在独立 Ray worker 进程内运行）
 # ---------------------------------------------------------------------------
 
+
 def _bootstrap_registry(extra_modules: Optional[list] = None):
     """在 worker 进程内确保 builtin Agent 已注册并返回全局 registry。
 
@@ -92,6 +93,7 @@ def _run_subtask_in_worker(
 # ---------------------------------------------------------------------------
 # 主进程侧：RayExecutor 门面（start / submit / gather / cancel / shutdown）
 # ---------------------------------------------------------------------------
+
 
 class RayExecutor:
     """真 Ray Actor 池执行器。
@@ -181,8 +183,7 @@ class RayExecutor:
             self._actors = [_SubtaskActor.remote() for _ in range(self._num_workers)]
             self._started = True
             logger.info(
-                f"RayExecutor 启动: workers={self._num_workers}, "
-                f"address={self._address or 'local'}"
+                f"RayExecutor 启动: workers={self._num_workers}, address={self._address or 'local'}"
             )
         except RayRuntimeError:
             raise

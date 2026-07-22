@@ -25,37 +25,40 @@ logger = get_logger("semantic_cache")
 # Pydantic 数据模型
 # ---------------------------------------------------------------------------
 
+
 class InvalidationStrategy(str, Enum):
     """缓存失效策略类型"""
-    TTL = "ttl"              # 基于时间过期
-    VERSION = "version"      # 基于版本号变更
-    CONTEXT = "context"      # 基于上下文 hash 变更
-    MANUAL = "manual"        # 手动失效
+
+    TTL = "ttl"  # 基于时间过期
+    VERSION = "version"  # 基于版本号变更
+    CONTEXT = "context"  # 基于上下文 hash 变更
+    MANUAL = "manual"  # 手动失效
 
 
 class CacheEntry(BaseModel):
     """单条语义缓存记录"""
+
     entry_id: str = Field(default_factory=lambda: str(uuid4()))
-    query_text: str                                  # 原始查询文本
-    response_text: str                               # LLM 响应内容
-    model: str = ""                                  # 生成响应的模型
+    query_text: str  # 原始查询文本
+    response_text: str  # LLM 响应内容
+    model: str = ""  # 生成响应的模型
     embedding: list[float] = Field(default_factory=list)  # 查询文本的向量
 
     # 失效控制
-    version: str = "1.0.0"                           # 关联的 Prompt / Skill 版本
-    context_hash: str = ""                           # 上下文指纹（系统提示词、工具列表等）
-    ttl_seconds: int = 3600                          # 生存时间（秒）
+    version: str = "1.0.0"  # 关联的 Prompt / Skill 版本
+    context_hash: str = ""  # 上下文指纹（系统提示词、工具列表等）
+    ttl_seconds: int = 3600  # 生存时间（秒）
     created_at: datetime = Field(default_factory=datetime.now)
-    expires_at: Optional[datetime] = None            # 过期时间（由 ttl 计算）
+    expires_at: Optional[datetime] = None  # 过期时间（由 ttl 计算）
 
     # Prompt Cache 整合
-    prompt_cache_prefix: str = ""                    # 可复用的前缀缓存标识
-    prompt_prefix_hash: str = ""                     # 前缀内容的 hash，用于前缀匹配
-    cache_control_hint: str = ""                     # 传递给 LLM API 的缓存控制标记
+    prompt_cache_prefix: str = ""  # 可复用的前缀缓存标识
+    prompt_prefix_hash: str = ""  # 前缀内容的 hash，用于前缀匹配
+    cache_control_hint: str = ""  # 传递给 LLM API 的缓存控制标记
 
     # 统计
-    hit_count: int = 0                               # 命中次数
-    last_hit_at: Optional[datetime] = None           # 最近一次命中时间
+    hit_count: int = 0  # 命中次数
+    last_hit_at: Optional[datetime] = None  # 最近一次命中时间
 
     # 元数据
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -79,15 +82,16 @@ class CacheEntry(BaseModel):
 
 class CacheStats(BaseModel):
     """缓存命中率统计"""
-    total_queries: int = 0           # 总查询次数
-    cache_hits: int = 0              # 命中次数
-    cache_misses: int = 0            # 未命中次数
-    hit_rate: float = 0.0            # 命中率
-    avg_similarity_on_hit: float = 0.0   # 命中时的平均相似度
-    total_entries: int = 0           # 当前缓存条目数
-    expired_entries: int = 0         # 已过期但未清理的条目数
-    prompt_cache_aligned: int = 0    # 已对齐 Prompt Cache 的条目数
-    estimated_token_saved: int = 0   # 估算节省的 Token 数
+
+    total_queries: int = 0  # 总查询次数
+    cache_hits: int = 0  # 命中次数
+    cache_misses: int = 0  # 未命中次数
+    hit_rate: float = 0.0  # 命中率
+    avg_similarity_on_hit: float = 0.0  # 命中时的平均相似度
+    total_entries: int = 0  # 当前缓存条目数
+    expired_entries: int = 0  # 已过期但未清理的条目数
+    prompt_cache_aligned: int = 0  # 已对齐 Prompt Cache 的条目数
+    estimated_token_saved: int = 0  # 估算节省的 Token 数
     last_reset_at: datetime = Field(default_factory=datetime.now)
 
     def update_hit_rate(self) -> None:
@@ -98,25 +102,27 @@ class CacheStats(BaseModel):
 
 class SemanticCacheConfig(BaseModel):
     """语义缓存配置"""
+
     enabled: bool = True
-    lancedb_path: str = ""                           # 为空则自动拼接
+    lancedb_path: str = ""  # 为空则自动拼接
     table_name: str = "semantic_cache"
-    embedding_model: str = ""                        # 为空则使用 MemoryConfig
-    embedding_dim: int = 0                           # 为空则使用 MemoryConfig
-    similarity_threshold: float = 0.92               # 语义缓存要求高阈值
-    default_ttl_seconds: int = 3600                  # 默认 1 小时
-    max_entries: int = 50000                         # 最大缓存条目
-    cleanup_interval_seconds: int = 300              # 清理间隔（秒）
-    prompt_cache_enabled: bool = True                # 启用 Prompt Cache 整合
-    stats_reset_interval_seconds: int = 86400        # 统计重置间隔（默认每天）
-    local_embedding_fallback: bool = True            # 无 OpenAI key 时用本地 embedding（开箱即用）
-    local_embedding_dim: int = 256                   # 字符哈希降级 embedding 维度
-    st_embedding_dim: int = 384                      # sentence-transformers 维度（all-MiniLM-L6-v2）
+    embedding_model: str = ""  # 为空则使用 MemoryConfig
+    embedding_dim: int = 0  # 为空则使用 MemoryConfig
+    similarity_threshold: float = 0.92  # 语义缓存要求高阈值
+    default_ttl_seconds: int = 3600  # 默认 1 小时
+    max_entries: int = 50000  # 最大缓存条目
+    cleanup_interval_seconds: int = 300  # 清理间隔（秒）
+    prompt_cache_enabled: bool = True  # 启用 Prompt Cache 整合
+    stats_reset_interval_seconds: int = 86400  # 统计重置间隔（默认每天）
+    local_embedding_fallback: bool = True  # 无 OpenAI key 时用本地 embedding（开箱即用）
+    local_embedding_dim: int = 256  # 字符哈希降级 embedding 维度
+    st_embedding_dim: int = 384  # sentence-transformers 维度（all-MiniLM-L6-v2）
 
 
 # ---------------------------------------------------------------------------
 # LanceDB Schema
 # ---------------------------------------------------------------------------
+
 
 def build_cache_schema(vector_dim: int) -> "pa.Schema":
     """构建缓存表 schema。
@@ -125,24 +131,26 @@ def build_cache_schema(vector_dim: int) -> "pa.Schema":
     用变长 List 会在 search 时报 "Data type is not a vector"。维度随 embedding
     后端不同（OpenAI 1536 / 本地哈希 256 / MiniLM 384），因此按实例维度构建。
     """
-    return pa.schema([
-        pa.field("entry_id", pa.string()),
-        pa.field("query_text", pa.string()),
-        pa.field("response_text", pa.string()),
-        pa.field("model", pa.string()),
-        pa.field("vector", pa.list_(pa.float32(), vector_dim)),
-        pa.field("version", pa.string()),
-        pa.field("context_hash", pa.string()),
-        pa.field("ttl_seconds", pa.int64()),
-        pa.field("created_at", pa.string()),
-        pa.field("expires_at", pa.string()),
-        pa.field("prompt_cache_prefix", pa.string()),
-        pa.field("prompt_prefix_hash", pa.string()),
-        pa.field("cache_control_hint", pa.string()),
-        pa.field("hit_count", pa.int64()),
-        pa.field("last_hit_at", pa.string()),
-        pa.field("metadata_json", pa.string()),
-    ])
+    return pa.schema(
+        [
+            pa.field("entry_id", pa.string()),
+            pa.field("query_text", pa.string()),
+            pa.field("response_text", pa.string()),
+            pa.field("model", pa.string()),
+            pa.field("vector", pa.list_(pa.float32(), vector_dim)),
+            pa.field("version", pa.string()),
+            pa.field("context_hash", pa.string()),
+            pa.field("ttl_seconds", pa.int64()),
+            pa.field("created_at", pa.string()),
+            pa.field("expires_at", pa.string()),
+            pa.field("prompt_cache_prefix", pa.string()),
+            pa.field("prompt_prefix_hash", pa.string()),
+            pa.field("cache_control_hint", pa.string()),
+            pa.field("hit_count", pa.int64()),
+            pa.field("last_hit_at", pa.string()),
+            pa.field("metadata_json", pa.string()),
+        ]
+    )
 
 
 # 向后兼容：默认 1536 维 schema（旧引用）
@@ -178,6 +186,7 @@ def _load_st_model_singleton(model_name: str):
 # 语义缓存引擎
 # ---------------------------------------------------------------------------
 
+
 class SemanticCacheEngine:
     """语义缓存引擎
 
@@ -211,9 +220,7 @@ class SemanticCacheEngine:
 
         # 从全局配置补全默认值
         if not self._config.lancedb_path:
-            self._config.lancedb_path = str(
-                Path(settings.memory.lancedb_path) / "semantic_cache"
-            )
+            self._config.lancedb_path = str(Path(settings.memory.lancedb_path) / "semantic_cache")
         if not self._config.embedding_model:
             self._config.embedding_model = settings.memory.embedding_model
         if not self._config.embedding_dim:
@@ -238,7 +245,9 @@ class SemanticCacheEngine:
             self._effective_dim = self._config.embedding_dim or 1536
         # 表名带上后端与维度：不同维度的向量不能混进同一 FixedSizeList 索引，
         # 用维度隔离避免 ST(384)/哈希(256) 切换时写入旧表报维度错。
-        self._config.table_name = f"{self._config.table_name}_{self._embedding_backend}_{self._effective_dim}"
+        self._config.table_name = (
+            f"{self._config.table_name}_{self._embedding_backend}_{self._effective_dim}"
+        )
 
         self._db: Optional[lancedb.DBConnection] = None
         self._table: Optional[lancedb.table.Table] = None
@@ -277,12 +286,8 @@ class SemanticCacheEngine:
         # 尝试打开已有表，不存在则创建
         table_names = await asyncio.to_thread(self._db.table_names)
         if self._config.table_name in table_names:
-            self._table = await asyncio.to_thread(
-                self._db.open_table, self._config.table_name
-            )
-            row_count = await asyncio.to_thread(
-                self._table.count_rows
-            )
+            self._table = await asyncio.to_thread(self._db.open_table, self._config.table_name)
+            row_count = await asyncio.to_thread(self._table.count_rows)
             logger.info(f"打开已有缓存表: {self._config.table_name}, 条目数={row_count}")
         else:
             # 创建空表（向量列必须是固定维度，维度取决于 embedding 后端）
@@ -311,6 +316,7 @@ class SemanticCacheEngine:
 
     def _start_cleanup_task(self) -> None:
         """启动后台过期清理任务"""
+
         async def _cleanup_loop():
             while True:
                 try:
@@ -322,9 +328,7 @@ class SemanticCacheEngine:
                     logger.error(f"后台清理异常: {e}")
 
         self._cleanup_task = asyncio.create_task(_cleanup_loop())
-        logger.debug(
-            f"后台清理任务已启动，间隔={self._config.cleanup_interval_seconds}s"
-        )
+        logger.debug(f"后台清理任务已启动，间隔={self._config.cleanup_interval_seconds}s")
 
     # ------------------------------------------------------------------
     # 核心读写
@@ -369,9 +373,7 @@ class SemanticCacheEngine:
                 embedding,
                 vector_column_name="vector",
             )
-            results = await asyncio.to_thread(
-                results.limit, 5
-            )
+            results = await asyncio.to_thread(results.limit, 5)
             rows = await asyncio.to_thread(results.to_list)
         except Exception as e:
             self._stats.cache_misses += 1
@@ -403,8 +405,7 @@ class SemanticCacheEngine:
             # 版本失效检查
             if current_version and not entry.is_version_valid(current_version):
                 logger.debug(
-                    f"缓存版本不匹配: entry_version={entry.version}, "
-                    f"current={current_version}"
+                    f"缓存版本不匹配: entry_version={entry.version}, current={current_version}"
                 )
                 continue
 
@@ -418,9 +419,7 @@ class SemanticCacheEngine:
 
             # 模型过滤
             if model and entry.model and entry.model != model:
-                logger.debug(
-                    f"缓存模型不匹配: entry_model={entry.model}, requested={model}"
-                )
+                logger.debug(f"缓存模型不匹配: entry_model={entry.model}, requested={model}")
                 continue
 
             # 4. 命中 — 更新统计
@@ -512,8 +511,7 @@ class SemanticCacheEngine:
         try:
             await asyncio.to_thread(self._table.add, [row])
             logger.info(
-                f"缓存写入: entry_id={entry.entry_id}, "
-                f"query={query[:50]}, ttl={effective_ttl}s"
+                f"缓存写入: entry_id={entry.entry_id}, query={query[:50]}, ttl={effective_ttl}s"
             )
         except Exception as e:
             logger.error(f"缓存写入失败: {e}")
@@ -541,9 +539,7 @@ class SemanticCacheEngine:
             await self.initialize()
 
         try:
-            await asyncio.to_thread(
-                self._table.delete, f"entry_id = '{entry_id}'"
-            )
+            await asyncio.to_thread(self._table.delete, f"entry_id = '{entry_id}'")
             logger.info(f"手动失效缓存: {entry_id}")
             return True
         except Exception as e:
@@ -567,9 +563,7 @@ class SemanticCacheEngine:
         try:
             # 先查出要删除的数量
             count_before = await asyncio.to_thread(self._table.count_rows)
-            await asyncio.to_thread(
-                self._table.delete, f"version = '{version}'"
-            )
+            await asyncio.to_thread(self._table.delete, f"version = '{version}'")
             count_after = await asyncio.to_thread(self._table.count_rows)
             deleted = count_before - count_after
             if deleted > 0:
@@ -595,15 +589,11 @@ class SemanticCacheEngine:
 
         try:
             count_before = await asyncio.to_thread(self._table.count_rows)
-            await asyncio.to_thread(
-                self._table.delete, f"context_hash = '{context_hash}'"
-            )
+            await asyncio.to_thread(self._table.delete, f"context_hash = '{context_hash}'")
             count_after = await asyncio.to_thread(self._table.count_rows)
             deleted = count_before - count_after
             if deleted > 0:
-                logger.info(
-                    f"按上下文失效缓存: context={context_hash[:16]}, 删除 {deleted} 条"
-                )
+                logger.info(f"按上下文失效缓存: context={context_hash[:16]}, 删除 {deleted} 条")
             return deleted
         except Exception as e:
             logger.error(f"按上下文失效缓存失败: {e}")
@@ -616,12 +606,8 @@ class SemanticCacheEngine:
 
         try:
             # 重建空表
-            if self._config.table_name in await asyncio.to_thread(
-                self._db.table_names
-            ):
-                await asyncio.to_thread(
-                    self._db.drop_table, self._config.table_name
-                )
+            if self._config.table_name in await asyncio.to_thread(self._db.table_names):
+                await asyncio.to_thread(self._db.drop_table, self._config.table_name)
             self._table = await asyncio.to_thread(
                 self._db.create_table,
                 self._config.table_name,
@@ -680,9 +666,7 @@ class SemanticCacheEngine:
         Returns:
             前缀 hash（hex string）
         """
-        prefix_hash = hashlib.sha256(
-            prompt_prefix.encode("utf-8")
-        ).hexdigest()[:32]
+        prefix_hash = hashlib.sha256(prompt_prefix.encode("utf-8")).hexdigest()[:32]
 
         logger.debug(
             f"Prompt Cache 前缀对齐: hash={prefix_hash}, "
@@ -720,8 +704,7 @@ class SemanticCacheEngine:
                 if not entry.is_expired():
                     entries.append(entry)
             logger.debug(
-                f"Prompt Cache 条目查询: hash={prompt_prefix_hash}, "
-                f"命中 {len(entries)} 条"
+                f"Prompt Cache 条目查询: hash={prompt_prefix_hash}, 命中 {len(entries)} 条"
             )
             return entries
         except Exception as e:
@@ -754,9 +737,7 @@ class SemanticCacheEngine:
                     total_aligned += 1
 
             # 可复用前缀数（至少 2 个条目共享同一前缀）
-            reusable_prefixes = sum(
-                1 for count in prefix_groups.values() if count >= 2
-            )
+            reusable_prefixes = sum(1 for count in prefix_groups.values() if count >= 2)
 
             return {
                 "total_aligned_entries": total_aligned,
@@ -909,7 +890,7 @@ class SemanticCacheEngine:
         tokens = []
         for n in (1, 2, 3):
             for i in range(len(cleaned) - n + 1):
-                tokens.append(cleaned[i:i + n])
+                tokens.append(cleaned[i : i + n])
         for tok in tokens:
             h = int(hashlib.md5(tok.encode("utf-8")).hexdigest(), 16)
             idx = h % dim
@@ -963,27 +944,17 @@ class SemanticCacheEngine:
             version=row.get("version", "1.0.0"),
             context_hash=row.get("context_hash", ""),
             ttl_seconds=int(row.get("ttl_seconds", 3600)),
-            created_at=(
-                datetime.fromisoformat(created_at)
-                if created_at
-                else datetime.now()
-            ),
-            expires_at=(
-                datetime.fromisoformat(expires_at) if expires_at else None
-            ),
+            created_at=(datetime.fromisoformat(created_at) if created_at else datetime.now()),
+            expires_at=(datetime.fromisoformat(expires_at) if expires_at else None),
             prompt_cache_prefix=row.get("prompt_cache_prefix", ""),
             prompt_prefix_hash=row.get("prompt_prefix_hash", ""),
             cache_control_hint=row.get("cache_control_hint", ""),
             hit_count=int(row.get("hit_count", 0)),
-            last_hit_at=(
-                datetime.fromisoformat(last_hit_at) if last_hit_at else None
-            ),
+            last_hit_at=(datetime.fromisoformat(last_hit_at) if last_hit_at else None),
             metadata=json.loads(metadata_json) if metadata_json else {},
         )
 
-    async def _update_entry_hits(
-        self, entry_id: str, new_hit_count: int
-    ) -> None:
+    async def _update_entry_hits(self, entry_id: str, new_hit_count: int) -> None:
         """更新条目的命中计数（删除后重新插入）"""
         try:
             # LanceDB 不支持原生 update，用 delete + add 实现
@@ -996,9 +967,7 @@ class SemanticCacheEngine:
                 row = rows[0]
                 row["hit_count"] = new_hit_count
                 row["last_hit_at"] = datetime.now().isoformat()
-                await asyncio.to_thread(
-                    self._table.delete, f"entry_id = '{entry_id}'"
-                )
+                await asyncio.to_thread(self._table.delete, f"entry_id = '{entry_id}'")
                 await asyncio.to_thread(self._table.add, [row])
         except Exception as e:
             logger.debug(f"更新命中计数失败（非致命）: {e}")
@@ -1011,10 +980,7 @@ class SemanticCacheEngine:
                 return
 
             excess = count - self._config.max_entries
-            logger.info(
-                f"缓存条目超限: {count}/{self._config.max_entries}, "
-                f"淘汰 {excess} 条"
-            )
+            logger.info(f"缓存条目超限: {count}/{self._config.max_entries}, 淘汰 {excess} 条")
 
             # 查询所有条目，按 last_hit_at 排序后取前 excess 条淘汰
             try:
@@ -1034,9 +1000,7 @@ class SemanticCacheEngine:
 
             for evict_row in to_evict:
                 evict_id = evict_row["entry_id"]
-                await asyncio.to_thread(
-                    self._table.delete, f"entry_id = '{evict_id}'"
-                )
+                await asyncio.to_thread(self._table.delete, f"entry_id = '{evict_id}'")
 
             logger.info(f"LRU 淘汰完成: {excess} 条")
         except Exception as e:

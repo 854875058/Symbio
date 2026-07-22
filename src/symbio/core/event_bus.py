@@ -99,6 +99,7 @@ class EventBus:
         Returns:
             Decorator function
         """
+
         def decorator(func: EventHandler) -> EventHandler:
             if event_type is None:
                 self._global_handlers.append(func)
@@ -107,6 +108,7 @@ class EventBus:
                     self._handlers[event_type] = []
                 self._handlers[event_type].append(func)
             return func
+
         return decorator
 
     def subscribe(self, event_type: EventType, handler: EventHandler) -> None:
@@ -139,7 +141,7 @@ class EventBus:
         # Store in history
         self._history.append(event)
         if len(self._history) > self._max_history:
-            self._history = self._history[-self._max_history:]
+            self._history = self._history[-self._max_history :]
 
         # Collect handlers
         handlers = list(self._global_handlers)

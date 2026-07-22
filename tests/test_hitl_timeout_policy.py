@@ -22,12 +22,16 @@ from symbio.interfaces.api import app
 # 升级转交逻辑
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_escalate_keeps_pending_then_rejects_when_exhausted():
     gw = ApprovalGateway()
     req = ApprovalRequest(
-        task_id="t1", risk_level=RiskLevel.HIGH, timeout_seconds=9999,
-        timeout_policy="escalate", max_escalations=1,
+        task_id="t1",
+        risk_level=RiskLevel.HIGH,
+        timeout_seconds=9999,
+        timeout_policy="escalate",
+        max_escalations=1,
     )
     rid = await gw.submit_request(req)
 
@@ -46,8 +50,11 @@ async def test_escalate_keeps_pending_then_rejects_when_exhausted():
 async def test_escalate_extends_deadline():
     gw = ApprovalGateway()
     req = ApprovalRequest(
-        task_id="t1", risk_level=RiskLevel.HIGH, timeout_seconds=5,
-        timeout_policy="escalate", max_escalations=3,
+        task_id="t1",
+        risk_level=RiskLevel.HIGH,
+        timeout_seconds=5,
+        timeout_policy="escalate",
+        max_escalations=3,
     )
     rid = await gw.submit_request(req)
     r = await gw.escalate(rid, extend_seconds=600)
@@ -66,12 +73,16 @@ async def test_escalate_unknown_request_raises():
 # 超时自动处置（短超时触发 handler）
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_timeout_policy_reject():
     gw = ApprovalGateway()
-    req = ApprovalRequest(task_id="t", risk_level=RiskLevel.HIGH, timeout_seconds=1, timeout_policy="reject")
+    req = ApprovalRequest(
+        task_id="t", risk_level=RiskLevel.HIGH, timeout_seconds=1, timeout_policy="reject"
+    )
     rid = await gw.submit_request(req)
     import asyncio
+
     await asyncio.sleep(1.3)
     got = await gw.get_request(rid)
     assert got.status == ApprovalStatus.TIMEOUT
@@ -82,9 +93,12 @@ async def test_timeout_policy_reject():
 @pytest.mark.asyncio
 async def test_timeout_policy_approve():
     gw = ApprovalGateway()
-    req = ApprovalRequest(task_id="t", risk_level=RiskLevel.HIGH, timeout_seconds=1, timeout_policy="approve")
+    req = ApprovalRequest(
+        task_id="t", risk_level=RiskLevel.HIGH, timeout_seconds=1, timeout_policy="approve"
+    )
     rid = await gw.submit_request(req)
     import asyncio
+
     await asyncio.sleep(1.3)
     got = await gw.get_request(rid)
     assert got.status == ApprovalStatus.APPROVED
@@ -93,9 +107,12 @@ async def test_timeout_policy_approve():
 @pytest.mark.asyncio
 async def test_legacy_auto_approve_on_timeout_still_works():
     gw = ApprovalGateway()
-    req = ApprovalRequest(task_id="t", risk_level=RiskLevel.HIGH, timeout_seconds=1, auto_approve_on_timeout=True)
+    req = ApprovalRequest(
+        task_id="t", risk_level=RiskLevel.HIGH, timeout_seconds=1, auto_approve_on_timeout=True
+    )
     rid = await gw.submit_request(req)
     import asyncio
+
     await asyncio.sleep(1.3)
     got = await gw.get_request(rid)
     assert got.status == ApprovalStatus.APPROVED
@@ -105,15 +122,21 @@ async def test_legacy_auto_approve_on_timeout_still_works():
 # 策略配置 API
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_timeout_policy_api_roundtrip(tmp_path, monkeypatch):
     # 切到临时工作目录，避免污染真实 symbio.yaml
     monkeypatch.chdir(tmp_path)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.post("/api/hitl/timeout/policy", json={
-            "timeout_action": "escalate", "escalation_target": "feishu-admin", "max_escalations": 2,
-        })
+        resp = await client.post(
+            "/api/hitl/timeout/policy",
+            json={
+                "timeout_action": "escalate",
+                "escalation_target": "feishu-admin",
+                "max_escalations": 2,
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["timeout_action"] == "escalate"

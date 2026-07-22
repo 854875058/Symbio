@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Optional
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -21,6 +21,7 @@ logger = get_logger("security.gateway")
 
 class SecurityAction(str, Enum):
     """安全处置动作"""
+
     ALLOW = "allow"
     BLOCK = "block"
     SANITIZE = "sanitize"
@@ -29,6 +30,7 @@ class SecurityAction(str, Enum):
 
 class SecurityCheckResult(BaseModel):
     """安全检查结果"""
+
     result_id: str = Field(default_factory=lambda: str(uuid4()))
     original_content: str = ""
     sanitized_content: str = ""
@@ -42,6 +44,7 @@ class SecurityCheckResult(BaseModel):
 
 class SecurityStats(BaseModel):
     """安全统计"""
+
     total_checked: int = 0
     total_allowed: int = 0
     total_blocked: int = 0

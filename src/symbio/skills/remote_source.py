@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from symbio.skills.schema import SkillManifest
 from symbio.utils.logger import get_logger
@@ -35,7 +35,7 @@ class RemoteSkill(BaseModel):
     name: str
     description: str = ""
     repo: str
-    path: str            # 仓库内目录，如 "skills/algorithmic-art"
+    path: str  # 仓库内目录，如 "skills/algorithmic-art"
     ref: str = "main"
     html_url: str = ""
 
@@ -51,7 +51,10 @@ class _HttpSession:
         self._timeout = timeout
 
     def _headers(self) -> dict[str, str]:
-        headers = {"Accept": "application/vnd.github+json", "User-Agent": "symbio-skill-marketplace"}
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "symbio-skill-marketplace",
+        }
         if self._token:
             headers["Authorization"] = f"Bearer {self._token}"
         return headers
@@ -110,10 +113,15 @@ class GitHubSkillSource:
             if query and query.lower() not in name.lower():
                 continue
             seen.add(name)
-            skills.append(RemoteSkill(
-                name=name, repo=self.repo, path=skill_dir, ref=self.ref,
-                html_url=f"https://github.com/{self.repo}/tree/{self.ref}/{skill_dir}",
-            ))
+            skills.append(
+                RemoteSkill(
+                    name=name,
+                    repo=self.repo,
+                    path=skill_dir,
+                    ref=self.ref,
+                    html_url=f"https://github.com/{self.repo}/tree/{self.ref}/{skill_dir}",
+                )
+            )
             if len(skills) >= limit:
                 break
         return skills
@@ -124,7 +132,9 @@ class GitHubSkillSource:
         dest.mkdir(parents=True, exist_ok=True)
         self._download_dir(remote.repo, remote.path, remote.ref, dest)
         skill_md = dest / "SKILL.md"
-        front = _parse_frontmatter(skill_md.read_text(encoding="utf-8")) if skill_md.exists() else {}
+        front = (
+            _parse_frontmatter(skill_md.read_text(encoding="utf-8")) if skill_md.exists() else {}
+        )
         raw_name = str(front.get("name") or remote.name)
         description = str(front.get("description") or "")[:1024]
         return SkillManifest(
@@ -173,5 +183,5 @@ def _sanitize_name(raw: str) -> str:
     if not s or not s[0].isalpha():
         s = "skill_" + s
     if len(s) < 3:
-        s = (s + "_skill")
+        s = s + "_skill"
     return s[:64]

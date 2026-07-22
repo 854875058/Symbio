@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import re
 from enum import Enum
-from typing import Any, Optional
+from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -41,6 +41,7 @@ class FilterLevel(str, Enum):
 
 class FilterResult(BaseModel):
     """过滤结果"""
+
     passed: bool
     level: FilterLevel
     reason: str = ""
@@ -50,6 +51,7 @@ class FilterResult(BaseModel):
 
 class SecurityCheckResult(BaseModel):
     """安全检查结果"""
+
     is_safe: bool
     injection_detected: bool = False
     pii_detected: bool = False
@@ -61,6 +63,7 @@ class SecurityCheckResult(BaseModel):
 
 class ForgettingResult(BaseModel):
     """遗忘策略执行结果"""
+
     strategy: str
     affected_count: int = 0
     details: list[str] = Field(default_factory=list)
@@ -72,7 +75,9 @@ class ForgettingResult(BaseModel):
 
 # 问候语模式
 _GREETING_PATTERNS = [
-    re.compile(r"^(你好|hi|hello|hey|嗨|哈喽|good\s*(morning|afternoon|evening))[\s!！。.]*$", re.I),
+    re.compile(
+        r"^(你好|hi|hello|hey|嗨|哈喽|good\s*(morning|afternoon|evening))[\s!！。.]*$", re.I
+    ),
     re.compile(r"^(谢谢|thanks|thank\s*you|thx|3q)[\s!！。.]*$", re.I),
     re.compile(r"^(好的|ok|okay|sure|行|嗯|哦)[\s!！。.]*$", re.I),
     re.compile(r"^(再见|bye|goodbye|拜拜|886|88)[\s!！。.]*$", re.I),
@@ -92,7 +97,8 @@ def _rule_filter(text: str) -> Optional[FilterResult]:
     # 空或过短
     if len(stripped) < 10:
         return FilterResult(
-            passed=False, level=FilterLevel.RULE,
+            passed=False,
+            level=FilterLevel.RULE,
             reason=f"文本过短 ({len(stripped)} 字符 < 10)",
             should_extract=False,
         )
@@ -101,7 +107,8 @@ def _rule_filter(text: str) -> Optional[FilterResult]:
     for pattern in _GREETING_PATTERNS:
         if pattern.match(stripped):
             return FilterResult(
-                passed=False, level=FilterLevel.RULE,
+                passed=False,
+                level=FilterLevel.RULE,
                 reason="问候语，无实质内容",
                 should_extract=False,
             )
@@ -110,7 +117,8 @@ def _rule_filter(text: str) -> Optional[FilterResult]:
     for pattern in _PURE_QUESTION_PATTERNS:
         if pattern.match(stripped):
             return FilterResult(
-                passed=False, level=FilterLevel.RULE,
+                passed=False,
+                level=FilterLevel.RULE,
                 reason="纯问题，无需提取记忆",
                 should_extract=False,
             )
@@ -124,10 +132,37 @@ def _rule_filter(text: str) -> Optional[FilterResult]:
 
 # 有信息量的关键词
 _INFO_KEYWORDS = [
-    "配置", "设置", "安装", "部署", "错误", "bug", "修复", "实现", "功能",
-    "接口", "数据库", "API", "文件", "路径", "端口", "密码", "版本",
-    "config", "setup", "deploy", "error", "fix", "implement", "feature",
-    "interface", "database", "file", "path", "port", "password", "version",
+    "配置",
+    "设置",
+    "安装",
+    "部署",
+    "错误",
+    "bug",
+    "修复",
+    "实现",
+    "功能",
+    "接口",
+    "数据库",
+    "API",
+    "文件",
+    "路径",
+    "端口",
+    "密码",
+    "版本",
+    "config",
+    "setup",
+    "deploy",
+    "error",
+    "fix",
+    "implement",
+    "feature",
+    "interface",
+    "database",
+    "file",
+    "path",
+    "port",
+    "password",
+    "version",
 ]
 
 
@@ -141,7 +176,9 @@ def _classifier_filter(text: str) -> FilterResult:
     keyword_density = keyword_hits / max(len(words), 1)
 
     # 句子完整性（有句号/换行 = 更完整）
-    sentence_indicators = text.count("。") + text.count(".") + text.count("\n") + text.count("！") + text.count("！")
+    sentence_indicators = (
+        text.count("。") + text.count(".") + text.count("\n") + text.count("！") + text.count("！")
+    )
     completeness = min(sentence_indicators / max(len(words) / 20, 1), 1.0)
 
     # 综合评分
@@ -149,15 +186,19 @@ def _classifier_filter(text: str) -> FilterResult:
 
     if score > 0.3:
         return FilterResult(
-            passed=True, level=FilterLevel.CLASSIFIER,
+            passed=True,
+            level=FilterLevel.CLASSIFIER,
             reason=f"信息密度足够 (score={score:.2f})",
-            confidence=score, should_extract=True,
+            confidence=score,
+            should_extract=True,
         )
     else:
         return FilterResult(
-            passed=False, level=FilterLevel.CLASSIFIER,
+            passed=False,
+            level=FilterLevel.CLASSIFIER,
             reason=f"信息密度不足 (score={score:.2f})",
-            confidence=1.0 - score, should_extract=False,
+            confidence=1.0 - score,
+            should_extract=False,
         )
 
 
@@ -186,9 +227,11 @@ class ThreeLevelNoiseFilter:
 
         # L3: LLM 精确提取（预留接口，当前直接通过）
         return FilterResult(
-            passed=True, level=FilterLevel.LLM,
+            passed=True,
+            level=FilterLevel.LLM,
             reason="通过三层过滤",
-            confidence=l2.confidence, should_extract=True,
+            confidence=l2.confidence,
+            should_extract=True,
         )
 
     def batch_filter(self, texts: list[str]) -> list[FilterResult]:
@@ -215,11 +258,13 @@ class MemorySecurityGateway:
             return
         try:
             from symbio.core.injection_guard import InjectionGuard
+
             self._injection_guard = InjectionGuard()
         except Exception:
             pass
         try:
             from symbio.security.sanitizer import DataSanitizer
+
             self._sanitizer = DataSanitizer()
         except Exception:
             pass
@@ -256,8 +301,13 @@ class MemorySecurityGateway:
 
         # 来源可信度
         credibility_map = {
-            "code": 0.95, "config": 0.95, "system": 0.9,
-            "admin": 0.85, "user": 0.7, "agent": 0.6, "external": 0.4,
+            "code": 0.95,
+            "config": 0.95,
+            "system": 0.9,
+            "admin": 0.85,
+            "user": 0.7,
+            "agent": 0.6,
+            "external": 0.4,
         }
         source_lower = source.lower()
         for key, val in credibility_map.items():

@@ -30,8 +30,6 @@ from symbio.agents.debate import (
     CriticStrategy,
     DebateEngine,
     DebateRole,
-    DebateRound,
-    DebateSession,
     DebateStatus,
     LLMCriticStrategy,
     LLMProposerStrategy,
@@ -45,7 +43,6 @@ from symbio.core.decomposer import (
     DecompositionResult,
     SubTask,
     TaskDecomposer,
-    _DEBATE_KEYWORDS,
 )
 from symbio.core.event_bus import EventBus
 from symbio.core.orchestrator import Orchestrator
@@ -58,9 +55,7 @@ from symbio.core.planner_reviewer import (
 )
 from symbio.core.rate_limiter import RateLimiter
 from symbio.agents.subagent import (
-    AggregatedResult,
     SubAgentManager,
-    SubAgentResult,
 )
 from symbio.utils.types import (
     AgentState,
@@ -153,9 +148,7 @@ def _make_mock_agent(name="general", execute_result=None):
             task_id="mock-task",
             success=True,
             content=f"Agent {name} 执行完成",
-            token_usage=TokenUsage(
-                input_tokens=10, output_tokens=20, total_tokens=30
-            ),
+            token_usage=TokenUsage(input_tokens=10, output_tokens=20, total_tokens=30),
         )
     agent.execute = AsyncMock(return_value=execute_result)
     agent.can_handle = MagicMock(return_value=True)
@@ -244,28 +237,30 @@ class TestTaskDecomposer:
         llm_response_data = {
             "content": [
                 {
-                    "text": json.dumps({
-                        "reasoning": "这是一个多步骤任务",
-                        "needs_debate": False,
-                        "subtasks": [
-                            {
-                                "name": "分析代码",
-                                "description": "分析现有代码结构",
-                                "action": "code_review",
-                                "dependencies": [],
-                                "estimated_complexity": "medium",
-                                "suggested_agent": "code_reviewer",
-                            },
-                            {
-                                "name": "编写测试",
-                                "description": "为代码编写单元测试",
-                                "action": "write_code",
-                                "dependencies": ["分析代码"],
-                                "estimated_complexity": "medium",
-                                "suggested_agent": "coder",
-                            },
-                        ],
-                    })
+                    "text": json.dumps(
+                        {
+                            "reasoning": "这是一个多步骤任务",
+                            "needs_debate": False,
+                            "subtasks": [
+                                {
+                                    "name": "分析代码",
+                                    "description": "分析现有代码结构",
+                                    "action": "code_review",
+                                    "dependencies": [],
+                                    "estimated_complexity": "medium",
+                                    "suggested_agent": "code_reviewer",
+                                },
+                                {
+                                    "name": "编写测试",
+                                    "description": "为代码编写单元测试",
+                                    "action": "write_code",
+                                    "dependencies": ["分析代码"],
+                                    "estimated_complexity": "medium",
+                                    "suggested_agent": "coder",
+                                },
+                            ],
+                        }
+                    )
                 }
             ],
             "usage": {"input_tokens": 50, "output_tokens": 100},
@@ -309,10 +304,12 @@ class TestTaskDecomposer:
 
     async def test_fallback_when_llm_returns_invalid_json(self):
         """LLM 返回无效 JSON 时应安全回退"""
-        mock_response = _make_mock_httpx_response({
-            "content": [{"text": "这不是 JSON 内容"}],
-            "usage": {"input_tokens": 10, "output_tokens": 5},
-        })
+        mock_response = _make_mock_httpx_response(
+            {
+                "content": [{"text": "这不是 JSON 内容"}],
+                "usage": {"input_tokens": 10, "output_tokens": 5},
+            }
+        )
         mock_client = _make_mock_httpx_client(mock_response)
         mock_settings = _make_mock_settings(api_key="test-key")
 
@@ -438,10 +435,12 @@ class TestTaskDecomposer:
     async def test_llm_response_with_code_fences(self):
         """LLM 返回带代码围栏的 JSON 时应正确解析"""
         fenced_json = '```json\n{"reasoning": "test", "needs_debate": false, "subtasks": [{"name": "task1", "description": "desc", "action": "chat", "dependencies": [], "estimated_complexity": "low", "suggested_agent": "general"}]}\n```'
-        mock_response = _make_mock_httpx_response({
-            "content": [{"text": fenced_json}],
-            "usage": {"input_tokens": 10, "output_tokens": 20},
-        })
+        mock_response = _make_mock_httpx_response(
+            {
+                "content": [{"text": fenced_json}],
+                "usage": {"input_tokens": 10, "output_tokens": 20},
+            }
+        )
         mock_client = _make_mock_httpx_client(mock_response)
         mock_settings = _make_mock_settings(api_key="test-key")
 
@@ -532,9 +531,7 @@ class TestSubAgentManager:
         manager = self._create_manager()
 
         subtask_a = _make_subtask(name="step1", subtask_id="st-a")
-        subtask_b = _make_subtask(
-            name="step2", subtask_id="st-b", dependencies=["st-a"]
-        )
+        subtask_b = _make_subtask(name="step2", subtask_id="st-b", dependencies=["st-a"])
 
         mock_agent = _make_mock_agent("general")
         self.registry.get.return_value = mock_agent
@@ -558,14 +555,14 @@ class TestSubAgentManager:
         manager = self._create_manager()
 
         subtask_ok = _make_subtask(name="ok_task", subtask_id="st-ok", suggested_agent="general")
-        subtask_fail = _make_subtask(name="fail_task", subtask_id="st-fail", suggested_agent="failing_agent")
+        subtask_fail = _make_subtask(
+            name="fail_task", subtask_id="st-fail", suggested_agent="failing_agent"
+        )
 
         # 第一个 agent 成功，第二个 agent 失败
         agent_ok = _make_mock_agent("general")
         agent_ok.execute = AsyncMock(
-            return_value=Result(
-                task_id="ok", success=True, content="成功"
-            )
+            return_value=Result(task_id="ok", success=True, content="成功")
         )
 
         agent_fail = _make_mock_agent("failing_agent")
@@ -608,9 +605,7 @@ class TestSubAgentManager:
                 task_id="a",
                 success=True,
                 content="结果A",
-                token_usage=TokenUsage(
-                    input_tokens=100, output_tokens=50, total_tokens=150
-                ),
+                token_usage=TokenUsage(input_tokens=100, output_tokens=50, total_tokens=150),
             )
         )
 
@@ -620,9 +615,7 @@ class TestSubAgentManager:
                 task_id="b",
                 success=True,
                 content="结果B",
-                token_usage=TokenUsage(
-                    input_tokens=200, output_tokens=80, total_tokens=280
-                ),
+                token_usage=TokenUsage(input_tokens=200, output_tokens=80, total_tokens=280),
             )
         )
 
@@ -793,15 +786,9 @@ class TestDebateEngine:
         critic_content = "自定义批评内容"
         refiner_content = "自定义精炼内容"
 
-        proposer = ProposerStrategy(
-            generator=lambda **kwargs: proposer_content
-        )
-        critic = CriticStrategy(
-            generator=lambda **kwargs: critic_content
-        )
-        refiner = RefinerStrategy(
-            generator=lambda **kwargs: refiner_content
-        )
+        proposer = ProposerStrategy(generator=lambda **kwargs: proposer_content)
+        critic = CriticStrategy(generator=lambda **kwargs: critic_content)
+        refiner = RefinerStrategy(generator=lambda **kwargs: refiner_content)
 
         engine = DebateEngine(
             proposer=proposer,
@@ -821,7 +808,7 @@ class TestDebateEngine:
         """辩论会话应被存储并可检索"""
         engine = DebateEngine(use_llm=False, max_rounds=1, consensus_threshold=0.1)
 
-        session = await engine.run_debate(
+        await engine.run_debate(
             topic="存储测试",
             session_id="test-session-001",
         )
@@ -838,7 +825,7 @@ class TestDebateEngine:
         """辩论历史应返回正确格式"""
         engine = DebateEngine(use_llm=False, max_rounds=1, consensus_threshold=0.1)
 
-        session = await engine.run_debate(
+        await engine.run_debate(
             topic="历史测试",
             session_id="history-001",
         )
@@ -908,11 +895,13 @@ class TestDebateEngine:
         llm_response = {
             "content": [
                 {
-                    "text": json.dumps({
-                        "content": "LLM 生成的提案",
-                        "reasoning": "基于深入分析",
-                        "confidence": 0.85,
-                    })
+                    "text": json.dumps(
+                        {
+                            "content": "LLM 生成的提案",
+                            "reasoning": "基于深入分析",
+                            "confidence": 0.85,
+                        }
+                    )
                 }
             ],
             "usage": {"input_tokens": 100, "output_tokens": 50},
@@ -987,28 +976,30 @@ class TestOrchestratorIntegration:
         llm_response_data = {
             "content": [
                 {
-                    "text": json.dumps({
-                        "reasoning": "多步骤任务",
-                        "needs_debate": False,
-                        "subtasks": [
-                            {
-                                "name": "步骤1",
-                                "description": "第一步",
-                                "action": "chat",
-                                "dependencies": [],
-                                "estimated_complexity": "low",
-                                "suggested_agent": "general",
-                            },
-                            {
-                                "name": "步骤2",
-                                "description": "第二步",
-                                "action": "chat",
-                                "dependencies": ["步骤1"],
-                                "estimated_complexity": "medium",
-                                "suggested_agent": "general",
-                            },
-                        ],
-                    })
+                    "text": json.dumps(
+                        {
+                            "reasoning": "多步骤任务",
+                            "needs_debate": False,
+                            "subtasks": [
+                                {
+                                    "name": "步骤1",
+                                    "description": "第一步",
+                                    "action": "chat",
+                                    "dependencies": [],
+                                    "estimated_complexity": "low",
+                                    "suggested_agent": "general",
+                                },
+                                {
+                                    "name": "步骤2",
+                                    "description": "第二步",
+                                    "action": "chat",
+                                    "dependencies": ["步骤1"],
+                                    "estimated_complexity": "medium",
+                                    "suggested_agent": "general",
+                                },
+                            ],
+                        }
+                    )
                 }
             ],
             "usage": {"input_tokens": 50, "output_tokens": 100},
@@ -1056,20 +1047,22 @@ class TestOrchestratorIntegration:
         llm_response_data = {
             "content": [
                 {
-                    "text": json.dumps({
-                        "reasoning": "需要多方评估的决策",
-                        "needs_debate": True,
-                        "subtasks": [
-                            {
-                                "name": "评估方案",
-                                "description": "对比评估多个方案",
-                                "action": "analyze_data",
-                                "dependencies": [],
-                                "estimated_complexity": "high",
-                                "suggested_agent": "general",
-                            },
-                        ],
-                    })
+                    "text": json.dumps(
+                        {
+                            "reasoning": "需要多方评估的决策",
+                            "needs_debate": True,
+                            "subtasks": [
+                                {
+                                    "name": "评估方案",
+                                    "description": "对比评估多个方案",
+                                    "action": "analyze_data",
+                                    "dependencies": [],
+                                    "estimated_complexity": "high",
+                                    "suggested_agent": "general",
+                                },
+                            ],
+                        }
+                    )
                 }
             ],
             "usage": {"input_tokens": 50, "output_tokens": 100},
@@ -1114,19 +1107,23 @@ class TestOrchestratorIntegration:
         mock_settings = _make_mock_settings(api_key="test-key")
 
         # Mock LLM 意图解析响应
-        intent_response = _make_mock_httpx_response({
-            "content": [
-                {
-                    "text": json.dumps({
-                        "action": "code_review",
-                        "parameters": {"language": "python"},
-                        "requires_tools": [],
-                        "requires_memory": False,
-                    })
-                }
-            ],
-            "usage": {"input_tokens": 30, "output_tokens": 20},
-        })
+        intent_response = _make_mock_httpx_response(
+            {
+                "content": [
+                    {
+                        "text": json.dumps(
+                            {
+                                "action": "code_review",
+                                "parameters": {"language": "python"},
+                                "requires_tools": [],
+                                "requires_memory": False,
+                            }
+                        )
+                    }
+                ],
+                "usage": {"input_tokens": 30, "output_tokens": 20},
+            }
+        )
         mock_client = _make_mock_httpx_client(intent_response)
 
         with (
@@ -1200,36 +1197,38 @@ class TestOrchestratorIntegration:
         llm_response_data = {
             "content": [
                 {
-                    "text": json.dumps({
-                        "reasoning": "三步任务",
-                        "needs_debate": False,
-                        "subtasks": [
-                            {
-                                "name": "收集数据",
-                                "description": "收集所需数据",
-                                "action": "search",
-                                "dependencies": [],
-                                "estimated_complexity": "low",
-                                "suggested_agent": "general",
-                            },
-                            {
-                                "name": "分析数据",
-                                "description": "分析收集的数据",
-                                "action": "analyze_data",
-                                "dependencies": [],
-                                "estimated_complexity": "medium",
-                                "suggested_agent": "general",
-                            },
-                            {
-                                "name": "生成报告",
-                                "description": "基于分析结果生成报告",
-                                "action": "write_code",
-                                "dependencies": ["收集数据", "分析数据"],
-                                "estimated_complexity": "medium",
-                                "suggested_agent": "general",
-                            },
-                        ],
-                    })
+                    "text": json.dumps(
+                        {
+                            "reasoning": "三步任务",
+                            "needs_debate": False,
+                            "subtasks": [
+                                {
+                                    "name": "收集数据",
+                                    "description": "收集所需数据",
+                                    "action": "search",
+                                    "dependencies": [],
+                                    "estimated_complexity": "low",
+                                    "suggested_agent": "general",
+                                },
+                                {
+                                    "name": "分析数据",
+                                    "description": "分析收集的数据",
+                                    "action": "analyze_data",
+                                    "dependencies": [],
+                                    "estimated_complexity": "medium",
+                                    "suggested_agent": "general",
+                                },
+                                {
+                                    "name": "生成报告",
+                                    "description": "基于分析结果生成报告",
+                                    "action": "write_code",
+                                    "dependencies": ["收集数据", "分析数据"],
+                                    "estimated_complexity": "medium",
+                                    "suggested_agent": "general",
+                                },
+                            ],
+                        }
+                    )
                 }
             ],
             "usage": {"input_tokens": 50, "output_tokens": 100},
@@ -1293,7 +1292,9 @@ class TestOrchestratorHITL:
             metadata={"risk_level": "medium"},
         )
 
-        with patch("symbio.core.orchestrator.get_settings", return_value=_make_mock_settings(api_key="")):
+        with patch(
+            "symbio.core.orchestrator.get_settings", return_value=_make_mock_settings(api_key="")
+        ):
             result = await orchestrator.process(message)
 
         assert result.success is True
@@ -1321,12 +1322,10 @@ class TestOrchestratorHITL:
         assert "hitl_suspended" in checkpoint_names
         assert "hitl_approved" in checkpoint_names
         suspended = next(
-            item for item in state.workflow_checkpoints
-            if item["name"] == "hitl_suspended"
+            item for item in state.workflow_checkpoints if item["name"] == "hitl_suspended"
         )
         approved = next(
-            item for item in state.workflow_checkpoints
-            if item["name"] == "hitl_approved"
+            item for item in state.workflow_checkpoints if item["name"] == "hitl_approved"
         )
         assert suspended["details"]["request_id"] == request_id
         assert approved["details"]["request_id"] == request_id
@@ -1338,13 +1337,9 @@ class TestOrchestratorHITL:
         orchestrator.memory_bridge.store_execution_result = AsyncMock()
         tool_schema = MagicMock()
         tool_schema.name = "shell"
-        orchestrator.tool_loader.load_for_node = MagicMock(
-            return_value=[tool_schema]
-        )
+        orchestrator.tool_loader.load_for_node = MagicMock(return_value=[tool_schema])
         orchestrator.tool_loader.unload_node_tools = MagicMock(return_value=["shell"])
-        orchestrator.dag_orchestrator = _FakeDAGOrchestrator(
-            result_content="resumed with tools"
-        )
+        orchestrator.dag_orchestrator = _FakeDAGOrchestrator(result_content="resumed with tools")
 
         message = Message(
             source=MessageSource.CLI,
@@ -1354,7 +1349,9 @@ class TestOrchestratorHITL:
             metadata={"risk_level": "medium"},
         )
 
-        with patch("symbio.core.orchestrator.get_settings", return_value=_make_mock_settings(api_key="")):
+        with patch(
+            "symbio.core.orchestrator.get_settings", return_value=_make_mock_settings(api_key="")
+        ):
             result = await orchestrator.process(message)
 
         request_id = result.data["hitl_request_id"]
@@ -1391,7 +1388,9 @@ class TestOrchestratorWorkflowPolicy:
             session_id="test-session",
         )
 
-        with patch("symbio.core.orchestrator.get_settings", return_value=_make_mock_settings(api_key="")):
+        with patch(
+            "symbio.core.orchestrator.get_settings", return_value=_make_mock_settings(api_key="")
+        ):
             result = await orchestrator.process(message)
 
         assert result.success is True
@@ -1419,7 +1418,9 @@ class TestOrchestratorWorkflowPolicy:
             session_id="test-session",
         )
 
-        with patch("symbio.core.orchestrator.get_settings", return_value=_make_mock_settings(api_key="")):
+        with patch(
+            "symbio.core.orchestrator.get_settings", return_value=_make_mock_settings(api_key="")
+        ):
             result = await orchestrator.process(message)
 
         assert result.success is True
@@ -1450,7 +1451,9 @@ class TestOrchestratorWorkflowPolicy:
             session_id="test-session",
         )
 
-        with patch("symbio.core.orchestrator.get_settings", return_value=_make_mock_settings(api_key="")):
+        with patch(
+            "symbio.core.orchestrator.get_settings", return_value=_make_mock_settings(api_key="")
+        ):
             result = await orchestrator.process(message)
 
         assert result.success is False
@@ -1463,9 +1466,7 @@ class TestOrchestratorWorkflowPolicy:
     async def test_workflow_policy_checkpoints_persist_in_state_manager(self):
         orchestrator = Orchestrator()
         orchestrator.initialize_memory = AsyncMock()
-        orchestrator.memory_bridge.enhance_context = AsyncMock(
-            return_value="memory context"
-        )
+        orchestrator.memory_bridge.enhance_context = AsyncMock(return_value="memory context")
         orchestrator.memory_bridge.store_execution_result = AsyncMock()
         orchestrator.dag_orchestrator = _FakeDAGOrchestrator(result_content="done")
 
@@ -1476,7 +1477,9 @@ class TestOrchestratorWorkflowPolicy:
             session_id="test-session",
         )
 
-        with patch("symbio.core.orchestrator.get_settings", return_value=_make_mock_settings(api_key="")):
+        with patch(
+            "symbio.core.orchestrator.get_settings", return_value=_make_mock_settings(api_key="")
+        ):
             result = await orchestrator.process(message)
 
         assert result.success is True
@@ -1490,10 +1493,7 @@ class TestOrchestratorWorkflowPolicy:
             "execution_completed",
         ]
         assert state.workflow_checkpoints[0]["details"]["phase"] == "planning"
-        assert (
-            state.workflow_checkpoints[0]["details"]["workflow_policy"]["require_tdd"]
-            is True
-        )
+        assert state.workflow_checkpoints[0]["details"]["workflow_policy"]["require_tdd"] is True
         assert state.workflow_checkpoints[1]["details"]["memory_context"] is True
         assert state.workflow_checkpoints[-1]["details"]["success"] is True
 
@@ -1527,7 +1527,9 @@ class TestDAGFirstOrchestratorIntegration:
             session_id="test-session",
         )
 
-        with patch("symbio.core.orchestrator.get_settings", return_value=_make_mock_settings(api_key="")):
+        with patch(
+            "symbio.core.orchestrator.get_settings", return_value=_make_mock_settings(api_key="")
+        ):
             result = await orchestrator.process(message)
 
         assert result.success is True
@@ -1570,7 +1572,9 @@ class TestDAGFirstOrchestratorIntegration:
             session_id="test-session",
         )
 
-        with patch("symbio.core.orchestrator.get_settings", return_value=_make_mock_settings(api_key="")):
+        with patch(
+            "symbio.core.orchestrator.get_settings", return_value=_make_mock_settings(api_key="")
+        ):
             result = await orchestrator.process(message)
 
         assert agent.execute.await_count == 1
@@ -1601,7 +1605,10 @@ class TestDAGFirstOrchestratorIntegration:
         )
 
         with (
-            patch("symbio.core.orchestrator.get_settings", return_value=_make_mock_settings(api_key="")),
+            patch(
+                "symbio.core.orchestrator.get_settings",
+                return_value=_make_mock_settings(api_key=""),
+            ),
             pytest.raises(RuntimeError, match="dag failed"),
         ):
             await orchestrator.process(message)

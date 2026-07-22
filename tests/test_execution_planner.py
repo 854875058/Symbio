@@ -82,9 +82,7 @@ async def test_single_node_plan_preserves_task_runtime_metadata_for_runtime_hand
 
     plan = await ExecutionPlanner().plan(task, force_single_node=True)
 
-    assert plan.nodes[0].metadata["task_metadata"]["memory_context"].startswith(
-        "=== 相关记忆 ==="
-    )
+    assert plan.nodes[0].metadata["task_metadata"]["memory_context"].startswith("=== 相关记忆 ===")
     assert plan.nodes[0].metadata["task_metadata"]["workflow_guidance"] == "Always verify"
 
 
@@ -170,8 +168,7 @@ async def test_workflow_policy_verification_flag_propagates_to_decomposition_nod
 
     assert [node.verification_required for node in plan.nodes] == [False, False]
     assert [
-        node.workflow_policy["require_verification_before_completion"]
-        for node in plan.nodes
+        node.workflow_policy["require_verification_before_completion"] for node in plan.nodes
     ] == [False, False]
 
 

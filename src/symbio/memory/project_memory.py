@@ -6,7 +6,7 @@ import json
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -21,8 +21,10 @@ logger = get_logger("memory.project")
 # 数据模型
 # ---------------------------------------------------------------------------
 
+
 class ProjectScope(BaseModel):
     """项目作用域定义"""
+
     project_id: str
     project_name: str = ""
     description: str = ""
@@ -33,13 +35,14 @@ class ProjectScope(BaseModel):
 
 class ProjectMemoryItem(BaseModel):
     """项目级记忆条目"""
+
     memory_id: str = Field(default_factory=lambda: str(uuid4()))
     project_id: str
     content: str
-    memory_type: str = "semantic"        # semantic / episodic / procedural
+    memory_type: str = "semantic"  # semantic / episodic / procedural
     importance: float = 0.5
     tags: list[str] = Field(default_factory=list)
-    source: str = ""                     # 来源：cc / codex / manual
+    source: str = ""  # 来源：cc / codex / manual
     embedding: list[float] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.now)
     last_accessed: datetime = Field(default_factory=datetime.now)
@@ -54,6 +57,7 @@ class ProjectMemoryItem(BaseModel):
 
 class TransferRecord(BaseModel):
     """知识迁移记录"""
+
     transfer_id: str = Field(default_factory=lambda: str(uuid4()))
     source_project: str
     target_project: str
@@ -65,6 +69,7 @@ class TransferRecord(BaseModel):
 # ---------------------------------------------------------------------------
 # 项目级记忆管理器
 # ---------------------------------------------------------------------------
+
 
 class ProjectMemoryManager:
     """项目级记忆管理器
@@ -130,9 +135,7 @@ class ProjectMemoryManager:
             db_path = self._storage_dir / "lancedb"
             db_path.mkdir(parents=True, exist_ok=True)
 
-            self._db = await __import__("asyncio").to_thread(
-                lancedb.connect, str(db_path)
-            )
+            self._db = await __import__("asyncio").to_thread(lancedb.connect, str(db_path))
             logger.info(f"LanceDB 连接成功: {db_path}")
 
             # 检查或创建表
@@ -142,20 +145,22 @@ class ProjectMemoryManager:
                     self._db.open_table, "project_memories"
                 )
             else:
-                schema = pa.schema([
-                    pa.field("memory_id", pa.string()),
-                    pa.field("project_id", pa.string()),
-                    pa.field("content", pa.string()),
-                    pa.field("memory_type", pa.string()),
-                    pa.field("importance", pa.float64()),
-                    pa.field("tags_json", pa.string()),
-                    pa.field("source", pa.string()),
-                    pa.field("vector", pa.list_(pa.float32())),
-                    pa.field("created_at", pa.string()),
-                    pa.field("last_accessed", pa.string()),
-                    pa.field("access_count", pa.int64()),
-                    pa.field("metadata_json", pa.string()),
-                ])
+                schema = pa.schema(
+                    [
+                        pa.field("memory_id", pa.string()),
+                        pa.field("project_id", pa.string()),
+                        pa.field("content", pa.string()),
+                        pa.field("memory_type", pa.string()),
+                        pa.field("importance", pa.float64()),
+                        pa.field("tags_json", pa.string()),
+                        pa.field("source", pa.string()),
+                        pa.field("vector", pa.list_(pa.float32())),
+                        pa.field("created_at", pa.string()),
+                        pa.field("last_accessed", pa.string()),
+                        pa.field("access_count", pa.int64()),
+                        pa.field("metadata_json", pa.string()),
+                    ]
+                )
                 self._table = await __import__("asyncio").to_thread(
                     self._db.create_table, "project_memories", schema=schema
                 )
@@ -299,9 +304,7 @@ class ProjectMemoryManager:
         )
         return item
 
-    async def get_memory(
-        self, project_id: str, memory_id: str
-    ) -> ProjectMemoryItem | None:
+    async def get_memory(self, project_id: str, memory_id: str) -> ProjectMemoryItem | None:
         """获取记忆"""
         with self._lock:
             project_memories = self._memories.get(project_id, {})
@@ -397,21 +400,21 @@ class ProjectMemoryManager:
                     if memory_types and memory.memory_type not in memory_types:
                         continue
 
-                    similarity = self._cosine_similarity(
-                        query_embedding, memory.embedding
-                    )
+                    similarity = self._cosine_similarity(query_embedding, memory.embedding)
                     if similarity >= similarity_threshold:
                         memory.update_access()
-                        results.append({
-                            "memory_id": memory.memory_id,
-                            "project_id": pid,
-                            "content": memory.content,
-                            "memory_type": memory.memory_type,
-                            "similarity": similarity,
-                            "importance": memory.importance,
-                            "source": memory.source,
-                            "tags": memory.tags,
-                        })
+                        results.append(
+                            {
+                                "memory_id": memory.memory_id,
+                                "project_id": pid,
+                                "content": memory.content,
+                                "memory_type": memory.memory_type,
+                                "similarity": similarity,
+                                "importance": memory.importance,
+                                "source": memory.source,
+                                "tags": memory.tags,
+                            }
+                        )
 
         # 按相似度排序
         results.sort(key=lambda r: r["similarity"], reverse=True)
@@ -440,16 +443,18 @@ class ProjectMemoryManager:
                     if query_lower in memory.content.lower():
                         match_ratio = len(query_lower) / len(memory.content.lower())
                         memory.update_access()
-                        results.append({
-                            "memory_id": memory.memory_id,
-                            "project_id": pid,
-                            "content": memory.content,
-                            "memory_type": memory.memory_type,
-                            "similarity": match_ratio,
-                            "importance": memory.importance,
-                            "source": memory.source,
-                            "tags": memory.tags,
-                        })
+                        results.append(
+                            {
+                                "memory_id": memory.memory_id,
+                                "project_id": pid,
+                                "content": memory.content,
+                                "memory_type": memory.memory_type,
+                                "similarity": match_ratio,
+                                "importance": memory.importance,
+                                "source": memory.source,
+                                "tags": memory.tags,
+                            }
+                        )
 
         results.sort(key=lambda r: r["similarity"], reverse=True)
         return results[:max_results]
@@ -520,8 +525,7 @@ class ProjectMemoryManager:
         self._transfers.append(record)
 
         logger.info(
-            f"知识迁移: {source_project} -> {target_project}, "
-            f"迁移 {len(transferred)} 条记忆"
+            f"知识迁移: {source_project} -> {target_project}, 迁移 {len(transferred)} 条记忆"
         )
         return record
 
@@ -540,7 +544,8 @@ class ProjectMemoryManager:
         if project_id is None:
             return self._transfers.copy()
         return [
-            r for r in self._transfers
+            r
+            for r in self._transfers
             if r.source_project == project_id or r.target_project == project_id
         ]
 
@@ -612,6 +617,7 @@ class ProjectMemoryManager:
 
         try:
             import asyncio
+
             dim = get_settings().memory.embedding_dim or 1536
             row = {
                 "memory_id": memory.memory_id,

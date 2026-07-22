@@ -27,17 +27,31 @@ logger = get_logger("hitl_notifier")
 
 
 PLATFORM_LABELS: dict[str, str] = {
-    "qq": "QQ", "onebot": "OneBot/QQ", "lagrange": "Lagrange/QQ",
-    "wechat": "微信", "weixin": "微信", "wx": "微信", "wecom": "企业微信",
-    "work_wechat": "企业微信", "enterprise_wechat": "企业微信",
-    "feishu": "飞书", "lark": "Lark",
-    "dingtalk": "钉钉", "dingding": "钉钉",
-    "telegram": "Telegram", "tg": "Telegram",
-    "wxpusher": "WxPusher(微信)", "pushplus": "PushPlus(微信)",
-    "push_plus": "PushPlus(微信)", "serverchan": "Server酱(微信)",
-    "server_chan": "Server酱(微信)", "ftqq": "Server酱(微信)",
-    "slack": "Slack", "wechaty": "Wechaty(微信)",
+    "qq": "QQ",
+    "onebot": "OneBot/QQ",
+    "lagrange": "Lagrange/QQ",
+    "wechat": "微信",
+    "weixin": "微信",
+    "wx": "微信",
+    "wecom": "企业微信",
+    "work_wechat": "企业微信",
+    "enterprise_wechat": "企业微信",
+    "feishu": "飞书",
+    "lark": "Lark",
+    "dingtalk": "钉钉",
+    "dingding": "钉钉",
+    "telegram": "Telegram",
+    "tg": "Telegram",
+    "wxpusher": "WxPusher(微信)",
+    "pushplus": "PushPlus(微信)",
+    "push_plus": "PushPlus(微信)",
+    "serverchan": "Server酱(微信)",
+    "server_chan": "Server酱(微信)",
+    "ftqq": "Server酱(微信)",
+    "slack": "Slack",
+    "wechaty": "Wechaty(微信)",
 }
+
 
 class HITLNotificationTarget(BaseModel):
     """A configured external approval notification target."""
@@ -94,7 +108,9 @@ class HITLNotifier:
         clock: Callable[[], float] = time.time,
     ) -> None:
         self.targets = [
-            target if isinstance(target, HITLNotificationTarget) else HITLNotificationTarget(**target)
+            target
+            if isinstance(target, HITLNotificationTarget)
+            else HITLNotificationTarget(**target)
             for target in (targets or [])
         ]
         self.callback_base_url = callback_base_url.rstrip("/")
@@ -115,14 +131,16 @@ class HITLNotifier:
         if not targets and hitl.notify_platform:
             platforms = [p.strip() for p in hitl.notify_platform.split(",") if p.strip()]
             for platform in platforms:
-                targets.append(HITLNotificationTarget(
-                    platform=platform,
-                    endpoint=getattr(hitl, "notify_endpoint", ""),
-                    chat_id=hitl.notify_chat_id,
-                    chat_type=getattr(hitl, "notify_chat_type", "group"),
-                    access_token=getattr(hitl, "notify_access_token", ""),
-                    secret=getattr(hitl, "notify_secret", ""),
-                ))
+                targets.append(
+                    HITLNotificationTarget(
+                        platform=platform,
+                        endpoint=getattr(hitl, "notify_endpoint", ""),
+                        chat_id=hitl.notify_chat_id,
+                        chat_type=getattr(hitl, "notify_chat_type", "group"),
+                        access_token=getattr(hitl, "notify_access_token", ""),
+                        secret=getattr(hitl, "notify_secret", ""),
+                    )
+                )
 
         return cls(
             targets=targets,
@@ -182,7 +200,9 @@ class HITLNotifier:
             "delivery_status": "pending" if target.endpoint else "prepared",
         }
         payload[recipient_key] = target.chat_id
-        payload["connector_payload"] = self._payload_for(platform, target, request, payload["message"])
+        payload["connector_payload"] = self._payload_for(
+            platform, target, request, payload["message"]
+        )
         return payload
 
     def render_message(self, request: ApprovalRequest) -> str:
@@ -200,10 +220,12 @@ class HITLNotifier:
             f"Reject: 拒绝 {code} reason",
         ]
         if self.callback_base_url:
-            lines.extend([
-                "",
-                f"Detail: {self.callback_base_url}/api/hitl/{request.request_id}",
-            ])
+            lines.extend(
+                [
+                    "",
+                    f"Detail: {self.callback_base_url}/api/hitl/{request.request_id}",
+                ]
+            )
         return "\n".join(lines)
 
         lines = [
@@ -219,10 +241,12 @@ class HITLNotifier:
             f"拒绝: 拒绝 {request.request_id} 原因",
         ]
         if self.callback_base_url:
-            lines.extend([
-                "",
-                f"详情: {self.callback_base_url}/api/hitl/{request.request_id}",
-            ])
+            lines.extend(
+                [
+                    "",
+                    f"详情: {self.callback_base_url}/api/hitl/{request.request_id}",
+                ]
+            )
         return "\n".join(lines)
 
     async def notify(self, request: ApprovalRequest) -> list[HITLNotificationResult]:
@@ -230,19 +254,23 @@ class HITLNotifier:
         for target in self.audit_targets():
             outbound_payload = self.build_outbound_payload(target, request)
             if not target.endpoint:
-                results.append(HITLNotificationResult(
-                    platform=target.platform,
-                    success=False,
-                    delivery_status="prepared",
-                    payload=outbound_payload,
-                ))
+                results.append(
+                    HITLNotificationResult(
+                        platform=target.platform,
+                        success=False,
+                        delivery_status="prepared",
+                        payload=outbound_payload,
+                    )
+                )
                 continue
-            results.append(await self._send_to_target(
-                target,
-                request,
-                outbound_payload["message"],
-                outbound_payload,
-            ))
+            results.append(
+                await self._send_to_target(
+                    target,
+                    request,
+                    outbound_payload["message"],
+                    outbound_payload,
+                )
+            )
         return results
 
     async def _send_to_target(
@@ -294,7 +322,16 @@ class HITLNotifier:
     def _headers(self, target: HITLNotificationTarget) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
         platform = target.platform.lower()
-        if target.access_token and platform not in {"feishu", "lark", "wechat", "weixin", "wx", "wecom", "work_wechat", "enterprise_wechat"}:
+        if target.access_token and platform not in {
+            "feishu",
+            "lark",
+            "wechat",
+            "weixin",
+            "wx",
+            "wecom",
+            "work_wechat",
+            "enterprise_wechat",
+        }:
             headers["Authorization"] = f"Bearer {target.access_token}"
         return headers
 
@@ -391,7 +428,9 @@ class HITLNotifier:
             "card": {
                 "config": {"wide_screen_mode": True},
                 "header": {
-                    "template": "red" if request.risk_level.value in {"high", "critical"} else "orange",
+                    "template": "red"
+                    if request.risk_level.value in {"high", "critical"}
+                    else "orange",
                     "title": {"tag": "plain_text", "content": "Symbio 审批请求"},
                 },
                 "elements": [
@@ -462,7 +501,11 @@ class HITLNotifier:
     def _dingtalk_card_payload(self, request, message: str) -> dict:
         code = approval_short_code(request.request_id)
         approve_url = self.action_url(request, "approve") if self.callback_base_url else ""
-        reject_url = self.action_url(request, "reject", "Rejected from card") if self.callback_base_url else ""
+        reject_url = (
+            self.action_url(request, "reject", "Rejected from card")
+            if self.callback_base_url
+            else ""
+        )
         md_text = (
             f"## Symbio 审批请求\n\n"
             f"- **任务**: {request.task_id}\n"
@@ -496,7 +539,11 @@ class HITLNotifier:
     def _wxpusher_html(self, request) -> str:
         code = approval_short_code(request.request_id)
         approve_url = self.action_url(request, "approve") if self.callback_base_url else "#"
-        reject_url = self.action_url(request, "reject", "Rejected from card") if self.callback_base_url else "#"
+        reject_url = (
+            self.action_url(request, "reject", "Rejected from card")
+            if self.callback_base_url
+            else "#"
+        )
         return (
             f"<h3>Symbio 审批请求</h3>"
             f"<table border='1' cellpadding='6'>"
@@ -513,7 +560,11 @@ class HITLNotifier:
     def _pushplus_html(self, request) -> str:
         code = approval_short_code(request.request_id)
         approve_url = self.action_url(request, "approve") if self.callback_base_url else "#"
-        reject_url = self.action_url(request, "reject", "Rejected from card") if self.callback_base_url else "#"
+        reject_url = (
+            self.action_url(request, "reject", "Rejected from card")
+            if self.callback_base_url
+            else "#"
+        )
         return (
             f"<h3>Symbio 审批请求</h3>"
             f"<p><b>任务:</b> {request.task_id}</p>"
@@ -529,16 +580,16 @@ class HITLNotifier:
         code = approval_short_code(request.request_id)
         approve_url = self.action_url(request, "approve") if self.callback_base_url else ""
         lines = [
-            f"## Symbio 审批请求",
-            f"",
-            f"| 字段 | 内容 |",
-            f"|------|------|",
+            "## Symbio 审批请求",
+            "",
+            "| 字段 | 内容 |",
+            "|------|------|",
             f"| 任务 | `{request.task_id}` |",
             f"| 风险 | `{request.risk_level.value}` |",
             f"| 动作 | {request.action or '-'} |",
             f"| 影响 | {request.impact_scope or '-'} |",
             f"| 原因 | {request.reason or '-'} |",
-            f"",
+            "",
             f"**快捷指令**: `同意 {code}` / `拒绝 {code} 原因`",
         ]
         if approve_url:
@@ -548,7 +599,11 @@ class HITLNotifier:
     def _slack_blocks(self, request) -> list:
         code = approval_short_code(request.request_id)
         approve_url = self.action_url(request, "approve") if self.callback_base_url else ""
-        reject_url = self.action_url(request, "reject", "Rejected from card") if self.callback_base_url else ""
+        reject_url = (
+            self.action_url(request, "reject", "Rejected from card")
+            if self.callback_base_url
+            else ""
+        )
         blocks = [
             {"type": "header", "text": {"type": "plain_text", "text": "🔔 Symbio 审批请求"}},
             {
@@ -560,17 +615,37 @@ class HITLNotifier:
                     {"type": "mrkdwn", "text": f"*影响*\n{request.impact_scope or '-'}"},
                 ],
             },
-            {"type": "section", "text": {"type": "mrkdwn", "text": f"*原因*: {request.reason or '-'}"}},
-            {"type": "context", "elements": [{"type": "mrkdwn", "text": f"快捷指令: `同意 {code}` / `拒绝 {code} 原因`"}]},
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*原因*: {request.reason or '-'}"},
+            },
+            {
+                "type": "context",
+                "elements": [
+                    {"type": "mrkdwn", "text": f"快捷指令: `同意 {code}` / `拒绝 {code} 原因`"}
+                ],
+            },
         ]
         if approve_url and reject_url:
-            blocks.append({
-                "type": "actions",
-                "elements": [
-                    {"type": "button", "text": {"type": "plain_text", "text": "✅ 同意"}, "style": "primary", "url": approve_url},
-                    {"type": "button", "text": {"type": "plain_text", "text": "❌ 拒绝"}, "style": "danger", "url": reject_url},
-                ],
-            })
+            blocks.append(
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "✅ 同意"},
+                            "style": "primary",
+                            "url": approve_url,
+                        },
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "❌ 拒绝"},
+                            "style": "danger",
+                            "url": reject_url,
+                        },
+                    ],
+                }
+            )
         return blocks
 
     def _feishu_sign(self, timestamp: str, secret: str) -> str:
@@ -658,7 +733,11 @@ def parse_im_approval_command(text: str) -> Optional[IMApprovalCommand]:
     )
     if short_match:
         raw_action = (short_match.group("cjk") or short_match.group("en") or "").lower()
-        action = "reject" if raw_action in {"\u62d2\u7edd", "\u9a73\u56de", "reject", "no"} else "approve"
+        action = (
+            "reject"
+            if raw_action in {"\u62d2\u7edd", "\u9a73\u56de", "reject", "no"}
+            else "approve"
+        )
         return IMApprovalCommand(
             action=action,
             request_id=short_match.group("request_id"),

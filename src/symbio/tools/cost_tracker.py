@@ -20,6 +20,7 @@ logger = get_logger("tools.cost_tracker")
 
 class UsageRecord(BaseModel):
     """使用记录"""
+
     record_id: str = Field(default_factory=lambda: str(uuid4()))
     agent_id: str = ""
     model: str = ""
@@ -35,6 +36,7 @@ class UsageRecord(BaseModel):
 
 class CostSummary(BaseModel):
     """成本汇总"""
+
     total_records: int = 0
     total_input_tokens: int = 0
     total_output_tokens: int = 0
@@ -47,6 +49,7 @@ class CostSummary(BaseModel):
 
 class AgentCostBreakdown(BaseModel):
     """按 Agent 的成本分解"""
+
     agent_id: str = ""
     record_count: int = 0
     total_tokens: int = 0
@@ -57,6 +60,7 @@ class AgentCostBreakdown(BaseModel):
 
 class BudgetStatus(str, Enum):
     """预算状态"""
+
     NORMAL = "normal"
     WARNING = "warning"
     EXCEEDED = "exceeded"
@@ -65,6 +69,7 @@ class BudgetStatus(str, Enum):
 
 class BudgetConfig(BaseModel):
     """预算配置"""
+
     budget_id: str = Field(default_factory=lambda: str(uuid4()))
     agent_id: str = ""
     max_cost_usd: float = 100.0
@@ -76,6 +81,7 @@ class BudgetConfig(BaseModel):
 
 class BudgetCheckResult(BaseModel):
     """预算检查结果"""
+
     budget_id: str = ""
     agent_id: str = ""
     status: BudgetStatus = BudgetStatus.NORMAL
@@ -183,14 +189,16 @@ class CostTracker:
 
         breakdowns = []
         for agent_id, data in agent_data.items():
-            breakdowns.append(AgentCostBreakdown(
-                agent_id=agent_id,
-                record_count=data["count"],
-                total_tokens=data["tokens"],
-                total_cost_usd=data["cost"],
-                avg_cost_per_call=data["cost"] / data["count"] if data["count"] > 0 else 0.0,
-                models_used=list(data["models"]),
-            ))
+            breakdowns.append(
+                AgentCostBreakdown(
+                    agent_id=agent_id,
+                    record_count=data["count"],
+                    total_tokens=data["tokens"],
+                    total_cost_usd=data["cost"],
+                    avg_cost_per_call=data["cost"] / data["count"] if data["count"] > 0 else 0.0,
+                    models_used=list(data["models"]),
+                )
+            )
 
         breakdowns.sort(key=lambda b: b.total_cost_usd, reverse=True)
         return breakdowns

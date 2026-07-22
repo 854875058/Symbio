@@ -25,6 +25,7 @@ def _fresh_pipeline():
 # 上下文剪枝
 # ---------------------------------------------------------------------------
 
+
 def test_prune_history_keeps_short_history_unchanged():
     pipeline = ChatPipeline()
     messages = [
@@ -67,12 +68,14 @@ def test_prune_history_empty_input():
 
 
 def test_normalize_alternation_merges_and_leads_with_user():
-    merged = ChatPipeline._normalize_alternation([
-        {"role": "assistant", "content": "孤儿回答"},
-        {"role": "user", "content": "a"},
-        {"role": "user", "content": "b"},
-        {"role": "assistant", "content": "c"},
-    ])
+    merged = ChatPipeline._normalize_alternation(
+        [
+            {"role": "assistant", "content": "孤儿回答"},
+            {"role": "user", "content": "a"},
+            {"role": "user", "content": "b"},
+            {"role": "assistant", "content": "c"},
+        ]
+    )
     assert merged[0]["role"] == "user"
     assert merged[0]["content"] == "a\n\nb"
     assert merged[1]["content"] == "c"
@@ -81,6 +84,7 @@ def test_normalize_alternation_merges_and_leads_with_user():
 # ---------------------------------------------------------------------------
 # 语义缓存（无 embedding key 时整层优雅关闭）
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_cache_available_by_default_with_local_fallback():
@@ -92,6 +96,7 @@ async def test_cache_available_by_default_with_local_fallback():
 @pytest.mark.asyncio
 async def test_cache_disabled_when_semantic_cache_off():
     from symbio.config.settings import get_settings
+
     settings = get_settings()
     prev = settings.cost.semantic_cache_enabled
     settings.cost.semantic_cache_enabled = False
@@ -107,6 +112,7 @@ async def test_cache_disabled_when_semantic_cache_off():
 async def test_local_cache_roundtrip(tmp_path, monkeypatch):
     # 用临时 lancedb 路径，验证本地降级下 store -> lookup 命中
     from symbio.config.settings import get_settings
+
     if get_settings().model.openai_api_key:
         pytest.skip("环境配置了真实 embedding key（走远程后端）")
     monkeypatch.setenv("SYMBIO_MEMORY_LANCEDB_PATH", str(tmp_path / "lancedb"))
@@ -136,18 +142,23 @@ def test_context_hash_distinguishes_history():
 # 成本记录与预算
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_record_usage_and_summary(tmp_path):
     pipeline = ChatPipeline()
     pipeline._cost_tracker = CostTracker(tmp_path / "cost.db")
 
     await pipeline.record_usage(
-        session_id="sess-1", model="claude-sonnet-4-20250514",
-        input_tokens=120, output_tokens=80,
+        session_id="sess-1",
+        model="claude-sonnet-4-20250514",
+        input_tokens=120,
+        output_tokens=80,
     )
     await pipeline.record_usage(
-        session_id="sess-1", model="claude-sonnet-4-20250514",
-        input_tokens=60, output_tokens=40,
+        session_id="sess-1",
+        model="claude-sonnet-4-20250514",
+        input_tokens=60,
+        output_tokens=40,
     )
 
     summary = await pipeline.cost_summary(period_hours=1)
@@ -167,8 +178,10 @@ async def test_budget_set_and_check(tmp_path):
     pipeline._budget_manager = BudgetManager(tracker, tmp_path / "budget.db")
 
     await pipeline.record_usage(
-        session_id="default", model="claude-sonnet-4-20250514",
-        input_tokens=900, output_tokens=100,
+        session_id="default",
+        model="claude-sonnet-4-20250514",
+        input_tokens=900,
+        output_tokens=100,
     )
     status = await pipeline.set_budget("default", 2000)
     assert status["available"] is True
@@ -201,6 +214,7 @@ async def test_budget_unset_is_unlimited(tmp_path):
 # ---------------------------------------------------------------------------
 # API 端点
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_costs_api_endpoints(tmp_path):

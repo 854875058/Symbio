@@ -6,7 +6,7 @@ import json
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -100,8 +100,7 @@ class ScanResult(BaseModel):
 
         if self.structure:
             parts.append(
-                f"文件: {self.structure.total_files} 个, "
-                f"{self.structure.total_dirs} 个目录"
+                f"文件: {self.structure.total_files} 个, {self.structure.total_dirs} 个目录"
             )
             if self.structure.languages:
                 parts.append(f"语言: {', '.join(self.structure.languages)}")
@@ -183,8 +182,7 @@ class ColdStartScanner:
         # 1. 扫描项目结构
         result.structure = self._scan_structure(path)
         logger.info(
-            f"结构扫描完成: {result.structure.total_files} 文件, "
-            f"{result.structure.total_dirs} 目录"
+            f"结构扫描完成: {result.structure.total_files} 文件, {result.structure.total_dirs} 目录"
         )
 
         # 2. 扫描依赖
@@ -194,10 +192,7 @@ class ColdStartScanner:
         # 3. 扫描 README
         result.readme_content = self._scan_readme(path)
         result.project_description = self._extract_description(result.readme_content)
-        logger.info(
-            f"README 扫描完成: "
-            f"description='{result.project_description[:60]}'"
-        )
+        logger.info(f"README 扫描完成: description='{result.project_description[:60]}'")
 
         # 4. 扫描 Docker 配置
         result.docker_info = self._scan_docker(path)
@@ -270,11 +265,13 @@ class ColdStartScanner:
                 # 解析 name>=version, name==version, name~=version 等
                 match = re.match(r"^([A-Za-z0-9_.-]+)\s*([>=<~!]=?\s*\S+)?", line)
                 if match:
-                    deps.append(Dependency(
-                        name=match.group(1),
-                        version=(match.group(2) or "").strip(),
-                        source=file_path.name,
-                    ))
+                    deps.append(
+                        Dependency(
+                            name=match.group(1),
+                            version=(match.group(2) or "").strip(),
+                            source=file_path.name,
+                        )
+                    )
         except Exception as e:
             logger.warning(f"解析 {file_path} 失败: {e}")
         return deps
@@ -320,15 +317,17 @@ class ColdStartScanner:
                     if match and match.group(1):
                         version_str = match.group(2) or ""
                         # 尝试提取内联版本
-                        ver_match = re.search(r'[>=<~!]=?\s*\S+', version_str)
+                        ver_match = re.search(r"[>=<~!]=?\s*\S+", version_str)
                         if not ver_match:
-                            ver_match = re.search(r'[>=<~!]=?\s*\S+', stripped)
+                            ver_match = re.search(r"[>=<~!]=?\s*\S+", stripped)
                         version = ver_match.group(0).strip() if ver_match else ""
-                        deps.append(Dependency(
-                            name=match.group(1),
-                            version=version,
-                            source="pyproject.toml",
-                        ))
+                        deps.append(
+                            Dependency(
+                                name=match.group(1),
+                                version=version,
+                                source="pyproject.toml",
+                            )
+                        )
 
             # 解析 [tool.poetry.dependencies] (Poetry 格式)
             in_poetry_deps = False
@@ -343,11 +342,13 @@ class ColdStartScanner:
                 if in_poetry_deps:
                     match = re.match(r'^([A-Za-z0-9_.-]+)\s*=\s*["\']?([^"\']+)', stripped)
                     if match and match.group(1) != "python":
-                        deps.append(Dependency(
-                            name=match.group(1),
-                            version=match.group(2).strip(),
-                            source="pyproject.toml",
-                        ))
+                        deps.append(
+                            Dependency(
+                                name=match.group(1),
+                                version=match.group(2).strip(),
+                                source="pyproject.toml",
+                            )
+                        )
         except Exception as e:
             logger.warning(f"解析 {file_path} 失败: {e}")
         return deps
@@ -358,19 +359,23 @@ class ColdStartScanner:
         try:
             data = json.loads(file_path.read_text(encoding="utf-8"))
             for name, version in data.get("dependencies", {}).items():
-                deps.append(Dependency(
-                    name=name,
-                    version=version,
-                    source="package.json",
-                    is_dev=False,
-                ))
+                deps.append(
+                    Dependency(
+                        name=name,
+                        version=version,
+                        source="package.json",
+                        is_dev=False,
+                    )
+                )
             for name, version in data.get("devDependencies", {}).items():
-                deps.append(Dependency(
-                    name=name,
-                    version=version,
-                    source="package.json",
-                    is_dev=True,
-                ))
+                deps.append(
+                    Dependency(
+                        name=name,
+                        version=version,
+                        source="package.json",
+                        is_dev=True,
+                    )
+                )
         except Exception as e:
             logger.warning(f"解析 {file_path} 失败: {e}")
         return deps
@@ -439,21 +444,20 @@ class ColdStartScanner:
 
         # 特殊目录检测
         structure.has_src_dir = (path / "src").is_dir()
-        structure.has_tests_dir = any(
-            (path / d).is_dir() for d in ("tests", "test", "spec")
-        )
-        structure.has_docs_dir = any(
-            (path / d).is_dir() for d in ("docs", "doc", "documentation")
-        )
-        structure.has_ci_config = any(
-            (path / f).is_file()
-            for f in (
-                ".github/workflows",
-                ".gitlab-ci.yml",
-                "Jenkinsfile",
-                ".circleci/config.yml",
+        structure.has_tests_dir = any((path / d).is_dir() for d in ("tests", "test", "spec"))
+        structure.has_docs_dir = any((path / d).is_dir() for d in ("docs", "doc", "documentation"))
+        structure.has_ci_config = (
+            any(
+                (path / f).is_file()
+                for f in (
+                    ".github/workflows",
+                    ".gitlab-ci.yml",
+                    "Jenkinsfile",
+                    ".circleci/config.yml",
+                )
             )
-        ) or (path / ".github" / "workflows").is_dir()
+            or (path / ".github" / "workflows").is_dir()
+        )
 
         # 推断编程语言
         structure.languages = self._detect_languages(ext_counts, path)
@@ -644,8 +648,7 @@ class ColdStartScanner:
                         svc.volumes = [str(v) for v in cfg.get("volumes", [])]
                         if isinstance(cfg.get("environment"), dict):
                             svc.environment = {
-                                str(k): str(v)
-                                for k, v in cfg["environment"].items()
+                                str(k): str(v) for k, v in cfg["environment"].items()
                             }
                         deps = cfg.get("depends_on", [])
                         if isinstance(deps, list):
@@ -663,7 +666,6 @@ class ColdStartScanner:
             current_block: str = ""  # 当前正在解析的属性块 (ports/volumes/environment)
             services_indent = -1
             svc_indent = -1
-            block_indent = -1
 
             for line in content.splitlines():
                 if not line.strip() or line.strip().startswith("#"):
@@ -702,7 +704,6 @@ class ColdStartScanner:
                         # 检查是否是新的顶层属性（非列表项）
                         if current_indent == svc_indent + 2:
                             current_block = attr_name
-                            block_indent = current_indent
 
                             # image 是标量值，直接提取
                             if attr_name == "image":
@@ -831,8 +832,7 @@ class ColdStartScanner:
 
             for source, deps in dep_groups.items():
                 dep_list = ", ".join(
-                    f"{d.name}({d.version})" if d.version else d.name
-                    for d in deps[:50]
+                    f"{d.name}({d.version})" if d.version else d.name for d in deps[:50]
                 )
                 await memory_manager.add_memory(
                     content=f"项目 {scan_result.repo_name} 的 {source} 依赖: {dep_list}",
@@ -875,9 +875,7 @@ class ColdStartScanner:
             # 文件类型统计
             if struct.file_types:
                 top_types = struct.file_types[:10]
-                types_desc = ", ".join(
-                    f"{ft.extension}({ft.count}个)" for ft in top_types
-                )
+                types_desc = ", ".join(f"{ft.extension}({ft.count}个)" for ft in top_types)
                 await memory_manager.add_memory(
                     content=f"项目 {scan_result.repo_name} 的主要文件类型: {types_desc}",
                     memory_type=MemoryType.SEMANTIC,
@@ -892,8 +890,7 @@ class ColdStartScanner:
             docker = scan_result.docker_info
             if docker.has_compose and docker.services:
                 svc_desc = "; ".join(
-                    f"{s.name}(image={s.image}, ports={s.ports})"
-                    for s in docker.services
+                    f"{s.name}(image={s.image}, ports={s.ports})" for s in docker.services
                 )
                 await memory_manager.add_memory(
                     content=f"项目 {scan_result.repo_name} 的 Docker 服务: {svc_desc}",
@@ -952,10 +949,7 @@ class ColdStartScanner:
             )
             stored_count += 1
 
-        logger.info(
-            f"记忆填充完成: 项目 {scan_result.repo_name}, "
-            f"存储 {stored_count} 条记忆"
-        )
+        logger.info(f"记忆填充完成: 项目 {scan_result.repo_name}, 存储 {stored_count} 条记忆")
         return stored_count
 
     @staticmethod

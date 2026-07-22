@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 from pathlib import Path
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Optional
+from typing import TYPE_CHECKING, Any, AsyncIterator, Optional
 
 import httpx
 
@@ -41,12 +42,13 @@ from symbio.utils.types import (
     AgentState,
     Intent,
     Message,
-    MessageSource,
     Result,
     Task,
-    TaskComplexity,
     TokenUsage,
 )
+
+if TYPE_CHECKING:
+    from symbio.core.pipeline import ExecutionPipeline
 
 logger = get_logger("orchestrator")
 
@@ -82,7 +84,9 @@ class Orchestrator:
         self.decomposer = TaskDecomposer()
         self._ray_executor = self._maybe_build_ray_executor()
         self.subagent_manager = SubAgentManager(
-            self.registry, self.event_bus, self.rate_limiter,
+            self.registry,
+            self.event_bus,
+            self.rate_limiter,
             executor=self._ray_executor,
         )
         self.debate_engine = DebateEngine(use_llm=True)
@@ -98,6 +102,39 @@ class Orchestrator:
 
         # 构建执行管道（延迟初始化，因为依赖自身）
         self._pipeline = None
+
+    async def close(self) -> None:
+        """关闭调度器持有的持久化连接与后台执行资源。"""
+        resources = [
+            getattr(self.dag_orchestrator, "store", None),
+            self.state_manager,
+            self.hitl_gateway,
+            self.memory_bridge,
+        ]
+        seen: set[int] = set()
+        for resource in resources:
+            if resource is None or id(resource) in seen:
+                continue
+            seen.add(id(resource))
+            close = getattr(resource, "close", None)
+            if not callable(close):
+                continue
+            try:
+                result = close()
+                if inspect.isawaitable(result):
+                    await result
+            except Exception as exc:
+                logger.warning(f"调度器资源关闭失败: {type(resource).__name__}: {exc}")
+
+        executor = self._ray_executor
+        stop = getattr(executor, "stop", None)
+        if callable(stop):
+            try:
+                result = stop()
+                if inspect.isawaitable(result):
+                    await result
+            except Exception as exc:
+                logger.warning(f"Ray 执行器关闭失败: {exc}")
 
     def _maybe_build_ray_executor(self):
         """按配置构建 Ray 分布式执行器；未开启或 Ray 不可用则返回 None（走 asyncio）。"""
@@ -124,6 +161,7 @@ class Orchestrator:
         """延迟初始化执行管道。"""
         if self._pipeline is None:
             from symbio.core.pipeline import build_pipeline
+
             self._pipeline = build_pipeline(self)
         return self._pipeline
 
@@ -146,9 +184,7 @@ class Orchestrator:
         try:
             await self.state_manager.record_workflow_checkpoint(name, details)
         except Exception as exc:
-            logger.debug(
-                f"工作流检查点写入失败（不影响主流程）: name={name}, error={exc}"
-            )
+            logger.debug(f"工作流检查点写入失败（不影响主流程）: name={name}, error={exc}")
 
     async def _run_planner_reviewer_gate(self, task: Task) -> Optional[Result]:
         """Run planner/reviewer gate and stop execution on blocking findings."""
@@ -162,12 +198,14 @@ class Orchestrator:
 
         try:
             await self.state_manager.update(
-                lambda s: s.model_copy(update={
-                    "metadata": {
-                        **s.metadata,
-                        "planner_reviewer": payload,
-                    },
-                })
+                lambda s: s.model_copy(
+                    update={
+                        "metadata": {
+                            **s.metadata,
+                            "planner_reviewer": payload,
+                        },
+                    }
+                )
             )
         except Exception as exc:
             logger.warning(f"planner/reviewer 状态写入失败（不影响主流程）: {exc}")
@@ -196,9 +234,7 @@ class Orchestrator:
             return None
 
         blocking_messages = [
-            finding.message
-            for finding in planner_result.blocking_findings
-            if finding.message
+            finding.message for finding in planner_result.blocking_findings if finding.message
         ]
         content = "Planner/reviewer blocked execution."
         if blocking_messages:
@@ -206,13 +242,15 @@ class Orchestrator:
 
         try:
             await self.state_manager.update(
-                lambda s: s.model_copy(update={
-                    "status": "blocked",
-                    "metadata": {
-                        **s.metadata,
-                        "planner_reviewer": payload,
-                    },
-                })
+                lambda s: s.model_copy(
+                    update={
+                        "status": "blocked",
+                        "metadata": {
+                            **s.metadata,
+                            "planner_reviewer": payload,
+                        },
+                    }
+                )
             )
         except Exception as exc:
             logger.warning(f"planner/reviewer blocked 状态更新失败（不影响返回结果）: {exc}")
@@ -256,7 +294,9 @@ class Orchestrator:
         # 1. 解析意图
         async with tracer.span("orchestrator.intent_parsing") if tracer else _nullcontext():
             intent = await self._parse_intent(message)
-            logger.debug(f"解析意图: action={intent.action}, complexity={intent.estimated_complexity}")
+            logger.debug(
+                f"解析意图: action={intent.action}, complexity={intent.estimated_complexity}"
+            )
 
         # 2. 评估复杂度
         async with tracer.span("orchestrator.complexity_evaluation") if tracer else _nullcontext():
@@ -265,20 +305,28 @@ class Orchestrator:
             logger.debug(f"评估复杂度: {complexity.value}")
 
         # 3. 选择模型
-        async with tracer.span(
-            "orchestrator.model_selection",
-            attributes={"complexity": complexity.value},
-        ) if tracer else _nullcontext() as model_span:
+        async with (
+            tracer.span(
+                "orchestrator.model_selection",
+                attributes={"complexity": complexity.value},
+            )
+            if tracer
+            else _nullcontext() as model_span
+        ):
             model_id = self.router.select(complexity)
             logger.debug(f"选择模型: {model_id}")
             if model_span is not None:
                 model_span.set_attribute("model_id", model_id)
 
         # 4. 创建任务
-        async with tracer.span(
-            "orchestrator.task_creation",
-            attributes={"model_id": model_id},
-        ) if tracer else _nullcontext() as task_span:
+        async with (
+            tracer.span(
+                "orchestrator.task_creation",
+                attributes={"model_id": model_id},
+            )
+            if tracer
+            else _nullcontext() as task_span
+        ):
             task = Task(
                 intent=intent,
                 model=model_id,
@@ -303,15 +351,17 @@ class Orchestrator:
                 requirements=message.content,
             )
             await self.state_manager.update(
-                lambda s: s.model_copy(update={
-                    "phase": TaskPhase.PLANNING,
-                    "metadata": {
-                        **s.metadata,
-                        "workflow_policy": task.metadata.get("workflow_policy"),
-                        "workflow_guidance": task.metadata.get("workflow_guidance"),
-                        "message_metadata": message.metadata,
-                    },
-                })
+                lambda s: s.model_copy(
+                    update={
+                        "phase": TaskPhase.PLANNING,
+                        "metadata": {
+                            **s.metadata,
+                            "workflow_policy": task.metadata.get("workflow_policy"),
+                            "workflow_guidance": task.metadata.get("workflow_guidance"),
+                            "message_metadata": message.metadata,
+                        },
+                    }
+                )
             )
             await self._record_workflow_checkpoint(
                 "workflow_policy_attached",
@@ -349,68 +399,80 @@ class Orchestrator:
         if blocked_result is not None:
             return blocked_result
 
-        ticket = self.guardrail.issue_ticket(task.task_id)
-
-        # 6. 触发任务创建事件
-        await self.event_bus.emit(Event(
-            type=EventType.TASK_CREATED,
-            data={"task_id": task.task_id, "model": model_id},
-            source="orchestrator",
-        ))
-
-        # 7. 分解任务（Phase 2 集成）
-        hitl_request_id = await self._check_hitl_required(task)
-        if hitl_request_id:
-            task.state = AgentState.WAITING
-            await self.event_bus.emit(Event(
-                type=EventType.HITL_SUSPENDED,
-                data={
-                    "task_id": task.task_id,
-                    "request_id": hitl_request_id,
-                    "risk_level": task.metadata.get("risk_level", "low"),
-                },
-                source="orchestrator",
-            ))
-            try:
-                await self.state_manager.update(
-                    lambda s: s.model_copy(update={
-                        "status": "waiting_approval",
-                        "metadata": {
-                            **s.metadata,
-                            "hitl_pending": True,
-                            "hitl_request_id": hitl_request_id,
-                        },
-                    })
+        self.guardrail.issue_ticket(task.task_id)
+        try:
+            # 6. 触发任务创建事件
+            await self.event_bus.emit(
+                Event(
+                    type=EventType.TASK_CREATED,
+                    data={"task_id": task.task_id, "model": model_id},
+                    source="orchestrator",
                 )
-            except Exception as exc:
-                logger.warning(f"HITL 状态更新失败（不影响审批等待）: {exc}")
-            await self._record_workflow_checkpoint(
-                "hitl_suspended",
-                {
-                    "request_id": hitl_request_id,
-                    "risk_level": task.metadata.get("risk_level", "low"),
-                },
             )
 
+            # 7. 分解任务（Phase 2 集成）
+            hitl_request_id = await self._check_hitl_required(task)
+            if hitl_request_id:
+                task.state = AgentState.WAITING
+                await self.event_bus.emit(
+                    Event(
+                        type=EventType.HITL_SUSPENDED,
+                        data={
+                            "task_id": task.task_id,
+                            "request_id": hitl_request_id,
+                            "risk_level": task.metadata.get("risk_level", "low"),
+                        },
+                        source="orchestrator",
+                    )
+                )
+                try:
+                    await self.state_manager.update(
+                        lambda s: s.model_copy(
+                            update={
+                                "status": "waiting_approval",
+                                "metadata": {
+                                    **s.metadata,
+                                    "hitl_pending": True,
+                                    "hitl_request_id": hitl_request_id,
+                                },
+                            }
+                        )
+                    )
+                except Exception as exc:
+                    logger.warning(f"HITL 状态更新失败（不影响审批等待）: {exc}")
+                await self._record_workflow_checkpoint(
+                    "hitl_suspended",
+                    {
+                        "request_id": hitl_request_id,
+                        "risk_level": task.metadata.get("risk_level", "low"),
+                    },
+                )
+
+                return Result(
+                    task_id=task.task_id,
+                    success=True,
+                    content="任务已暂停，等待人类审批后继续执行。",
+                    data={
+                        "hitl_pending": True,
+                        "hitl_request_id": hitl_request_id,
+                        "task_id": task.task_id,
+                        "risk_level": task.metadata.get("risk_level", "low"),
+                    },
+                )
+
+            # 通过执行管道运行（模型解析→预算→执行策略→验证）
+            return await self.pipeline.execute(task, root_span=root_span)
+        finally:
             self.guardrail.release_ticket(task.task_id)
-            return Result(
-                task_id=task.task_id,
-                success=True,
-                content="任务已暂停，等待人类审批后继续执行。",
-                data={
-                    "hitl_pending": True,
-                    "hitl_request_id": hitl_request_id,
-                    "task_id": task.task_id,
-                    "risk_level": task.metadata.get("risk_level", "low"),
-                },
-            )
-
-        # 通过执行管道运行（模型解析→预算→执行策略→验证）
-        return await self.pipeline.execute(task, root_span=root_span)
 
     _VALID_ACTIONS: set[str] = {
-        "chat", "code_review", "write_code", "analyze_data",
-        "search", "file_operation", "git_operation",
+        "chat",
+        "code_review",
+        "write_code",
+        "analyze_data",
+        "search",
+        "file_operation",
+        "git_operation",
     }
 
     async def _parse_intent(self, message: Message) -> Intent:
@@ -576,11 +638,13 @@ class Orchestrator:
             root_span.set_attribute("agent_name", agent.name)
 
         # 触发任务开始事件
-        await self.event_bus.emit(Event(
-            type=EventType.TASK_STARTED,
-            data={"task_id": task.task_id, "agent": agent.name},
-            source="orchestrator",
-        ))
+        await self.event_bus.emit(
+            Event(
+                type=EventType.TASK_STARTED,
+                data={"task_id": task.task_id, "agent": agent.name},
+                source="orchestrator",
+            )
+        )
 
         try:
             # 速率限制
@@ -588,31 +652,40 @@ class Orchestrator:
 
             # 执行任务 -- wrapped in a child span
             tracer = get_tracer()
-            async with tracer.span(
-                "orchestrator.agent_dispatch",
-                attributes={
-                    "agent_name": agent.name,
-                    "model_id": task.model,
-                    "task_id": task.task_id,
-                },
-            ) if tracer else _nullcontext():
+            async with (
+                tracer.span(
+                    "orchestrator.agent_dispatch",
+                    attributes={
+                        "agent_name": agent.name,
+                        "model_id": task.model,
+                        "task_id": task.task_id,
+                    },
+                )
+                if tracer
+                else _nullcontext()
+            ):
                 result = await agent.execute(task)
 
             # Record token usage on root span
             if root_span is not None and result.token_usage.total_tokens > 0:
-                root_span.add_event("agent_token_usage", attributes={
-                    "agent_name": agent.name,
-                    "input_tokens": result.token_usage.input_tokens,
-                    "output_tokens": result.token_usage.output_tokens,
-                    "total_tokens": result.token_usage.total_tokens,
-                })
+                root_span.add_event(
+                    "agent_token_usage",
+                    attributes={
+                        "agent_name": agent.name,
+                        "input_tokens": result.token_usage.input_tokens,
+                        "output_tokens": result.token_usage.output_tokens,
+                        "total_tokens": result.token_usage.total_tokens,
+                    },
+                )
 
             # 触发任务完成事件
-            await self.event_bus.emit(Event(
-                type=EventType.TASK_COMPLETED,
-                data={"task_id": task.task_id, "success": result.success},
-                source="orchestrator",
-            ))
+            await self.event_bus.emit(
+                Event(
+                    type=EventType.TASK_COMPLETED,
+                    data={"task_id": task.task_id, "success": result.success},
+                    source="orchestrator",
+                )
+            )
 
             return result
 
@@ -625,11 +698,13 @@ class Orchestrator:
                 root_span.record_exception(e)
 
             # 触发任务失败事件
-            await self.event_bus.emit(Event(
-                type=EventType.TASK_FAILED,
-                data={"task_id": task.task_id, "error": str(e)},
-                source="orchestrator",
-            ))
+            await self.event_bus.emit(
+                Event(
+                    type=EventType.TASK_FAILED,
+                    data={"task_id": task.task_id, "error": str(e)},
+                    source="orchestrator",
+                )
+            )
 
             return Result(
                 task_id=task.task_id,
@@ -637,9 +712,7 @@ class Orchestrator:
                 content=f"任务执行失败: {str(e)}",
             )
 
-    async def _execute_with_subagents(
-        self, task: Task, decomposition, root_span=None
-    ) -> Result:
+    async def _execute_with_subagents(self, task: Task, decomposition, root_span=None) -> Result:
         """通过 SubAgentManager 并行执行多个子任务。
 
         Args:
@@ -652,13 +725,17 @@ class Orchestrator:
         """
         tracer = get_tracer()
         try:
-            async with tracer.span(
-                "orchestrator.subagent_execution",
-                attributes={
-                    "task_id": task.task_id,
-                    "subtask_count": len(decomposition.subtasks),
-                },
-            ) if tracer else _nullcontext():
+            async with (
+                tracer.span(
+                    "orchestrator.subagent_execution",
+                    attributes={
+                        "task_id": task.task_id,
+                        "subtask_count": len(decomposition.subtasks),
+                    },
+                )
+                if tracer
+                else _nullcontext()
+            ):
                 aggregated = await self.subagent_manager.execute_subtasks(
                     subtasks=decomposition.subtasks,
                     parent_task=task,
@@ -681,15 +758,17 @@ class Orchestrator:
                 },
             )
 
-            await self.event_bus.emit(Event(
-                type=EventType.TASK_COMPLETED,
-                data={
-                    "task_id": task.task_id,
-                    "success": result.success,
-                    "subtask_count": aggregated.total_subtasks,
-                },
-                source="orchestrator",
-            ))
+            await self.event_bus.emit(
+                Event(
+                    type=EventType.TASK_COMPLETED,
+                    data={
+                        "task_id": task.task_id,
+                        "success": result.success,
+                        "subtask_count": aggregated.total_subtasks,
+                    },
+                    source="orchestrator",
+                )
+            )
 
             return result
 
@@ -699,11 +778,13 @@ class Orchestrator:
                 root_span.set_status("ERROR", str(e))
                 root_span.record_exception(e)
 
-            await self.event_bus.emit(Event(
-                type=EventType.TASK_FAILED,
-                data={"task_id": task.task_id, "error": str(e)},
-                source="orchestrator",
-            ))
+            await self.event_bus.emit(
+                Event(
+                    type=EventType.TASK_FAILED,
+                    data={"task_id": task.task_id, "error": str(e)},
+                    source="orchestrator",
+                )
+            )
 
             return Result(
                 task_id=task.task_id,
@@ -711,9 +792,7 @@ class Orchestrator:
                 content=f"子任务执行失败: {str(e)}",
             )
 
-    async def _execute_with_debate(
-        self, task: Task, decomposition, root_span=None
-    ) -> Result:
+    async def _execute_with_debate(self, task: Task, decomposition, root_span=None) -> Result:
         """通过 DebateEngine 运行多智能体辩论后执行子任务。
 
         先运行辩论获取最佳提案，再用子任务执行器落实。
@@ -731,15 +810,17 @@ class Orchestrator:
 
         # Phase A: 运行辩论
         try:
-            async with tracer.span(
-                "orchestrator.debate",
-                attributes={"task_id": task.task_id},
-            ) if tracer else _nullcontext():
+            async with (
+                tracer.span(
+                    "orchestrator.debate",
+                    attributes={"task_id": task.task_id},
+                )
+                if tracer
+                else _nullcontext()
+            ):
                 topic = decomposition.original_intent or task.intent.raw_text
                 initial_proposal = (
-                    decomposition.subtasks[0].description
-                    if decomposition.subtasks
-                    else ""
+                    decomposition.subtasks[0].description if decomposition.subtasks else ""
                 )
                 session = await self.debate_engine.run_debate(
                     topic=topic,
@@ -757,13 +838,17 @@ class Orchestrator:
 
         # Phase B: 用子任务执行器落实辩论结果
         try:
-            async with tracer.span(
-                "orchestrator.subagent_execution",
-                attributes={
-                    "task_id": task.task_id,
-                    "subtask_count": len(decomposition.subtasks),
-                },
-            ) if tracer else _nullcontext():
+            async with (
+                tracer.span(
+                    "orchestrator.subagent_execution",
+                    attributes={
+                        "task_id": task.task_id,
+                        "subtask_count": len(decomposition.subtasks),
+                    },
+                )
+                if tracer
+                else _nullcontext()
+            ):
                 aggregated = await self.subagent_manager.execute_subtasks(
                     subtasks=decomposition.subtasks,
                     parent_task=task,
@@ -774,8 +859,7 @@ class Orchestrator:
 
             # 合并辩论提案与子任务执行结果
             combined = (
-                f"## 辩论提案\n{debate_content}\n\n"
-                f"## 执行结果\n{aggregated.combined_content}"
+                f"## 辩论提案\n{debate_content}\n\n## 执行结果\n{aggregated.combined_content}"
                 if debate_content
                 else aggregated.combined_content
             )
@@ -804,15 +888,17 @@ class Orchestrator:
                 data={"execution_mode": "debate_fallback"},
             )
 
-        await self.event_bus.emit(Event(
-            type=EventType.TASK_COMPLETED,
-            data={
-                "task_id": task.task_id,
-                "success": result.success,
-                "execution_mode": result.data.get("execution_mode", "debate"),
-            },
-            source="orchestrator",
-        ))
+        await self.event_bus.emit(
+            Event(
+                type=EventType.TASK_COMPLETED,
+                data={
+                    "task_id": task.task_id,
+                    "success": result.success,
+                    "execution_mode": result.data.get("execution_mode", "debate"),
+                },
+                source="orchestrator",
+            )
+        )
 
         return result
 
@@ -823,7 +909,9 @@ class Orchestrator:
             input_tokens=usage_dict.get("input_tokens", 0),
             output_tokens=usage_dict.get("output_tokens", 0),
             total_tokens=usage_dict.get("total_tokens", 0),
-            model=", ".join(usage_dict.get("models", [])) if "models" in usage_dict else usage_dict.get("model", ""),
+            model=", ".join(usage_dict.get("models", []))
+            if "models" in usage_dict
+            else usage_dict.get("model", ""),
             cost_usd=usage_dict.get("cost_usd", 0.0),
         )
 
@@ -895,11 +983,7 @@ class Orchestrator:
     async def _notify_and_persist_hitl_request(self, request: ApprovalRequest) -> None:
         """Send HITL notifications and persist their audit payloads."""
         results = await self.hitl_notifier.notify(request)
-        notifications = [
-            result.payload
-            for result in results
-            if result.payload
-        ]
+        notifications = [result.payload for result in results if result.payload]
         request.metadata["notifications"] = notifications
         if notifications:
             request.metadata["notification_status"] = notifications[-1].get(
@@ -950,35 +1034,45 @@ class Orchestrator:
                 "request_id": request_id,
             },
         )
-        result = await self._execute_via_dag(task, release_ticket=False)
-        await self.hitl_gateway.clear_task_context(request_id)
+        self.guardrail.issue_ticket(task.task_id)
+        try:
+            result = await self._execute_via_dag(task, release_ticket=False)
+            await self.hitl_gateway.clear_task_context(request_id)
 
-        # 将审批信息附加到结果中
-        result.data["hitl_approved"] = True
-        result.data["hitl_request_id"] = request_id
+            # 将审批信息附加到结果中
+            result.data["hitl_approved"] = True
+            result.data["hitl_request_id"] = request_id
 
-        await self.event_bus.emit(Event(
-            type=EventType.HITL_APPROVED,
-            data={
-                "task_id": task.task_id,
-                "request_id": request_id,
-                "success": result.success,
-            },
-            source="orchestrator",
-        ))
+            await self.event_bus.emit(
+                Event(
+                    type=EventType.HITL_APPROVED,
+                    data={
+                        "task_id": task.task_id,
+                        "request_id": request_id,
+                        "success": result.success,
+                    },
+                    source="orchestrator",
+                )
+            )
 
-        return result
+            return result
+        finally:
+            self.guardrail.release_ticket(task.task_id)
 
     def _load_task_tools(self, task: Task) -> None:
         try:
-            tool_schemas = self.tool_loader.load_for_node({
-                "node_id": task.task_id,
-                "tools": task.intent.requires_tools,
-            })
+            tool_schemas = self.tool_loader.load_for_node(
+                {
+                    "node_id": task.task_id,
+                    "tools": task.intent.requires_tools,
+                }
+            )
             task.metadata["available_tools"] = [s.name for s in tool_schemas]
             # Pass full tool definitions for agent tool loop
             task.metadata["tool_definitions"] = [
-                s.model_dump() if hasattr(s, "model_dump") else {"name": s.name, "description": getattr(s, "description", "")}
+                s.model_dump()
+                if hasattr(s, "model_dump")
+                else {"name": s.name, "description": getattr(s, "description", "")}
                 for s in tool_schemas
             ]
             if tool_schemas:
@@ -1020,15 +1114,17 @@ class Orchestrator:
             try:
                 final_phase = TaskPhase.COMPLETED if result.success else TaskPhase.FAILED
                 await self.state_manager.update(
-                    lambda s: s.model_copy(update={
-                        "phase": final_phase,
-                        "status": "completed" if result.success else "failed",
-                        "metadata": {
-                            **s.metadata,
-                            "result_summary": result.content[:500] if result.content else "",
-                            "model": task.model,
-                        },
-                    })
+                    lambda s: s.model_copy(
+                        update={
+                            "phase": final_phase,
+                            "status": "completed" if result.success else "failed",
+                            "metadata": {
+                                **s.metadata,
+                                "result_summary": result.content[:500] if result.content else "",
+                                "model": task.model,
+                            },
+                        }
+                    )
                 )
                 await self._record_workflow_checkpoint(
                     "execution_completed" if result.success else "execution_failed",
@@ -1053,17 +1149,23 @@ class Orchestrator:
 
             if root_span is not None:
                 root_span.set_attribute("success", result.success)
-                root_span.add_event("task_completed", attributes={
-                    "task_id": task.task_id,
-                    "success": result.success,
-                })
+                root_span.add_event(
+                    "task_completed",
+                    attributes={
+                        "task_id": task.task_id,
+                        "success": result.success,
+                    },
+                )
                 if result.token_usage.total_tokens > 0:
-                    root_span.add_event("token_usage", attributes={
-                        "input_tokens": result.token_usage.input_tokens,
-                        "output_tokens": result.token_usage.output_tokens,
-                        "total_tokens": result.token_usage.total_tokens,
-                        "model": result.token_usage.model,
-                    })
+                    root_span.add_event(
+                        "token_usage",
+                        attributes={
+                            "input_tokens": result.token_usage.input_tokens,
+                            "output_tokens": result.token_usage.output_tokens,
+                            "total_tokens": result.token_usage.total_tokens,
+                            "model": result.token_usage.model,
+                        },
+                    )
 
             return result
         finally:
@@ -1129,9 +1231,11 @@ class Orchestrator:
         Args:
             agent_name: 要清空会话的 Agent 名称
         """
-        await self.event_bus.emit(Event(
-            type=EventType.AGENT_COMPLETED,
-            data={"agent": agent_name, "clear_session": True},
-            source="orchestrator",
-        ))
+        await self.event_bus.emit(
+            Event(
+                type=EventType.AGENT_COMPLETED,
+                data={"agent": agent_name, "clear_session": True},
+                source="orchestrator",
+            )
+        )
         logger.debug(f"已发送会话清理信号: agent={agent_name}")

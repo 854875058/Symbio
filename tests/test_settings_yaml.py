@@ -14,13 +14,15 @@ from symbio.config.settings import LogLevel, Settings
 def test_from_yaml_loads_legacy_log_level_python_tag(tmp_path):
     config_path = tmp_path / "symbio.yaml"
     config_path.write_text(
-        "\n".join([
-            "app_name: Symbio",
-            "log_level: !!python/object/apply:symbio.config.settings.LogLevel",
-            "- INFO",
-            "model:",
-            "  anthropic_api_key: test-key",
-        ]),
+        "\n".join(
+            [
+                "app_name: Symbio",
+                "log_level: !!python/object/apply:symbio.config.settings.LogLevel",
+                "- INFO",
+                "model:",
+                "  anthropic_api_key: test-key",
+            ]
+        ),
         encoding="utf-8",
     )
 

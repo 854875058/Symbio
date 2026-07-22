@@ -49,6 +49,8 @@ dependencies = [
     "aiofiles>=23.0.0",
     "aiosqlite>=0.20.0",
     "prompt-toolkit>=3.0.0",
+    "ptyprocess>=0.7.0; os_name != 'nt'",
+    "pywinpty>=2.0.0; os_name == 'nt'",
     "pyyaml>=6.0.0",
     "uvicorn[standard]>=0.30.0",
 ]
@@ -63,9 +65,11 @@ Documentation = "https://github.com/854875058/Symbio#readme"
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
+    "pytest-cov>=7.0.0",
     "pytest-mock>=3.14.0",
+    "pytest-timeout>=2.4.0",
     "coverage>=7.0.0",
-    "ruff>=0.5.0",
+    "ruff==0.15.0",
     "build>=1.2.0",
     "twine>=5.0.0",
 ]
@@ -143,6 +147,9 @@ exclude = [
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["E402"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

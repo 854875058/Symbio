@@ -92,7 +92,9 @@ async def test_orchestrator_resume_after_restart_uses_persisted_hitl_task_contex
         metadata={"risk_level": "medium"},
     )
 
-    with patch("symbio.core.orchestrator.get_settings", return_value=_make_mock_settings(api_key="")):
+    with patch(
+        "symbio.core.orchestrator.get_settings", return_value=_make_mock_settings(api_key="")
+    ):
         pending_result = await orchestrator.process(message)
 
     request_id = pending_result.data["hitl_request_id"]
@@ -141,7 +143,9 @@ async def test_orchestrator_hitl_notification_audit_payload_persists(tmp_path):
         metadata={"risk_level": "medium"},
     )
 
-    with patch("symbio.core.orchestrator.get_settings", return_value=_make_mock_settings(api_key="")):
+    with patch(
+        "symbio.core.orchestrator.get_settings", return_value=_make_mock_settings(api_key="")
+    ):
         pending_result = await orchestrator.process(message)
 
     request_id = pending_result.data["hitl_request_id"]

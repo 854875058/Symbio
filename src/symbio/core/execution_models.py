@@ -103,9 +103,7 @@ class ExecutionPlan(BaseModel):
 
     @field_validator("edges")
     @classmethod
-    def validate_edges_json_ready(
-        cls, value: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
+    def validate_edges_json_ready(cls, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return _ensure_json_ready(value, "edges")
 
     @field_validator("metadata")
@@ -124,10 +122,7 @@ class ExecutionPlan(BaseModel):
         if self.root_node_id not in unique_node_ids:
             raise ValueError("root_node_id must reference an existing node")
 
-        dependencies_by_node = {
-            node.node_id: set(node.dependencies)
-            for node in self.nodes
-        }
+        dependencies_by_node = {node.node_id: set(node.dependencies) for node in self.nodes}
         if dependencies_by_node[self.root_node_id]:
             raise ValueError("root_node_id must reference a node without dependencies")
 
@@ -141,11 +136,7 @@ class ExecutionPlan(BaseModel):
                 raise ValueError("edge endpoints must reference existing nodes")
             edge_pairs.add((source, target))
 
-        dependency_pairs = {
-            (dep, node.node_id)
-            for node in self.nodes
-            for dep in node.dependencies
-        }
+        dependency_pairs = {(dep, node.node_id) for node in self.nodes for dep in node.dependencies}
         for node in self.nodes:
             for dep in node.dependencies:
                 if dep not in unique_node_ids:
@@ -221,9 +212,7 @@ class ExecutionGraphVersion(BaseModel):
 
     @field_validator("nodes", "edges")
     @classmethod
-    def validate_json_fields(
-        cls, value: list[dict[str, Any]], info: Any
-    ) -> list[dict[str, Any]]:
+    def validate_json_fields(cls, value: list[dict[str, Any]], info: Any) -> list[dict[str, Any]]:
         return _ensure_json_ready(value, info.field_name)
 
 

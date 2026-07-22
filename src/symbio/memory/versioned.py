@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import copy
 from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
@@ -20,13 +19,15 @@ logger = get_logger("memory.versioned")
 
 class ConflictType(str, Enum):
     """冲突类型"""
-    TIMESTAMP = "timestamp"      # 时间戳冲突
-    CONTENT = "content"          # 内容冲突
-    CONCURRENT = "concurrent"    # 并发修改冲突
+
+    TIMESTAMP = "timestamp"  # 时间戳冲突
+    CONTENT = "content"  # 内容冲突
+    CONCURRENT = "concurrent"  # 并发修改冲突
 
 
 class ConflictResolution(str, Enum):
     """冲突解决策略"""
+
     ACCEPT_MINE = "accept_mine"
     ACCEPT_THEIRS = "accept_theirs"
     MERGE = "merge"
@@ -35,6 +36,7 @@ class ConflictResolution(str, Enum):
 
 class MemoryVersion(BaseModel):
     """记忆版本"""
+
     version_id: str = Field(default_factory=lambda: str(uuid4()))
     memory_id: str = ""
     content: str = ""
@@ -49,6 +51,7 @@ class MemoryVersion(BaseModel):
 
 class VersionDiff(BaseModel):
     """版本差异"""
+
     diff_id: str = Field(default_factory=lambda: str(uuid4()))
     from_version_id: str = ""
     to_version_id: str = ""
@@ -62,6 +65,7 @@ class VersionDiff(BaseModel):
 
 class ConflictRecord(BaseModel):
     """冲突记录"""
+
     conflict_id: str = Field(default_factory=lambda: str(uuid4()))
     memory_id: str = ""
     conflict_type: ConflictType = ConflictType.CONTENT
@@ -260,8 +264,10 @@ class VersionedMemory:
             冲突记录，无冲突返回 None
         """
         # 检查是否基于同一父版本（并发修改）
-        if (local_version.parent_version_id and
-                local_version.parent_version_id == remote_version.parent_version_id):
+        if (
+            local_version.parent_version_id
+            and local_version.parent_version_id == remote_version.parent_version_id
+        ):
             conflict = ConflictRecord(
                 memory_id=memory_id,
                 conflict_type=ConflictType.CONCURRENT,
@@ -273,8 +279,10 @@ class VersionedMemory:
             return conflict
 
         # 内容冲突
-        if (local_version.content != remote_version.content and
-                local_version.version_id != remote_version.version_id):
+        if (
+            local_version.content != remote_version.content
+            and local_version.version_id != remote_version.version_id
+        ):
             conflict = ConflictRecord(
                 memory_id=memory_id,
                 conflict_type=ConflictType.CONTENT,

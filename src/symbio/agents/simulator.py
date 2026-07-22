@@ -19,8 +19,10 @@ logger = get_logger("agents.simulator")
 # 数据模型
 # ---------------------------------------------------------------------------
 
+
 class ScenarioStatus(str, Enum):
     """场景状态"""
+
     CREATED = "created"
     RUNNING = "running"
     PASSED = "passed"
@@ -31,6 +33,7 @@ class ScenarioStatus(str, Enum):
 
 class AssertionType(str, Enum):
     """断言类型"""
+
     EQUALS = "equals"
     NOT_EQUALS = "not_equals"
     CONTAINS = "contains"
@@ -45,6 +48,7 @@ class AssertionType(str, Enum):
 
 class Assertion(BaseModel):
     """测试断言"""
+
     assertion_id: str = Field(default_factory=lambda: str(uuid4()))
     type: AssertionType
     description: str = ""
@@ -56,6 +60,7 @@ class Assertion(BaseModel):
 
 class ScenarioStep(BaseModel):
     """场景步骤"""
+
     step_id: int
     name: str
     action: str
@@ -69,6 +74,7 @@ class ScenarioStep(BaseModel):
 
 class ScenarioResult(BaseModel):
     """场景执行结果"""
+
     result_id: str = Field(default_factory=lambda: str(uuid4()))
     scenario_id: str
     scenario_name: str
@@ -88,6 +94,7 @@ class ScenarioResult(BaseModel):
 
 class Scenario(BaseModel):
     """测试场景定义"""
+
     scenario_id: str = Field(default_factory=lambda: str(uuid4()))
     name: str
     description: str = ""
@@ -100,6 +107,7 @@ class Scenario(BaseModel):
 
 class RegressionReport(BaseModel):
     """回归测试报告"""
+
     report_id: str = Field(default_factory=lambda: str(uuid4()))
     total_scenarios: int = 0
     passed: int = 0
@@ -115,6 +123,7 @@ class RegressionReport(BaseModel):
 # ---------------------------------------------------------------------------
 # 边界行为探测器
 # ---------------------------------------------------------------------------
+
 
 class BoundaryProber:
     """边界行为探测器 - 自动发现输入边界和异常行为"""
@@ -137,7 +146,9 @@ class BoundaryProber:
         self._findings.extend(findings)
         return findings
 
-    def probe_boundary_values(self, action: Callable[..., Any], param_ranges: dict[str, list[Any]]) -> list[str]:
+    def probe_boundary_values(
+        self, action: Callable[..., Any], param_ranges: dict[str, list[Any]]
+    ) -> list[str]:
         """探测边界值"""
         findings: list[str] = []
         for name, values in param_ranges.items():
@@ -151,7 +162,9 @@ class BoundaryProber:
         self._findings.extend(findings)
         return findings
 
-    def probe_concurrent_access(self, action: Callable[..., Any], iterations: int = 100) -> list[str]:
+    def probe_concurrent_access(
+        self, action: Callable[..., Any], iterations: int = 100
+    ) -> list[str]:
         """探测并发安全性 (简化版)"""
         import threading
 
@@ -195,6 +208,7 @@ class BoundaryProber:
 # 断言引擎
 # ---------------------------------------------------------------------------
 
+
 class AssertionEngine:
     """断言执行引擎"""
 
@@ -205,38 +219,42 @@ class AssertionEngine:
             if assertion.type == AssertionType.EQUALS:
                 assertion.passed = assertion.actual == assertion.expected
                 assertion.message = (
-                    "值相等" if assertion.passed
+                    "值相等"
+                    if assertion.passed
                     else f"期望 {assertion.expected}, 实际 {assertion.actual}"
                 )
             elif assertion.type == AssertionType.NOT_EQUALS:
                 assertion.passed = assertion.actual != assertion.expected
                 assertion.message = (
-                    "值不相等" if assertion.passed
-                    else f"值不应等于 {assertion.expected}"
+                    "值不相等" if assertion.passed else f"值不应等于 {assertion.expected}"
                 )
             elif assertion.type == AssertionType.CONTAINS:
                 assertion.passed = assertion.expected in assertion.actual
                 assertion.message = (
-                    "包含目标值" if assertion.passed
+                    "包含目标值"
+                    if assertion.passed
                     else f"{assertion.actual} 不包含 {assertion.expected}"
                 )
             elif assertion.type == AssertionType.GREATER_THAN:
                 assertion.passed = assertion.actual > assertion.expected
                 assertion.message = (
-                    "大于阈值" if assertion.passed
+                    "大于阈值"
+                    if assertion.passed
                     else f"{assertion.actual} 不大于 {assertion.expected}"
                 )
             elif assertion.type == AssertionType.LESS_THAN:
                 assertion.passed = assertion.actual < assertion.expected
                 assertion.message = (
-                    "小于阈值" if assertion.passed
+                    "小于阈值"
+                    if assertion.passed
                     else f"{assertion.actual} 不小于 {assertion.expected}"
                 )
             elif assertion.type == AssertionType.IN_RANGE:
                 low, high = assertion.expected
                 assertion.passed = low <= assertion.actual <= high
                 assertion.message = (
-                    f"在范围 [{low}, {high}] 内" if assertion.passed
+                    f"在范围 [{low}, {high}] 内"
+                    if assertion.passed
                     else f"{assertion.actual} 不在范围 [{low}, {high}] 内"
                 )
             elif assertion.type == AssertionType.IS_TRUE:
@@ -247,7 +265,9 @@ class AssertionEngine:
                 assertion.message = "为假" if assertion.passed else "不为假"
             elif assertion.type == AssertionType.NO_EXCEPTION:
                 assertion.passed = assertion.actual is None
-                assertion.message = "无异常" if assertion.passed else f"产生异常: {assertion.actual}"
+                assertion.message = (
+                    "无异常" if assertion.passed else f"产生异常: {assertion.actual}"
+                )
             elif assertion.type == AssertionType.CUSTOM:
                 if callable(assertion.expected):
                     assertion.passed = bool(assertion.expected(assertion.actual))
@@ -268,6 +288,7 @@ class AssertionEngine:
 # ---------------------------------------------------------------------------
 # 仿真沙箱
 # ---------------------------------------------------------------------------
+
 
 class SimulationSandbox:
     """仿真测试沙箱

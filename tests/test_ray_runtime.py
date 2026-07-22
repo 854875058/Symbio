@@ -102,6 +102,7 @@ def test_submit_before_start_raises():
 # SubAgentManager 端到端：注入 RayExecutor 后子任务跨进程执行
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_subagent_manager_executes_group_on_ray(executor):
     from symbio.agents.registry import get_registry
@@ -113,12 +114,15 @@ async def test_subagent_manager_executes_group_on_ray(executor):
 
     import symbio.distributed._test_agents  # noqa: F401  —— 主进程也注册，便于 _resolve_agent
 
-    manager = SubAgentManager(
-        get_registry(), EventBus(), RateLimiter(), executor=executor
-    )
+    manager = SubAgentManager(get_registry(), EventBus(), RateLimiter(), executor=executor)
     subtasks = [
-        SubTask(subtask_id=f"s{i}", name=f"sub{i}", description=f"echo{i}",
-                action="chat", suggested_agent="dist_echo")
+        SubTask(
+            subtask_id=f"s{i}",
+            name=f"sub{i}",
+            description=f"echo{i}",
+            action="chat",
+            suggested_agent="dist_echo",
+        )
         for i in range(4)
     ]
     parent = CoreTask(intent=Intent(raw_text="parent"))
@@ -149,8 +153,13 @@ async def test_subagent_manager_falls_back_without_executor():
 
     manager = SubAgentManager(get_registry(), EventBus(), RateLimiter())  # executor=None
     subtasks = [
-        SubTask(subtask_id="s0", name="sub0", description="echo",
-                action="chat", suggested_agent="dist_echo")
+        SubTask(
+            subtask_id="s0",
+            name="sub0",
+            description="echo",
+            action="chat",
+            suggested_agent="dist_echo",
+        )
     ]
     parent = CoreTask(intent=Intent(raw_text="parent"))
     agg = await manager.execute_subtasks(subtasks, parent, execution_order=[["s0"]])

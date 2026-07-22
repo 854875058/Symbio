@@ -398,7 +398,9 @@ class NpmTestAdapter(FrameworkAdapter):
                 TestCaseResult(
                     name="npm_test_execution",
                     status=TestStatus.ERROR,
-                    error_message=stderr.strip()[:500] if stderr.strip() else f"exit code {exit_code}",
+                    error_message=stderr.strip()[:500]
+                    if stderr.strip()
+                    else f"exit code {exit_code}",
                     stack_trace=stderr,
                 )
             )
@@ -801,7 +803,9 @@ class TestRunner:
                 cmd, work_dir, env, self._default_timeout
             )
             case_results = adapter.parse_output(raw_stdout, raw_stderr, exit_code)
-            return self._build_result(suite, framework, case_results, raw_stdout, raw_stderr, exit_code, duration_ms)
+            return self._build_result(
+                suite, framework, case_results, raw_stdout, raw_stderr, exit_code, duration_ms
+            )
 
         # 逐用例执行（每个用例一个子进程，确保沙箱隔离）
         all_case_results: list[TestCaseResult] = []
@@ -1041,7 +1045,9 @@ class TestRunner:
             exit_code = process.returncode or 0
             elapsed = (datetime.now() - start_time).total_seconds() * 1000
 
-            logger.info(f"Subprocess finished: pid={process.pid}, exit_code={exit_code}, elapsed={elapsed:.0f}ms")
+            logger.info(
+                f"Subprocess finished: pid={process.pid}, exit_code={exit_code}, elapsed={elapsed:.0f}ms"
+            )
 
             if stdout_text.strip():
                 logger.debug(f"stdout ({len(stdout_text)} chars): {stdout_text[:200]}...")
@@ -1093,7 +1099,9 @@ class TestRunner:
                 await asyncio.wait_for(process.wait(), timeout=3.0)
                 logger.info(f"Subprocess terminated gracefully (pid={process.pid})")
             except asyncio.TimeoutError:
-                logger.warning(f"Subprocess did not terminate gracefully, killing (pid={process.pid})")
+                logger.warning(
+                    f"Subprocess did not terminate gracefully, killing (pid={process.pid})"
+                )
                 process.kill()
                 await process.wait()
         except ProcessLookupError:

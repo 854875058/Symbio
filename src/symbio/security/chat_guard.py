@@ -171,7 +171,7 @@ class ChatSecurityGateway:
                 "threat_level": r.threat_level.value,
                 "attack_type": r.attack_type.value,
                 "action_taken": r.action_taken,
-                "defense_layers": [l.value for l in r.defense_layers_passed],
+                "defense_layers": [layer.value for layer in r.defense_layers_passed],
                 "created_at": r.created_at.isoformat(),
             }
             for r in reversed(records)
@@ -190,7 +190,7 @@ class ChatSecurityGateway:
             "action": record.action_taken,
             "sanitized": record.sanitized_input,
             "is_modified": record.sanitized_input != record.original_input,
-            "defense_layers": [l.value for l in record.defense_layers_passed],
+            "defense_layers": [layer.value for layer in record.defense_layers_passed],
         }
 
     def selftest(self, category: Optional[str] = None) -> dict[str, Any]:
@@ -235,14 +235,16 @@ class ChatSecurityGateway:
             if hit:
                 correct += 1
             elif sample.expected_blocked and not is_blocked:
-                misses.append({
-                    "id": sample.id,
-                    "category": sample.category.value,
-                    "name": sample.name,
-                    "severity": sample.severity.value,
-                    "threat_level": record.threat_level.value,
-                    "payload": sample.payload[:160],
-                })
+                misses.append(
+                    {
+                        "id": sample.id,
+                        "category": sample.category.value,
+                        "name": sample.name,
+                        "severity": sample.severity.value,
+                        "threat_level": record.threat_level.value,
+                        "payload": sample.payload[:160],
+                    }
+                )
 
             cat_key = sample.category.value
             bucket = by_category.setdefault(cat_key, {"total": 0, "blocked": 0})

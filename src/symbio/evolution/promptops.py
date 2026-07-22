@@ -9,7 +9,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 from datetime import datetime
@@ -32,31 +31,34 @@ logger = get_logger("promptops")
 
 class VersionStatus(str, Enum):
     """Prompt 版本状态。"""
-    DRAFT = "draft"           # 草稿
-    ACTIVE = "active"         # 活跃（当前使用）
-    TESTING = "testing"       # 测试中（A/B 测试）
-    CANARY = "canary"         # 灰度发布中
-    DEPRECATED = "deprecated" # 已弃用
-    ARCHIVED = "archived"     # 已归档
+
+    DRAFT = "draft"  # 草稿
+    ACTIVE = "active"  # 活跃（当前使用）
+    TESTING = "testing"  # 测试中（A/B 测试）
+    CANARY = "canary"  # 灰度发布中
+    DEPRECATED = "deprecated"  # 已弃用
+    ARCHIVED = "archived"  # 已归档
 
 
 class ABTestStatus(str, Enum):
     """A/B 测试状态。"""
-    DRAFT = "draft"           # 草稿
-    RUNNING = "running"       # 运行中
-    PAUSED = "paused"         # 已暂停
-    COMPLETED = "completed"   # 已完成
-    CANCELLED = "cancelled"   # 已取消
+
+    DRAFT = "draft"  # 草稿
+    RUNNING = "running"  # 运行中
+    PAUSED = "paused"  # 已暂停
+    COMPLETED = "completed"  # 已完成
+    CANCELLED = "cancelled"  # 已取消
 
 
 class CanaryStage(str, Enum):
     """灰度发布阶段。"""
-    STAGE_1 = "1pct"          # 1% 流量
-    STAGE_2 = "5pct"          # 5% 流量
-    STAGE_3 = "10pct"         # 10% 流量
-    STAGE_4 = "25pct"         # 25% 流量
-    STAGE_5 = "50pct"         # 50% 流量
-    STAGE_6 = "100pct"        # 全量
+
+    STAGE_1 = "1pct"  # 1% 流量
+    STAGE_2 = "5pct"  # 5% 流量
+    STAGE_3 = "10pct"  # 10% 流量
+    STAGE_4 = "25pct"  # 25% 流量
+    STAGE_5 = "50pct"  # 50% 流量
+    STAGE_6 = "100pct"  # 全量
 
 
 class PromptVersion(BaseModel):
@@ -73,9 +75,7 @@ class PromptVersion(BaseModel):
     )
     tags: list[str] = Field(default_factory=list, description="标签")
     status: VersionStatus = Field(default=VersionStatus.DRAFT, description="版本状态")
-    parent_version_id: Optional[str] = Field(
-        default=None, description="父版本 ID（用于回滚追溯）"
-    )
+    parent_version_id: Optional[str] = Field(default=None, description="父版本 ID（用于回滚追溯）")
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -87,9 +87,7 @@ class ABTestVariant(BaseModel):
     variant_id: str = Field(default_factory=lambda: str(uuid4()))
     version_id: str = Field(description="关联的 Prompt 版本 ID")
     variant_name: str = Field(description="变体名称（如 control / treatment_a）")
-    traffic_weight: float = Field(
-        ge=0.0, le=1.0, description="流量权重 (0-1)"
-    )
+    traffic_weight: float = Field(ge=0.0, le=1.0, description="流量权重 (0-1)")
     sample_count: int = Field(default=0, description="样本数")
     success_count: int = Field(default=0, description="成功数")
     total_score: float = Field(default=0.0, description="总评分")
@@ -140,9 +138,7 @@ class CanaryRelease(BaseModel):
     current_stage: CanaryStage = Field(default=CanaryStage.STAGE_1)
     stage_traffic: float = Field(default=0.01, description="当前阶段流量比例")
     is_active: bool = Field(default=True, description="是否进行中")
-    rollback_version_id: Optional[str] = Field(
-        default=None, description="回滚版本 ID"
-    )
+    rollback_version_id: Optional[str] = Field(default=None, description="回滚版本 ID")
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -150,6 +146,7 @@ class CanaryRelease(BaseModel):
 
 class VersionQuery(BaseModel):
     """版本查询条件。"""
+
     prompt_name: Optional[str] = None
     status: Optional[VersionStatus] = None
     limit: int = Field(default=50, ge=1)
@@ -374,9 +371,7 @@ class PromptOps:
             return None
         return self._row_to_dict(row)
 
-    async def get_active_version(
-        self, prompt_name: str
-    ) -> Optional[dict[str, Any]]:
+    async def get_active_version(self, prompt_name: str) -> Optional[dict[str, Any]]:
         """获取指定 Prompt 当前活跃版本。
 
         Args:
@@ -421,16 +416,13 @@ class PromptOps:
         params.append(query.limit)
 
         cursor = await self._db.execute(
-            f"SELECT * FROM prompt_versions WHERE {where} "
-            f"ORDER BY version_number DESC LIMIT ?",
+            f"SELECT * FROM prompt_versions WHERE {where} ORDER BY version_number DESC LIMIT ?",
             params,
         )
         rows = await cursor.fetchall()
         return [self._row_to_dict(row) for row in rows]
 
-    async def set_version_status(
-        self, version_id: str, status: VersionStatus
-    ) -> bool:
+    async def set_version_status(self, version_id: str, status: VersionStatus) -> bool:
         """更新版本状态。
 
         如果设置为 ACTIVE，会自动将同名其他活跃版本设为 DEPRECATED。
@@ -491,8 +483,7 @@ class PromptOps:
         # 获取当前最大版本号
         assert self._db is not None
         cursor = await self._db.execute(
-            "SELECT COALESCE(MAX(version_number), 0) FROM prompt_versions "
-            "WHERE prompt_name = ?",
+            "SELECT COALESCE(MAX(version_number), 0) FROM prompt_versions WHERE prompt_name = ?",
             (target["prompt_name"],),
         )
         row = await cursor.fetchone()
@@ -568,9 +559,7 @@ class PromptOps:
                 test.test_name,
                 test.description,
                 test.prompt_name,
-                json.dumps(
-                    [v.model_dump() for v in test.variants], ensure_ascii=False
-                ),
+                json.dumps([v.model_dump() for v in test.variants], ensure_ascii=False),
                 test.status.value,
                 test.start_time.isoformat() if test.start_time else None,
                 test.end_time.isoformat() if test.end_time else None,
@@ -623,7 +612,10 @@ class PromptOps:
 
         # 更新变体统计
         await self._update_variant_stats(
-            result.test_id, result.variant_id, result.success, result.score,
+            result.test_id,
+            result.variant_id,
+            result.success,
+            result.score,
             result.latency_ms,
         )
 
@@ -665,9 +657,9 @@ class PromptOps:
                 count = v["sample_count"]
                 v["average_score"] = round(v["total_score"] / count, 4) if count > 0 else 0.0
                 old_latency = v.get("average_latency_ms", 0.0)
-                v["average_latency_ms"] = round(
-                    (old_latency * (count - 1) + latency_ms) / count, 2
-                ) if count > 0 else 0.0
+                v["average_latency_ms"] = (
+                    round((old_latency * (count - 1) + latency_ms) / count, 2) if count > 0 else 0.0
+                )
                 break
 
         await self._db.execute(
@@ -685,17 +677,13 @@ class PromptOps:
             测试字典，不存在返回 None
         """
         assert self._db is not None
-        cursor = await self._db.execute(
-            "SELECT * FROM ab_tests WHERE test_id = ?", (test_id,)
-        )
+        cursor = await self._db.execute("SELECT * FROM ab_tests WHERE test_id = ?", (test_id,))
         row = await cursor.fetchone()
         if row is None:
             return None
         return self._row_to_dict(row)
 
-    async def get_winning_variant(
-        self, test_id: str
-    ) -> Optional[dict[str, Any]]:
+    async def get_winning_variant(self, test_id: str) -> Optional[dict[str, Any]]:
         """获取 A/B 测试的胜出变体。
 
         判定逻辑：
@@ -725,8 +713,7 @@ class PromptOps:
         all_sufficient = all(v.get("sample_count", 0) >= min_sample for v in variants)
         if not all_sufficient:
             logger.info(
-                f"A/B test {test_id}: not all variants have reached "
-                f"min sample size ({min_sample})"
+                f"A/B test {test_id}: not all variants have reached min sample size ({min_sample})"
             )
             # 仍返回当前最优的
             return max(variants, key=lambda v: v.get("average_score", 0.0))
@@ -883,8 +870,7 @@ class PromptOps:
         """
         assert self._db is not None
         cursor = await self._db.execute(
-            "SELECT current_stage, is_active FROM canary_releases "
-            "WHERE release_id = ?",
+            "SELECT current_stage, is_active FROM canary_releases WHERE release_id = ?",
             (release_id,),
         )
         row = await cursor.fetchone()
@@ -919,8 +905,7 @@ class PromptOps:
 
         await self._db.commit()
         logger.info(
-            f"Canary release {release_id} advanced to {next_stage.value} "
-            f"(traffic={traffic:.0%})"
+            f"Canary release {release_id} advanced to {next_stage.value} (traffic={traffic:.0%})"
         )
         return next_stage
 
@@ -959,8 +944,7 @@ class PromptOps:
         )
 
         await self._db.execute(
-            "UPDATE canary_releases SET is_active = 0, updated_at = ? "
-            "WHERE release_id = ?",
+            "UPDATE canary_releases SET is_active = 0, updated_at = ? WHERE release_id = ?",
             (datetime.now().isoformat(), release_id),
         )
         await self._db.commit()
@@ -974,9 +958,7 @@ class PromptOps:
     # 辅助方法
     # -------------------------------------------------------------------------
 
-    def resolve_version_for_request(
-        self, prompt_name: str, request_id: str
-    ) -> Optional[str]:
+    def resolve_version_for_request(self, prompt_name: str, request_id: str) -> Optional[str]:
         """根据请求 ID 决定使用哪个版本（用于灰度流量分配）。
 
         确定性分配：相同 request_id 总是路由到同一版本。
@@ -990,12 +972,6 @@ class PromptOps:
         """
         # 注意：这是一个同步方法，不需要数据库查询
         # 灰度流量分配逻辑在应用层调用，这里提供辅助
-        hash_val = int(
-            hashlib.md5(
-                f"{prompt_name}:{request_id}".encode()
-            ).hexdigest(),
-            16,
-        ) % 100
         return None  # 实际分配需要查询活跃的 canary release
 
     @staticmethod
@@ -1025,8 +1001,7 @@ class PromptOps:
                 (VersionStatus.ACTIVE.value, row[0]),
             )
         await self._db.execute(
-            "UPDATE canary_releases SET is_active = 0, updated_at = ? "
-            "WHERE release_id = ?",
+            "UPDATE canary_releases SET is_active = 0, updated_at = ? WHERE release_id = ?",
             (datetime.now().isoformat(), release_id),
         )
         logger.info(f"Canary release {release_id} completed (100% traffic)")

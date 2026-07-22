@@ -57,7 +57,9 @@ def test_discovers_and_parses_codex_transcript(tmp_path):
         ],
     )
 
-    summaries = discover_external_transcripts(codex_root=tmp_path / ".codex", claude_root=tmp_path / ".claude")
+    summaries = discover_external_transcripts(
+        codex_root=tmp_path / ".codex", claude_root=tmp_path / ".claude"
+    )
     transcript = parse_external_transcript(summaries[0].path, provider=summaries[0].provider)
 
     assert summaries[0].provider == "codex"
@@ -76,12 +78,20 @@ def test_codex_parser_ignores_internal_context_records(tmp_path):
             {
                 "type": "response_item",
                 "timestamp": "2026-06-09T08:00:00Z",
-                "payload": {"type": "message", "role": "user", "content": "<environment_context>\n  <cwd>x</cwd>\n</environment_context>"},
+                "payload": {
+                    "type": "message",
+                    "role": "user",
+                    "content": "<environment_context>\n  <cwd>x</cwd>\n</environment_context>",
+                },
             },
             {
                 "type": "response_item",
                 "timestamp": "2026-06-09T08:00:01Z",
-                "payload": {"type": "message", "role": "user", "content": "# AGENTS.md instructions for demo"},
+                "payload": {
+                    "type": "message",
+                    "role": "user",
+                    "content": "# AGENTS.md instructions for demo",
+                },
             },
             {
                 "type": "response_item",
@@ -91,7 +101,11 @@ def test_codex_parser_ignores_internal_context_records(tmp_path):
             {
                 "type": "response_item",
                 "timestamp": "2026-06-09T08:02:00Z",
-                "payload": {"type": "message", "role": "assistant", "content": "real assistant reply"},
+                "payload": {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": "real assistant reply",
+                },
             },
         ],
     )
@@ -99,7 +113,10 @@ def test_codex_parser_ignores_internal_context_records(tmp_path):
     transcript = parse_external_transcript(codex_file, provider="codex")
 
     assert transcript.title == "real user request"
-    assert [message.content for message in transcript.messages] == ["real user request", "real assistant reply"]
+    assert [message.content for message in transcript.messages] == [
+        "real user request",
+        "real assistant reply",
+    ]
 
 
 def test_discovers_and_parses_claude_code_transcript(tmp_path):
@@ -129,7 +146,9 @@ def test_discovers_and_parses_claude_code_transcript(tmp_path):
         ],
     )
 
-    summaries = discover_external_transcripts(codex_root=tmp_path / ".codex", claude_root=tmp_path / ".claude")
+    summaries = discover_external_transcripts(
+        codex_root=tmp_path / ".codex", claude_root=tmp_path / ".claude"
+    )
     transcript = parse_external_transcript(summaries[0].path, provider=summaries[0].provider)
 
     assert summaries[0].provider == "claude-code"
@@ -149,7 +168,11 @@ async def test_external_transcript_api_imports_messages_into_symbio_chat(tmp_pat
             {
                 "type": "response_item",
                 "timestamp": "2026-06-09T10:00:00Z",
-                "payload": {"type": "message", "role": "user", "content": "open the old codex task"},
+                "payload": {
+                    "type": "message",
+                    "role": "user",
+                    "content": "open the old codex task",
+                },
             },
             {
                 "type": "response_item",

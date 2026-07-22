@@ -1,4 +1,4 @@
-﻿"""工具注册中心 - 管理所有工具的注册、发现、执行、权限与统计。
+"""工具注册中心 - 管理所有工具的注册、发现、执行、权限与统计。
 
 内置工具: cc, shell, file, git, browser
 支持 LLM function calling schema 导出。
@@ -311,9 +311,7 @@ class ToolRegistry:
 
         # 高危操作需审批（此处标记，由上层 HITL 流程处理）
         if perm.requires_approval:
-            logger.warning(
-                f"工具 {tool.name} 需要人工审批，当前调用者: {user_id or 'anonymous'}"
-            )
+            logger.warning(f"工具 {tool.name} 需要人工审批，当前调用者: {user_id or 'anonymous'}")
 
         return True, "权限校验通过。"
 
@@ -374,9 +372,7 @@ class ToolRegistry:
             stats.total_duration_ms += duration
             stats.last_called_at = datetime.now()
 
-            logger.info(
-                f"工具 {name} 执行成功, 耗时={duration:.1f}ms"
-            )
+            logger.info(f"工具 {name} 执行成功, 耗时={duration:.1f}ms")
             return result
 
         except asyncio.TimeoutError:
@@ -451,11 +447,13 @@ class ToolRegistry:
             if tags and not set(tags).intersection(tool.tags):
                 continue
             s = tool.schema()
-            schemas.append({
-                "name": s.name,
-                "description": s.description,
-                "parameters": s.parameters,
-            })
+            schemas.append(
+                {
+                    "name": s.name,
+                    "description": s.description,
+                    "parameters": s.parameters,
+                }
+            )
         logger.debug(f"导出 {len(schemas)} 个工具 Schema。")
         return schemas
 
@@ -672,9 +670,7 @@ class ShellTool(BaseTool):
             stderr=asyncio.subprocess.PIPE,
         )
         try:
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), timeout=timeout
-            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except asyncio.TimeoutError:
             proc.kill()
             await proc.communicate()
@@ -963,9 +959,7 @@ class BrowserTool(BaseTool):
                             nodes = tree.css(selector)
                             text = "\n".join(node.text() for node in nodes)
                         except ImportError:
-                            logger.warning(
-                                "[browser] selectolax 未安装，返回完整 HTML。"
-                            )
+                            logger.warning("[browser] selectolax 未安装，返回完整 HTML。")
                     return ToolResult(
                         call_id="",
                         tool_name=self.name,
@@ -1001,6 +995,7 @@ class BrowserTool(BaseTool):
 # ---------------------------------------------------------------------------
 # 全局注册中心
 # ---------------------------------------------------------------------------
+
 
 class PlaywrightBrowserTool(BrowserTool):
     """Browser tool with Playwright-backed screenshots."""

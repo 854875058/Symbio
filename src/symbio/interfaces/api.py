@@ -80,17 +80,20 @@ def _get_default_eval_suite_dir() -> Path | None:
         return None
     return None
 
+
 app = FastAPI(
     title="Symbio API",
     description="AI Infra 级多 Agent 协同框架",
     version="0.2.3",
 )
 
+
 # CORS - read from config, default to localhost only
 def _get_cors_origins() -> list[str]:
     """Parse CORS origins from settings."""
     try:
         from symbio.config.settings import get_settings
+
         settings = get_settings()
         origins_str = getattr(settings.server, "cors_origins", "")
         if not origins_str:
@@ -233,6 +236,7 @@ def _build_sandbox_policy(access_mode: str, approval_policy: str):
 
 # ============ 生命周期事件 ============
 
+
 @app.on_event("startup")
 async def startup():
     """启动时初始化数据库和记忆管理器"""
@@ -267,9 +271,11 @@ async def startup():
     # 初始化 OTel tracer（如果配置启用）
     try:
         from symbio.config.settings import get_settings as _gs
+
         _s = _gs()
         if _s.otel and _s.otel.enabled:
             from symbio.core.tracer import get_tracer
+
             tracer = get_tracer()
             if tracer is not None and hasattr(tracer, "start"):
                 await tracer.start()
@@ -292,17 +298,27 @@ async def startup():
 @app.on_event("shutdown")
 async def shutdown():
     """关闭时释放数据库连接和记忆管理器"""
-    if hasattr(app.state, 'memory_manager') and app.state.memory_manager:
+    from symbio.core.chat_pipeline import shutdown_chat_pipeline
+    from symbio.evolution.flywheel import shutdown_flywheel
+
+    if hasattr(app.state, "memory_manager") and app.state.memory_manager:
         await app.state.memory_manager.close()
-    if hasattr(app.state, "hitl_gateway") and app.state.hitl_gateway:
-        await app.state.hitl_gateway.close()
-    if hasattr(app.state, "execution_store") and app.state.execution_store:
-        await app.state.execution_store.close()
+    orchestrator = getattr(app.state, "orchestrator", None)
+    if orchestrator is not None:
+        await orchestrator.close()
+    else:
+        if hasattr(app.state, "hitl_gateway") and app.state.hitl_gateway:
+            await app.state.hitl_gateway.close()
+        if hasattr(app.state, "execution_store") and app.state.execution_store:
+            await app.state.execution_store.close()
     await close_db()
+    await shutdown_chat_pipeline()
+    await shutdown_flywheel()
     logger.info("Symbio API 已关闭")
 
 
 # ============ 数据模型 ============
+
 
 class ChatRequest(BaseModel):
     message: str
@@ -394,7 +410,7 @@ class MemoryStoreRequest(BaseModel):
     # 多模态：text（默认）/ image / pdf / code。
     # image/pdf 时 content 为文件路径，图片会调 Claude 视觉模型生成描述后入库。
     modality: str = "text"
-    language: str = "python"        # 仅 modality=code 时使用
+    language: str = "python"  # 仅 modality=code 时使用
 
 
 class ConversationExportRequest(BaseModel):
@@ -535,36 +551,40 @@ def _ontology_graph_snapshot(ontology) -> dict[str, Any]:
     for concept_id, concept in concepts.items():
         parent_ids = [pid for pid in concept.parent_concepts if pid in concepts]
         property_ids = [pid for pid in concept.properties if pid in properties]
-        nodes.append({
-            "id": concept_id,
-            "label": concept.name,
-            "category": "concept",
-            "entity_type": "concept",
-            "description": concept.description,
-            "parent_ids": parent_ids,
-            "parent_labels": [concepts[pid].name for pid in parent_ids],
-            "property_ids": property_ids,
-            "property_labels": [properties[pid].name for pid in property_ids],
-            "metadata": _json_safe(concept.metadata),
-            "created_at": _json_safe(concept.created_at),
-            "degree": 0,
-        })
+        nodes.append(
+            {
+                "id": concept_id,
+                "label": concept.name,
+                "category": "concept",
+                "entity_type": "concept",
+                "description": concept.description,
+                "parent_ids": parent_ids,
+                "parent_labels": [concepts[pid].name for pid in parent_ids],
+                "property_ids": property_ids,
+                "property_labels": [properties[pid].name for pid in property_ids],
+                "metadata": _json_safe(concept.metadata),
+                "created_at": _json_safe(concept.created_at),
+                "degree": 0,
+            }
+        )
 
     for individual_id, individual in individuals.items():
         concept_ids = [cid for cid in individual.concept_ids if cid in concepts]
-        nodes.append({
-            "id": individual_id,
-            "label": individual.name,
-            "category": "individual",
-            "entity_type": "individual",
-            "concept_ids": concept_ids,
-            "concept_labels": [concepts[cid].name for cid in concept_ids],
-            "properties": _json_safe(individual.properties),
-            "metadata": _json_safe(individual.metadata),
-            "created_at": _json_safe(individual.created_at),
-            "last_updated": _json_safe(individual.last_updated),
-            "degree": 0,
-        })
+        nodes.append(
+            {
+                "id": individual_id,
+                "label": individual.name,
+                "category": "individual",
+                "entity_type": "individual",
+                "concept_ids": concept_ids,
+                "concept_labels": [concepts[cid].name for cid in concept_ids],
+                "properties": _json_safe(individual.properties),
+                "metadata": _json_safe(individual.metadata),
+                "created_at": _json_safe(individual.created_at),
+                "last_updated": _json_safe(individual.last_updated),
+                "degree": 0,
+            }
+        )
 
     edges: list[dict[str, Any]] = []
     for edge_id, relation in relation_instances.items():
@@ -575,19 +595,21 @@ def _ontology_graph_snapshot(ontology) -> dict[str, Any]:
         target_id = relation.target_id
         degree_by_id[source_id] = degree_by_id.get(source_id, 0) + 1
         degree_by_id[target_id] = degree_by_id.get(target_id, 0) + 1
-        edges.append({
-            "id": edge_id,
-            "source": source_id,
-            "target": target_id,
-            "source_label": label_for(source_id),
-            "target_label": label_for(target_id),
-            "label": label,
-            "relation_id": relation.relation_id,
-            "relation_type": relation_type,
-            "weight": relation.weight,
-            "metadata": _json_safe(relation.metadata),
-            "created_at": _json_safe(relation.created_at),
-        })
+        edges.append(
+            {
+                "id": edge_id,
+                "source": source_id,
+                "target": target_id,
+                "source_label": label_for(source_id),
+                "target_label": label_for(target_id),
+                "label": label,
+                "relation_id": relation.relation_id,
+                "relation_type": relation_type,
+                "weight": relation.weight,
+                "metadata": _json_safe(relation.metadata),
+                "created_at": _json_safe(relation.created_at),
+            }
+        )
 
     for node in nodes:
         node["degree"] = degree_by_id.get(node["id"], 0)
@@ -617,7 +639,9 @@ def _public_model_payload(model: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-def _format_conversation_export_sample(format_name: str, session_id: str, messages: list[dict]) -> dict:
+def _format_conversation_export_sample(
+    format_name: str, session_id: str, messages: list[dict]
+) -> dict:
     normalized = [
         {"role": str(message.get("role", "")), "content": str(message.get("content", ""))}
         for message in messages
@@ -629,14 +653,23 @@ def _format_conversation_export_sample(format_name: str, session_id: str, messag
         return {
             "id": session_id,
             "conversations": [
-                {"role": role_map.get(message["role"], message["role"]), "content": message["content"]}
+                {
+                    "role": role_map.get(message["role"], message["role"]),
+                    "content": message["content"],
+                }
                 for message in normalized
             ],
         }
     if fmt == "alpaca":
-        first_user = next((message["content"] for message in normalized if message["role"] == "user"), "")
+        first_user = next(
+            (message["content"] for message in normalized if message["role"] == "user"), ""
+        )
         last_assistant = next(
-            (message["content"] for message in reversed(normalized) if message["role"] == "assistant"),
+            (
+                message["content"]
+                for message in reversed(normalized)
+                if message["role"] == "assistant"
+            ),
             "",
         )
         return {"id": session_id, "instruction": first_user, "input": "", "output": last_assistant}
@@ -660,7 +693,11 @@ async def _collect_conversation_export_samples(request: ConversationExportReques
         if not session:
             continue
         messages = await db.list_messages_by_session(session["id"])
-        messages = [message for message in messages if message.get("role") in {"user", "assistant", "system"}]
+        messages = [
+            message
+            for message in messages
+            if message.get("role") in {"user", "assistant", "system"}
+        ]
         if len(messages) < 2:
             continue
         samples.append(_format_conversation_export_sample(request.format, session["id"], messages))
@@ -807,6 +844,7 @@ async def _bootstrap_ontology_from_memories(ontology) -> None:
 
 # ============ 辅助函数 ============
 
+
 async def _ensure_session(db, session_id: str, title: str = "新对话"):
     """确保会话存在，不存在则创建"""
     existing = await db.get_session(session_id)
@@ -854,6 +892,7 @@ def _manifest_keywords(manifest: Optional[dict]) -> list:
 async def _load_llm_settings():
     """加载 LLM 配置（统一从 get_settings() 读取，确保单一权威来源）"""
     from symbio.config.settings import get_settings
+
     return get_settings()
 
 
@@ -881,6 +920,7 @@ async def _build_history_messages(db, session_id: str, max_messages: int = MAX_C
 
 # ============ API 路由 ============
 
+
 @app.get("/")
 async def root():
     """根路径"""
@@ -903,7 +943,9 @@ async def health():
 
 
 @app.get("/api/fs/dirs")
-async def browse_directories(path: str = Query("", description="要浏览的绝对目录；空则返回盘符/根")):
+async def browse_directories(
+    path: str = Query("", description="要浏览的绝对目录；空则返回盘符/根"),
+):
     """服务端目录浏览：列出某目录下的子文件夹，供工作台选择工作区。
 
     只列文件夹名，不读文件内容。path 为空时：Windows 返回可用盘符，其它平台返回根 /。
@@ -916,9 +958,7 @@ async def browse_directories(path: str = Query("", description="要浏览的绝�
             import string
 
             drives = [
-                f"{letter}:\\"
-                for letter in string.ascii_uppercase
-                if Path(f"{letter}:\\").exists()
+                f"{letter}:\\" for letter in string.ascii_uppercase if Path(f"{letter}:\\").exists()
             ]
             for drive in drives:
                 entries.append({"name": drive, "path": drive})
@@ -997,7 +1037,7 @@ async def sandbox_execute(request: SandboxExecuteRequest):
 async def sandbox_audit(limit: int = 50):
     """Return recent sandbox execution decisions and results."""
     executor = _get_sandbox_executor()
-    records = executor.audit_records[-max(limit, 1):]
+    records = executor.audit_records[-max(limit, 1) :]
     return {
         "records": [record.model_dump(mode="json") for record in reversed(records)],
         "total": len(executor.audit_records),
@@ -1049,10 +1089,7 @@ async def external_agent_providers():
     """List supported external coding-agent CLIs and discovery status."""
     controller = _get_external_agent_controller()
     return {
-        "providers": [
-            provider.model_dump(mode="json")
-            for provider in controller.list_providers()
-        ]
+        "providers": [provider.model_dump(mode="json") for provider in controller.list_providers()]
     }
 
 
@@ -1061,10 +1098,7 @@ async def external_agent_sessions():
     """List Symbio-managed external coding-agent sessions."""
     controller = _get_external_agent_controller()
     return {
-        "sessions": [
-            session.model_dump(mode="json")
-            for session in controller.list_sessions()
-        ],
+        "sessions": [session.model_dump(mode="json") for session in controller.list_sessions()],
         "total": len(controller.sessions),
     }
 
@@ -1184,7 +1218,9 @@ async def import_external_agent_transcript(request: ExternalTranscriptImportRequ
         message_count=0,
     )
     for index, message in enumerate(transcript.messages):
-        message_digest = hashlib.sha256(f"{path}:{index}:{message.role}".encode("utf-8")).hexdigest()[:16]
+        message_digest = hashlib.sha256(
+            f"{path}:{index}:{message.role}".encode("utf-8")
+        ).hexdigest()[:16]
         await db.create_message(
             f"external-{message_digest}",
             session_id,
@@ -1360,7 +1396,9 @@ async def _observability_summary() -> dict[str, Any]:
         "spans": {"captured": len(spans or [])},
         "metrics": {"records": len(metrics or [])},
         "tokens": {
-            "total_tokens": token_heatmap.get("total_tokens", 0) if isinstance(token_heatmap, dict) else 0,
+            "total_tokens": token_heatmap.get("total_tokens", 0)
+            if isinstance(token_heatmap, dict)
+            else 0,
             "entries": len(token_entries or []),
         },
     }
@@ -1400,8 +1438,11 @@ async def _collect_prometheus_metrics() -> str:
         db = await get_db()
         sessions = await db.list_sessions()
         emit("symbio_sessions_total", len(sessions), "Total chat sessions")
-        emit("symbio_messages_total", sum((s.get("message_count") or 0) for s in sessions),
-             "Total chat messages")
+        emit(
+            "symbio_messages_total",
+            sum((s.get("message_count") or 0) for s in sessions),
+            "Total chat messages",
+        )
     except Exception as e:
         logger.debug(f"metrics sessions skipped: {e}")
 
@@ -1410,20 +1451,47 @@ async def _collect_prometheus_metrics() -> str:
         pipeline = get_chat_pipeline()
         summary = await pipeline.cost_summary(24)
         if summary.get("available"):
-            emit("symbio_tokens_total_24h", summary.get("total_tokens", 0), "Tokens used in last 24h", "counter")
-            emit("symbio_llm_requests_total_24h", summary.get("total_requests", 0), "LLM requests in last 24h", "counter")
+            emit(
+                "symbio_tokens_total_24h",
+                summary.get("total_tokens", 0),
+                "Tokens used in last 24h",
+                "counter",
+            )
+            emit(
+                "symbio_llm_requests_total_24h",
+                summary.get("total_requests", 0),
+                "LLM requests in last 24h",
+                "counter",
+            )
         cache = await pipeline.cache_stats()
-        emit("symbio_cache_hits_total", cache.get("cache_hits", 0), "Semantic cache hits", "counter")
-        emit("symbio_cache_misses_total", cache.get("cache_misses", 0), "Semantic cache misses", "counter")
+        emit(
+            "symbio_cache_hits_total", cache.get("cache_hits", 0), "Semantic cache hits", "counter"
+        )
+        emit(
+            "symbio_cache_misses_total",
+            cache.get("cache_misses", 0),
+            "Semantic cache misses",
+            "counter",
+        )
         emit("symbio_cache_hit_rate", cache.get("hit_rate", 0.0), "Semantic cache hit rate")
-        emit("symbio_cache_tokens_saved", cache.get("estimated_token_saved", 0), "Estimated tokens saved by cache", "counter")
+        emit(
+            "symbio_cache_tokens_saved",
+            cache.get("estimated_token_saved", 0),
+            "Estimated tokens saved by cache",
+            "counter",
+        )
     except Exception as e:
         logger.debug(f"metrics cost/cache skipped: {e}")
 
     # 安全防火墙
     try:
         sec = get_chat_guard().stats()
-        emit("symbio_security_analyzed_total", sec.get("total_analyzed", 0), "Inputs analyzed by firewall", "counter")
+        emit(
+            "symbio_security_analyzed_total",
+            sec.get("total_analyzed", 0),
+            "Inputs analyzed by firewall",
+            "counter",
+        )
         emit("symbio_security_block_rate", sec.get("block_rate", 0.0), "Firewall block rate")
     except Exception as e:
         logger.debug(f"metrics security skipped: {e}")
@@ -1438,20 +1506,39 @@ async def _collect_prometheus_metrics() -> str:
     # 可观测性 tracer
     try:
         obs = await _observability_summary()
-        emit("symbio_spans_captured", obs.get("spans", {}).get("captured", 0), "Captured trace spans")
-        emit("symbio_metric_records", obs.get("metrics", {}).get("records", 0), "Tracer metric records")
-        emit("symbio_tracer_started", 1 if obs.get("is_started") else 0, "Whether tracer is started")
+        emit(
+            "symbio_spans_captured", obs.get("spans", {}).get("captured", 0), "Captured trace spans"
+        )
+        emit(
+            "symbio_metric_records",
+            obs.get("metrics", {}).get("records", 0),
+            "Tracer metric records",
+        )
+        emit(
+            "symbio_tracer_started", 1 if obs.get("is_started") else 0, "Whether tracer is started"
+        )
     except Exception as e:
         logger.debug(f"metrics tracer skipped: {e}")
 
     # 数据飞轮
     try:
         from symbio.evolution.flywheel import get_flywheel
+
         ov = await get_flywheel().overview()
         an = ov.get("stages", {}).get("analysis", {})
         fb = ov.get("stages", {}).get("feedback", {})
-        emit("symbio_flywheel_failures_total", an.get("total_failures", 0), "Recorded failure analyses", "counter")
-        emit("symbio_flywheel_feedback_total", fb.get("total_explicit", 0), "Collected explicit feedback", "counter")
+        emit(
+            "symbio_flywheel_failures_total",
+            an.get("total_failures", 0),
+            "Recorded failure analyses",
+            "counter",
+        )
+        emit(
+            "symbio_flywheel_feedback_total",
+            fb.get("total_explicit", 0),
+            "Collected explicit feedback",
+            "counter",
+        )
     except Exception as e:
         logger.debug(f"metrics flywheel skipped: {e}")
 
@@ -1462,6 +1549,7 @@ async def _collect_prometheus_metrics() -> str:
 async def prometheus_metrics():
     """Prometheus 文本格式运行指标（被 config/prometheus/prometheus.yml 抓取）。"""
     from fastapi.responses import PlainTextResponse
+
     text = await _collect_prometheus_metrics()
     return PlainTextResponse(content=text, media_type="text/plain; version=0.0.4; charset=utf-8")
 
@@ -1492,6 +1580,7 @@ async def export_conversations(request: ConversationExportRequest):
 
 
 # ============ 数据飞轮 API ============
+
 
 class FailureRecordRequest(BaseModel):
     task_id: str = ""
@@ -1525,8 +1614,11 @@ class DistillRequest(BaseModel):
 
 class FineTuneStartRequest(BaseModel):
     """提交一个 LoRA 微调作业。"""
+
     dataset_path: str = Field(..., description="训练数据集 JSONL 绝对/相对路径")
-    model_name: str = Field(default="sshleifer/tiny-gpt2", description="基座模型（HF 名或本地路径）")
+    model_name: str = Field(
+        default="sshleifer/tiny-gpt2", description="基座模型（HF 名或本地路径）"
+    )
     epochs: int = Field(default=1, ge=1, le=50)
     learning_rate: float = Field(default=2e-4, gt=0, le=1.0)
     batch_size: int = Field(default=1, ge=1, le=64)
@@ -1539,6 +1631,7 @@ class FineTuneStartRequest(BaseModel):
 async def flywheel_overview():
     """数据飞轮四阶段总览：捕获 / 失效分析 / SOP 蒸馏 / 反哺优化。"""
     from symbio.evolution.flywheel import get_flywheel
+
     fw = get_flywheel()
     data = await fw.overview()
     capture = getattr(app.state, "trajectory_capture", None)
@@ -1550,17 +1643,23 @@ async def flywheel_overview():
 async def flywheel_failures(limit: int = 50):
     """失效分析与根因列表（阶段二）。"""
     from symbio.evolution.flywheel import get_flywheel
+
     fw = get_flywheel()
     failures = await fw.list_failures(limit=limit)
     root_causes = await fw.list_root_causes(limit=limit)
-    return {"failures": failures, "root_causes": root_causes,
-            "total_failures": len(failures), "total_root_causes": len(root_causes)}
+    return {
+        "failures": failures,
+        "root_causes": root_causes,
+        "total_failures": len(failures),
+        "total_root_causes": len(root_causes),
+    }
 
 
 @app.post("/api/flywheel/failures")
 async def flywheel_record_failure(payload: FailureRecordRequest):
     """记录一次失败分析（阶段二，驱动闭环）。"""
     from symbio.evolution.flywheel import get_flywheel
+
     return await get_flywheel().record_failure(payload.model_dump())
 
 
@@ -1568,6 +1667,7 @@ async def flywheel_record_failure(payload: FailureRecordRequest):
 async def flywheel_sops():
     """SOP 列表：内置种子 + 已蒸馏（阶段三）。"""
     from symbio.evolution.flywheel import get_flywheel
+
     return get_flywheel().list_sops()
 
 
@@ -1575,6 +1675,7 @@ async def flywheel_sops():
 async def flywheel_distill(payload: DistillRequest):
     """从一条成功轨迹蒸馏 SOP（阶段三）。"""
     from symbio.evolution.flywheel import get_flywheel
+
     return get_flywheel().distill_from_trajectory(payload.model_dump())
 
 
@@ -1582,6 +1683,7 @@ async def flywheel_distill(payload: DistillRequest):
 async def flywheel_feedback_stats():
     """反馈统计（阶段四）。"""
     from symbio.evolution.flywheel import get_flywheel
+
     return await get_flywheel().feedback_stats()
 
 
@@ -1589,6 +1691,7 @@ async def flywheel_feedback_stats():
 async def flywheel_collect_feedback(payload: FeedbackRequest):
     """收集一条显式反馈（阶段四）。"""
     from symbio.evolution.flywheel import get_flywheel
+
     return await get_flywheel().collect_feedback(payload.model_dump())
 
 
@@ -1645,8 +1748,12 @@ async def flywheel_list_datasets():
                 lines = sum(1 for _ in f.open("r", encoding="utf-8"))
             except OSError:
                 lines = 0
-            seen[key] = {"path": str(f), "name": f.name, "samples": lines,
-                         "size_kb": round(f.stat().st_size / 1024, 1)}
+            seen[key] = {
+                "path": str(f),
+                "name": f.name,
+                "samples": lines,
+                "size_kb": round(f.stat().st_size / 1024, 1),
+            }
     return {"datasets": list(seen.values())}
 
 
@@ -1677,6 +1784,7 @@ async def flywheel_start_finetune(payload: FineTuneStartRequest):
 
     def _run() -> None:
         from datetime import datetime as _dt
+
         job.started_at = _dt.now()
         try:
             if config.use_ray:
@@ -1734,15 +1842,17 @@ async def list_evaluation_suites(path: str = "data/eval_suites"):
     for file_path in sorted(suite_dir.glob("*.json")):
         try:
             suite = TestSuiteLoader.load_from_file(file_path)
-            suites.append({
-                "name": suite.name,
-                "description": suite.description,
-                "version": suite.version,
-                "case_count": len(suite.cases),
-                "path": str(file_path),
-                "suite_id": suite.suite_id,
-                "tags": sorted({tag for case in suite.cases for tag in case.tags}),
-            })
+            suites.append(
+                {
+                    "name": suite.name,
+                    "description": suite.description,
+                    "version": suite.version,
+                    "case_count": len(suite.cases),
+                    "path": str(file_path),
+                    "suite_id": suite.suite_id,
+                    "tags": sorted({tag for case in suite.cases for tag in case.tags}),
+                }
+            )
         except Exception as e:
             errors.append({"path": str(file_path), "error": str(e)})
 
@@ -1750,6 +1860,7 @@ async def list_evaluation_suites(path: str = "data/eval_suites"):
 
 
 # ============ 成本监控 API ============
+
 
 class BudgetUpdate(BaseModel):
     project_id: str = "default"
@@ -1799,6 +1910,7 @@ async def get_cost_dashboard(period_hours: int = 24, project_id: str = "default"
 
 
 # ============ 安全防火墙 API ============
+
 
 class SecurityScanRequest(BaseModel):
     text: str
@@ -1906,13 +2018,15 @@ async def _ingest_chat_attachments(
             except Exception as exc:
                 logger.warning(f"附件历史消息落库失败: {raw_path}: {exc}")
 
-        notes.append({
-            "path": str(path),
-            "modality": modality,
-            "memory_id": item.memory_id,
-            "has_vision_description": bool(item.metadata.get("has_vision_description")),
-            "description": item.metadata.get("vision_description") or item.content,
-        })
+        notes.append(
+            {
+                "path": str(path),
+                "modality": modality,
+                "memory_id": item.memory_id,
+                "has_vision_description": bool(item.metadata.get("has_vision_description")),
+                "description": item.metadata.get("vision_description") or item.content,
+            }
+        )
 
     return notes
 
@@ -1925,14 +2039,16 @@ async def chat(request: ChatRequest):
     now_str = time.strftime("%Y-%m-%dT%H:%M:%S")
 
     # 确保会话存在
-    await _ensure_session(db, session_id, title=request.message[:30] if request.message else "新对话")
+    await _ensure_session(
+        db, session_id, title=request.message[:30] if request.message else "新对话"
+    )
 
     # 保存用户消息
     user_msg_id = f"msg-{uuid.uuid4().hex[:12]}"
     await db.create_message(user_msg_id, session_id, "user", request.message, now_str, 0)
 
     # 自动存入 MemoryManager（语义搜索）
-    if hasattr(app.state, 'memory_manager') and app.state.memory_manager:
+    if hasattr(app.state, "memory_manager") and app.state.memory_manager:
         await app.state.memory_manager.add_conversation_turn("user", request.message, session_id)
 
     # 聊天附件自动摄取（图片/PDF -> 视觉/文本描述 -> 入库 + 落历史，模型本轮可感知）
@@ -1957,13 +2073,23 @@ async def chat(request: ChatRequest):
 
         if not (has_anthropic or has_openai or has_local):
             error_msg = "错误: 未配置任何 LLM provider，请在 Models 页面配置或编辑 symbio.yaml"
-            await db.create_message(f"msg-{uuid.uuid4().hex[:12]}", session_id, "assistant", error_msg, time.strftime("%Y-%m-%dT%H:%M:%S"), 0)
+            await db.create_message(
+                f"msg-{uuid.uuid4().hex[:12]}",
+                session_id,
+                "assistant",
+                error_msg,
+                time.strftime("%Y-%m-%dT%H:%M:%S"),
+                0,
+            )
             return ChatResponse(
-                success=False, content=error_msg, session_id=session_id,
+                success=False,
+                content=error_msg,
+                session_id=session_id,
                 attachments_ingested=attachments_ingested or None,
             )
 
         import anthropic
+
         client = anthropic.AsyncAnthropic(api_key=api_key, base_url=base_url)
         model = request.model or settings.model.model_medium
 
@@ -1973,11 +2099,17 @@ async def chat(request: ChatRequest):
         if not verdict["allowed"]:
             block_msg = f"⛔ 该消息被安全防火墙拦截：{verdict['reason']}"
             await db.create_message(
-                f"msg-{uuid.uuid4().hex[:12]}", session_id, "assistant",
-                block_msg, time.strftime("%Y-%m-%dT%H:%M:%S"), 0,
+                f"msg-{uuid.uuid4().hex[:12]}",
+                session_id,
+                "assistant",
+                block_msg,
+                time.strftime("%Y-%m-%dT%H:%M:%S"),
+                0,
             )
             return ChatResponse(
-                success=False, content=block_msg, session_id=session_id,
+                success=False,
+                content=block_msg,
+                session_id=session_id,
                 token_usage={"input": 0, "output": 0, "total": 0},
             )
 
@@ -1992,14 +2124,22 @@ async def chat(request: ChatRequest):
         if cached:
             content = cached["content"]
             await db.create_message(
-                f"msg-{uuid.uuid4().hex[:12]}", session_id, "assistant",
-                content, time.strftime("%Y-%m-%dT%H:%M:%S"), 0,
+                f"msg-{uuid.uuid4().hex[:12]}",
+                session_id,
+                "assistant",
+                content,
+                time.strftime("%Y-%m-%dT%H:%M:%S"),
+                0,
             )
-            if hasattr(app.state, 'memory_manager') and app.state.memory_manager:
-                await app.state.memory_manager.add_conversation_turn("assistant", content, session_id)
+            if hasattr(app.state, "memory_manager") and app.state.memory_manager:
+                await app.state.memory_manager.add_conversation_turn(
+                    "assistant", content, session_id
+                )
             logger.info(f"语义缓存命中，零 Token 返回 - 会话: {session_id}")
             return ChatResponse(
-                success=True, content=content, session_id=session_id,
+                success=True,
+                content=content,
+                session_id=session_id,
                 token_usage={"input": 0, "output": 0, "total": 0},
                 cached=True,
                 attachments_ingested=attachments_ingested or None,
@@ -2012,6 +2152,7 @@ async def chat(request: ChatRequest):
         orchestrator = getattr(app.state, "orchestrator", None)
         if orchestrator is not None:
             from symbio.utils.types import Message, MessageSource
+
             orch_message = Message(
                 source=MessageSource.WEB,
                 user_id="web-user",
@@ -2047,24 +2188,33 @@ async def chat(request: ChatRequest):
 
         # 保存 AI 回复
         await db.create_message(
-            f"msg-{uuid.uuid4().hex[:12]}", session_id, "assistant",
-            content, time.strftime("%Y-%m-%dT%H:%M:%S"), token_usage["total"],
+            f"msg-{uuid.uuid4().hex[:12]}",
+            session_id,
+            "assistant",
+            content,
+            time.strftime("%Y-%m-%dT%H:%M:%S"),
+            token_usage["total"],
         )
 
         # 自动存入 MemoryManager（语义搜索）
-        if hasattr(app.state, 'memory_manager') and app.state.memory_manager:
+        if hasattr(app.state, "memory_manager") and app.state.memory_manager:
             await app.state.memory_manager.add_conversation_turn("assistant", content, session_id)
 
         # 成本优化管线：记录用量 + 回写语义缓存
         await pipeline.record_usage(
-            session_id=session_id, model=model,
-            input_tokens=token_usage["input"], output_tokens=token_usage["output"],
+            session_id=session_id,
+            model=model,
+            input_tokens=token_usage["input"],
+            output_tokens=token_usage["output"],
         )
         await pipeline.store_cache(request.message, content, model=model, context_hash=ctx_hash)
 
         return ChatResponse(
-            success=True, content=content, session_id=session_id,
-            token_usage=token_usage, prune_info=prune_info,
+            success=True,
+            content=content,
+            session_id=session_id,
+            token_usage=token_usage,
+            prune_info=prune_info,
             attachments_ingested=attachments_ingested or None,
         )
 
@@ -2072,13 +2222,18 @@ async def chat(request: ChatRequest):
         logger.error(f"对话失败: {e}")
         error_content = f"错误: {str(e)}"
         await db.create_message(
-            f"msg-{uuid.uuid4().hex[:12]}", session_id, "assistant",
-            error_content, time.strftime("%Y-%m-%dT%H:%M:%S"), 0,
+            f"msg-{uuid.uuid4().hex[:12]}",
+            session_id,
+            "assistant",
+            error_content,
+            time.strftime("%Y-%m-%dT%H:%M:%S"),
+            0,
         )
         return ChatResponse(success=False, content=error_content, session_id=session_id)
 
 
 # ============ 会话 API ============
+
 
 @app.get("/api/sessions")
 async def list_sessions():
@@ -2100,6 +2255,7 @@ async def get_session_messages(session_id: str):
 
 
 # ============ 任务 API ============
+
 
 @app.get("/api/tasks")
 async def list_tasks(status: Optional[str] = None):
@@ -2127,39 +2283,45 @@ async def get_task_dag(task_id: str):
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
 
-    nodes = [{
-        "id": task["id"],
-        "label": task["name"],
-        "type": "task",
-        "status": task["status"],
-        "agent": task.get("agent", ""),
-        "metadata": {
-            "created_at": task.get("created_at"),
-            "completed_at": task.get("completed_at"),
-        },
-    }]
+    nodes = [
+        {
+            "id": task["id"],
+            "label": task["name"],
+            "type": "task",
+            "status": task["status"],
+            "agent": task.get("agent", ""),
+            "metadata": {
+                "created_at": task.get("created_at"),
+                "completed_at": task.get("completed_at"),
+            },
+        }
+    ]
     edges = []
 
     previous_id = task["id"]
     for index, step in enumerate(task.get("steps", []), start=1):
         node_id = f"{task['id']}:step:{step['id']}"
-        nodes.append({
-            "id": node_id,
-            "label": step["name"],
-            "type": "step",
-            "status": step["status"],
-            "metadata": {
-                "step_id": step["id"],
-                "duration": step.get("duration"),
-                "order": index,
-            },
-        })
-        edges.append({
-            "id": f"{previous_id}->{node_id}",
-            "source": previous_id,
-            "target": node_id,
-            "type": "sequence",
-        })
+        nodes.append(
+            {
+                "id": node_id,
+                "label": step["name"],
+                "type": "step",
+                "status": step["status"],
+                "metadata": {
+                    "step_id": step["id"],
+                    "duration": step.get("duration"),
+                    "order": index,
+                },
+            }
+        )
+        edges.append(
+            {
+                "id": f"{previous_id}->{node_id}",
+                "source": previous_id,
+                "target": node_id,
+                "type": "sequence",
+            }
+        )
         previous_id = node_id
 
     return {
@@ -2172,6 +2334,7 @@ async def get_task_dag(task_id: str):
 
 
 # ============ 模型 API ============
+
 
 @app.get("/api/executions/{execution_id}")
 async def get_execution_detail(execution_id: str):
@@ -2231,9 +2394,7 @@ async def cancel_execution(execution_id: str):
         raise HTTPException(status_code=404, detail="Execution record not found")
 
     if execution.status != ExecutionStatus.CANCELLED:
-        execution = await store.update_execution_status(
-            execution_id, ExecutionStatus.CANCELLED
-        )
+        execution = await store.update_execution_status(execution_id, ExecutionStatus.CANCELLED)
     return {"execution": execution.model_dump(mode="json")}
 
 
@@ -2262,12 +2423,15 @@ async def create_model(model: ModelCreate):
     orchestrator = getattr(app.state, "orchestrator", None)
     if orchestrator is not None and hasattr(orchestrator, "router"):
         from symbio.core.router import ModelInfo
-        orchestrator.router.register_model(ModelInfo(
-            model_id=model.model_id,
-            provider=model.provider,
-            display_name=model.display_name or model.model_id,
-            enabled=model.enabled,
-        ))
+
+        orchestrator.router.register_model(
+            ModelInfo(
+                model_id=model.model_id,
+                provider=model.provider,
+                display_name=model.display_name or model.model_id,
+                enabled=model.enabled,
+            )
+        )
 
     return {"model": _public_model_payload(new_model)}
 
@@ -2319,30 +2483,43 @@ async def test_model(model_id: str):
     try:
         if provider == "anthropic":
             import anthropic
+
             client = anthropic.AsyncAnthropic(api_key=api_key, base_url=base_url)
             resp = await client.messages.create(
                 model=target["model_id"],
                 max_tokens=16,
                 messages=[{"role": "user", "content": "Hi"}],
             )
-            return {"success": True, "message": f"连接成功 (tokens: {resp.usage.input_tokens}+{resp.usage.output_tokens})"}
+            return {
+                "success": True,
+                "message": f"连接成功 (tokens: {resp.usage.input_tokens}+{resp.usage.output_tokens})",
+            }
         else:
             import httpx
+
             async with httpx.AsyncClient(timeout=15) as http_client:
                 resp = await http_client.post(
                     f"{base_url}/chat/completions",
                     headers={"Authorization": f"Bearer {api_key}"},
-                    json={"model": target["model_id"], "messages": [{"role": "user", "content": "Hi"}], "max_tokens": 16},
+                    json={
+                        "model": target["model_id"],
+                        "messages": [{"role": "user", "content": "Hi"}],
+                        "max_tokens": 16,
+                    },
                 )
                 if resp.status_code == 200:
                     return {"success": True, "message": "连接成功，模型响应正常"}
                 else:
-                    return {"success": False, "message": f"HTTP {resp.status_code}: {resp.text[:200]}"}
+                    return {
+                        "success": False,
+                        "message": f"HTTP {resp.status_code}: {resp.text[:200]}",
+                    }
     except Exception as e:
         return {"success": False, "message": f"连接失败: {str(e)}"}
 
 
 # ============ 记忆 API ============
+
 
 @app.get("/api/memory")
 async def list_memories():
@@ -2352,7 +2529,7 @@ async def list_memories():
 
     # 附加 MemoryManager 统计信息
     stats = None
-    if hasattr(app.state, 'memory_manager') and app.state.memory_manager:
+    if hasattr(app.state, "memory_manager") and app.state.memory_manager:
         mm_stats = app.state.memory_manager.get_stats()
         stats = mm_stats.model_dump()
 
@@ -2369,7 +2546,7 @@ async def search_memories(q: str = Query("", description="搜索关键词")):
 
     # 尝试语义搜索
     semantic_results = []
-    if hasattr(app.state, 'memory_manager') and app.state.memory_manager:
+    if hasattr(app.state, "memory_manager") and app.state.memory_manager:
         try:
             search_results = await app.state.memory_manager.search(q)
             semantic_results = [
@@ -2420,10 +2597,17 @@ async def store_memory(req: MemoryStoreRequest):
 
     memory_item = None
     if is_multimodal:
-        if not (hasattr(app.state, 'memory_manager') and app.state.memory_manager):
-            raise HTTPException(status_code=503, detail="MemoryManager 未初始化，无法处理多模态内容")
+        if not (hasattr(app.state, "memory_manager") and app.state.memory_manager):
+            raise HTTPException(
+                status_code=503, detail="MemoryManager 未初始化，无法处理多模态内容"
+            )
         from symbio.memory.manager import MemoryType
-        mt = MemoryType(req.memory_type) if req.memory_type in [e.value for e in MemoryType] else MemoryType.LONG_TERM
+
+        mt = (
+            MemoryType(req.memory_type)
+            if req.memory_type in [e.value for e in MemoryType]
+            else MemoryType.LONG_TERM
+        )
         memory_item = await app.state.memory_manager.add_multimodal_memory(
             content=req.content,
             modality=modality,
@@ -2465,9 +2649,14 @@ async def store_memory(req: MemoryStoreRequest):
         importance=req.importance,
     )
 
-    if hasattr(app.state, 'memory_manager') and app.state.memory_manager:
+    if hasattr(app.state, "memory_manager") and app.state.memory_manager:
         from symbio.memory.manager import MemoryType
-        mt = MemoryType(req.memory_type) if req.memory_type in [e.value for e in MemoryType] else MemoryType.LONG_TERM
+
+        mt = (
+            MemoryType(req.memory_type)
+            if req.memory_type in [e.value for e in MemoryType]
+            else MemoryType.LONG_TERM
+        )
         memory_item = await app.state.memory_manager.add_memory(
             content=req.content,
             memory_type=mt,
@@ -2486,7 +2675,7 @@ async def store_memory(req: MemoryStoreRequest):
 @app.post("/api/memory/consolidate")
 async def consolidate_memories():
     """触发记忆巩固（将重要短期记忆转为长期记忆）"""
-    if not hasattr(app.state, 'memory_manager') or not app.state.memory_manager:
+    if not hasattr(app.state, "memory_manager") or not app.state.memory_manager:
         raise HTTPException(status_code=503, detail="MemoryManager 未初始化")
 
     consolidated = await app.state.memory_manager.consolidate()
@@ -2503,7 +2692,7 @@ async def memory_stats():
 
     # MemoryManager 统计
     mm_stats = None
-    if hasattr(app.state, 'memory_manager') and app.state.memory_manager:
+    if hasattr(app.state, "memory_manager") and app.state.memory_manager:
         mm_stats = app.state.memory_manager.get_stats().model_dump()
 
     return {
@@ -2543,8 +2732,11 @@ async def ontology_graph():
 
 # ============ Skills API ============
 
+
 @app.get("/api/skills")
-async def list_skills(include_detected: bool = Query(False, description="Include non-imported local skills")):
+async def list_skills(
+    include_detected: bool = Query(False, description="Include non-imported local skills"),
+):
     """返回 Skills 列表（数据库 + 本地扫描）"""
     db = await get_db()
     skills = await db.list_skills()
@@ -2609,8 +2801,7 @@ async def list_skill_marketplace(
         "categories": marketplace.get_categories(),
         "popular_tags": marketplace.get_popular_tags(),
         "installed": [
-            _marketplace_install_record_payload(record)
-            for record in marketplace.list_installed()
+            _marketplace_install_record_payload(record) for record in marketplace.list_installed()
         ],
     }
 
@@ -2673,7 +2864,10 @@ async def install_marketplace_skill(package_id: str):
         raise HTTPException(status_code=404, detail="Marketplace package not found")
     # 默认装到市场存储目录下的 installed/<name>（data/skill_marketplace/，已 gitignore）
     record = marketplace.install(package_id)
-    return {"success": record.status == "installed", "record": _marketplace_install_record_payload(record)}
+    return {
+        "success": record.status == "installed",
+        "record": _marketplace_install_record_payload(record),
+    }
 
 
 @app.put("/api/skills/{skill_id}")
@@ -2712,6 +2906,7 @@ async def delete_skill(skill_id: str):
 async def auto_detect_skills():
     """自动检测已安装的 Skills（Claude Code、Codex 等）"""
     import os
+
     db = await get_db()
 
     found = 0
@@ -2726,8 +2921,8 @@ async def auto_detect_skills():
         if os.path.isdir(dir_path):
             for item in os.listdir(dir_path):
                 item_path = os.path.join(dir_path, item)
-                if os.path.isdir(item_path) or item.endswith(('.md', '.yaml', '.json')):
-                    name = item.replace('.md', '').replace('.yaml', '').replace('.json', '')
+                if os.path.isdir(item_path) or item.endswith((".md", ".yaml", ".json")):
+                    name = item.replace(".md", "").replace(".yaml", "").replace(".json", "")
                     existing = await db.search_skills(name)
                     if not any(s["name"] == name for s in existing):
                         await db.create_skill(
@@ -2759,7 +2954,9 @@ async def auto_detect_skills():
                             trigger_keywords=_skill_trigger_keywords(
                                 name,
                                 "codex",
-                                tool.get("trigger_keywords") if isinstance(tool.get("trigger_keywords"), list) else [],
+                                tool.get("trigger_keywords")
+                                if isinstance(tool.get("trigger_keywords"), list)
+                                else [],
                             ),
                         )
                         found += 1
@@ -2774,6 +2971,7 @@ async def auto_detect_skills():
 async def import_skills_from_dir(req: DirImportRequest):
     """从目录批量导入 Skills"""
     import os
+
     db = await get_db()
 
     dir_path = req.path
@@ -2793,7 +2991,7 @@ async def import_skills_from_dir(req: DirImportRequest):
             if manifest:
                 try:
                     with open(manifest) as f:
-                        data = json.load(f) if manifest.endswith('.json') else yaml.safe_load(f)
+                        data = json.load(f) if manifest.endswith(".json") else yaml.safe_load(f)
                     name = data.get("name", item)
                     existing = await db.search_skills(name)
                     if not any(s["name"] == name for s in existing):
@@ -2806,14 +3004,16 @@ async def import_skills_from_dir(req: DirImportRequest):
                             trigger_keywords=_skill_trigger_keywords(
                                 name,
                                 "imported",
-                                data.get("trigger_keywords", []) if isinstance(data.get("trigger_keywords", []), list) else [],
+                                data.get("trigger_keywords", [])
+                                if isinstance(data.get("trigger_keywords", []), list)
+                                else [],
                             ),
                         )
                         imported += 1
                 except Exception:
                     pass
-        elif item.endswith(('.md', '.yaml', '.json')):
-            name = item.replace('.md', '').replace('.yaml', '').replace('.json', '')
+        elif item.endswith((".md", ".yaml", ".json")):
+            name = item.replace(".md", "").replace(".yaml", "").replace(".json", "")
             existing = await db.search_skills(name)
             if not any(s["name"] == name for s in existing):
                 await db.create_skill(
@@ -2872,24 +3072,32 @@ def _scan_real_skills() -> list[dict]:
         readme_content = _read_skill_readme(d)
         if readme_content:
             # 提取第一行作为描述
-            lines = [l.strip() for l in readme_content.split("\n") if l.strip() and not l.startswith("#")]
+            lines = [
+                line.strip()
+                for line in readme_content.split("\n")
+                if line.strip() and not line.startswith("#")
+            ]
             if lines:
                 description = lines[0][:200]
 
         # 读取 manifest
         manifest = _read_skill_manifest(d)
 
-        skills.append({
-            "id": f"fs-{d.name}",
-            "name": d.name,
-            "description": description or f"本地 Skill: {d.name}",
-            "version": manifest.get("version", "1.0.0") if manifest else "1.0.0",
-            "source": "local",
-            "enabled": True,
-            "trigger_keywords": _skill_trigger_keywords(d.name, "local", _manifest_keywords(manifest)),
-            "created_at": "",
-            "_directory": str(d),
-        })
+        skills.append(
+            {
+                "id": f"fs-{d.name}",
+                "name": d.name,
+                "description": description or f"本地 Skill: {d.name}",
+                "version": manifest.get("version", "1.0.0") if manifest else "1.0.0",
+                "source": "local",
+                "enabled": True,
+                "trigger_keywords": _skill_trigger_keywords(
+                    d.name, "local", _manifest_keywords(manifest)
+                ),
+                "created_at": "",
+                "_directory": str(d),
+            }
+        )
 
     return skills
 
@@ -2901,12 +3109,14 @@ def _list_skill_files(skill_dir: Path) -> list[dict]:
         for item in sorted(skill_dir.rglob("*")):
             if item.is_file() and not item.name.startswith("."):
                 rel = item.relative_to(skill_dir)
-                files.append({
-                    "name": str(rel),
-                    "path": str(item),
-                    "size": item.stat().st_size,
-                    "type": _get_file_type(item.suffix),
-                })
+                files.append(
+                    {
+                        "name": str(rel),
+                        "path": str(item),
+                        "size": item.stat().st_size,
+                        "type": _get_file_type(item.suffix),
+                    }
+                )
     except Exception:
         pass
     return files
@@ -2915,9 +3125,15 @@ def _list_skill_files(skill_dir: Path) -> list[dict]:
 def _get_file_type(suffix: str) -> str:
     """根据后缀判断文件类型"""
     types = {
-        ".md": "markdown", ".yaml": "config", ".yml": "config", ".json": "config",
-        ".py": "code", ".js": "code", ".ts": "code",
-        ".txt": "text", ".sh": "script",
+        ".md": "markdown",
+        ".yaml": "config",
+        ".yml": "config",
+        ".json": "config",
+        ".py": "code",
+        ".js": "code",
+        ".ts": "code",
+        ".txt": "text",
+        ".sh": "script",
     }
     return types.get(suffix.lower(), "other")
 
@@ -2925,7 +3141,11 @@ def _get_file_type(suffix: str) -> str:
 def _read_skill_readme(skill_dir: Path) -> Optional[str]:
     """读取 skill.md 或 README.md（大小写不敏感）"""
     for item in skill_dir.iterdir():
-        if item.is_file() and item.stem.lower() in ("skill", "readme") and item.suffix.lower() == ".md":
+        if (
+            item.is_file()
+            and item.stem.lower() in ("skill", "readme")
+            and item.suffix.lower() == ".md"
+        ):
             try:
                 return item.read_text(encoding="utf-8", errors="ignore")[:50000]
             except Exception:
@@ -2958,10 +3178,12 @@ def _read_skill_prompts(skill_dir: Path) -> list[dict]:
     for p in prompt_dir.glob("*.md"):
         if p.name.lower() not in ("readme.md", "skill.md"):
             try:
-                prompts.append({
-                    "name": p.stem,
-                    "content": p.read_text(encoding="utf-8", errors="ignore")[:20000],
-                })
+                prompts.append(
+                    {
+                        "name": p.stem,
+                        "content": p.read_text(encoding="utf-8", errors="ignore")[:20000],
+                    }
+                )
             except Exception:
                 pass
     return prompts
@@ -2975,10 +3197,12 @@ def _read_skill_tests(skill_dir: Path) -> list[dict]:
         test_dir = skill_dir
     for p in list(test_dir.glob("test_*.py")) + list(test_dir.glob("*.test.js")):
         try:
-            tests.append({
-                "name": p.name,
-                "content": p.read_text(encoding="utf-8", errors="ignore")[:10000],
-            })
+            tests.append(
+                {
+                    "name": p.name,
+                    "content": p.read_text(encoding="utf-8", errors="ignore")[:10000],
+                }
+            )
         except Exception:
             pass
     return tests
@@ -2999,7 +3223,11 @@ async def get_skill_detail(skill_id: str):
             manifest = _read_skill_manifest(skill_dir)
             description = ""
             if readme:
-                lines = [l.strip() for l in readme.split("\n") if l.strip() and not l.startswith("#")]
+                lines = [
+                    line.strip()
+                    for line in readme.split("\n")
+                    if line.strip() and not line.startswith("#")
+                ]
                 if lines:
                     description = lines[0][:200]
             skill = {
@@ -3009,7 +3237,9 @@ async def get_skill_detail(skill_id: str):
                 "version": manifest.get("version", "1.0.0") if manifest else "1.0.0",
                 "source": "local",
                 "enabled": True,
-                "trigger_keywords": _skill_trigger_keywords(skill_name, "local", _manifest_keywords(manifest)),
+                "trigger_keywords": _skill_trigger_keywords(
+                    skill_name, "local", _manifest_keywords(manifest)
+                ),
                 "created_at": "",
             }
 
@@ -3117,11 +3347,13 @@ async def update_skill_file(skill_id: str, req: FileUpdateRequest):
 
 # ============ 配置 API ============
 
+
 @app.get("/api/config")
 async def get_config():
     """获取 LLM 配置（密钥脱敏）"""
     settings = await _load_llm_settings()
     from symbio.config.settings import HITLConfig
+
     hitl = getattr(settings, "hitl", None) or HITLConfig()
 
     def _mask_key(key: str | None) -> bool:
@@ -3206,6 +3438,7 @@ async def update_config(update: ConfigUpdate):
 
     # 重新加载全局 settings 缓存
     from symbio.config.settings import reload_settings
+
     reloaded = reload_settings()
 
     # 同步运行中的 HITLNotifier
@@ -3219,6 +3452,7 @@ async def update_config(update: ConfigUpdate):
         # 刷新模型池中本地模型的状态
         if reloaded.model.local_model_enabled:
             from symbio.core.router import ModelInfo
+
             router._model_pool[reloaded.model.local_model_name] = ModelInfo(
                 model_id=reloaded.model.local_model_name,
                 provider="ollama",
@@ -3232,6 +3466,7 @@ async def update_config(update: ConfigUpdate):
 
 
 # ============ HITL 审批 API ============
+
 
 def _get_hitl_gateway() -> ApprovalGateway:
     if not hasattr(app.state, "hitl_gateway"):
@@ -3260,7 +3495,9 @@ def _hitl_request_payload(request: ApprovalRequest) -> dict:
     payload["pending_approvals"] = max(request.required_approvers - len(request.approvals), 0)
     payload["notification_status"] = payload.get("metadata", {}).get(
         "notification_status",
-        "not_configured" if not notifications else latest_notification.get("delivery_status", "prepared"),
+        "not_configured"
+        if not notifications
+        else latest_notification.get("delivery_status", "prepared"),
     )
     payload["notification_count"] = len(notifications)
     payload["latest_notification"] = latest_notification
@@ -3320,16 +3557,20 @@ async def _notify_hitl_request(request: ApprovalRequest) -> list[dict]:
     wechat_note = await _push_hitl_to_wechat(request)
     if wechat_note:
         notifications.append(wechat_note)
-        result_payloads.append({
-            "platform": wechat_note.get("platform", "wechat-ilink"),
-            "success": wechat_note.get("delivery_status") == "sent",
-            "delivery_status": wechat_note.get("delivery_status", "prepared"),
-            "payload": wechat_note,
-        })
+        result_payloads.append(
+            {
+                "platform": wechat_note.get("platform", "wechat-ilink"),
+                "success": wechat_note.get("delivery_status") == "sent",
+                "delivery_status": wechat_note.get("delivery_status", "prepared"),
+                "payload": wechat_note,
+            }
+        )
 
     request.metadata["notifications"] = notifications
     if notifications:
-        request.metadata["notification_status"] = notifications[-1].get("delivery_status", "prepared")
+        request.metadata["notification_status"] = notifications[-1].get(
+            "delivery_status", "prepared"
+        )
     else:
         request.metadata["notification_status"] = "not_configured"
     await _get_hitl_gateway().update_request(request)
@@ -3453,14 +3694,19 @@ async def repush_hitl_wechat(request_id: str):
         raise HTTPException(status_code=404, detail="审批请求不存在")
     note = await _push_hitl_to_wechat(request)
     if note is None:
-        raise HTTPException(status_code=400, detail="未配置微信审批人（wechat.hitl_approver），无法推送")
+        raise HTTPException(
+            status_code=400, detail="未配置微信审批人（wechat.hitl_approver），无法推送"
+        )
     notifications = request.metadata.get("notifications", [])
     notifications.append(note)
     request.metadata["notifications"] = notifications
     request.metadata["notification_status"] = note.get("delivery_status", "prepared")
     await gateway.update_request(request)
-    return {"success": note.get("delivery_status") == "sent", "note": note,
-            "request": _hitl_request_payload(request)}
+    return {
+        "success": note.get("delivery_status") == "sent",
+        "note": note,
+        "request": _hitl_request_payload(request),
+    }
 
 
 @app.post("/api/hitl/im-callback")
@@ -3504,6 +3750,7 @@ async def hitl_im_callback(callback: IMApprovalCallback):
 
 # ============ 个人微信双向 Bridge ============
 
+
 class WeChatSendRequest(BaseModel):
     to_user: str
     content: str
@@ -3526,28 +3773,46 @@ async def _wechat_route_approval(command, approver_id: str) -> dict:
         if len(pending) > 1:
             codes = "、".join(approval_short_code(p.request_id) for p in pending[:5])
             first = approval_short_code(pending[0].request_id)
-            return {"kind": "approval", "ok": False,
-                    "reply": f"当前有 {len(pending)} 条待审批，请指定短码，例如「同意 {first}」。待审批短码：{codes}"}
+            return {
+                "kind": "approval",
+                "ok": False,
+                "reply": f"当前有 {len(pending)} 条待审批，请指定短码，例如「同意 {first}」。待审批短码：{codes}",
+            }
         request_id = pending[0].request_id
 
     try:
         if command.action == "approve":
-            result = await gateway.approve(request_id, approver_id=approver_id, comment=command.comment)
+            result = await gateway.approve(
+                request_id, approver_id=approver_id, comment=command.comment
+            )
             resumed = None
             if result.status == ApprovalStatus.APPROVED:
                 resumed = await _try_resume_hitl_task(request_id)
-            return {"kind": "approval", "ok": True, "action": "approve",
-                    "request_id": request_id, "short_code": approval_short_code(request_id),
-                    "status": result.status.value, "resumed_result": resumed}
+            return {
+                "kind": "approval",
+                "ok": True,
+                "action": "approve",
+                "request_id": request_id,
+                "short_code": approval_short_code(request_id),
+                "status": result.status.value,
+                "resumed_result": resumed,
+            }
         result = await gateway.reject(request_id, approver_id=approver_id, comment=command.comment)
-        return {"kind": "approval", "ok": True, "action": "reject",
-                "request_id": request_id, "short_code": approval_short_code(request_id),
-                "status": result.status.value}
+        return {
+            "kind": "approval",
+            "ok": True,
+            "action": "reject",
+            "request_id": request_id,
+            "short_code": approval_short_code(request_id),
+            "status": result.status.value,
+        }
     except KeyError:
         raise HTTPException(status_code=404, detail="审批请求不存在或已处理")
 
 
-async def _wechat_dispatch(from_user: str, content: str, group_id: str = "", is_group: bool = False) -> tuple[str, dict]:
+async def _wechat_dispatch(
+    from_user: str, content: str, group_id: str = "", is_group: bool = False
+) -> tuple[str, dict]:
     """处理一条入站微信消息：审批命令路由到 HITL，否则走对话管线。
 
     返回 (reply 文本, result dict)。供 inbound 端点与内置 iLink 收消息循环共用。
@@ -3561,15 +3826,21 @@ async def _wechat_dispatch(from_user: str, content: str, group_id: str = "", is_
         if not routed.get("ok", True):
             return routed.get("reply", "该审批指令无法处理。"), routed
         code = routed.get("short_code") or parsed.request_id
-        reply = (f"✅ 已{'通过' if routed['action'] == 'approve' else '拒绝'}审批 "
-                 f"{code}（{routed['status']}）")
+        reply = (
+            f"✅ 已{'通过' if routed['action'] == 'approve' else '拒绝'}审批 "
+            f"{code}（{routed['status']}）"
+        )
         return reply, routed
 
     # 走完整对话管线（防火墙 + 语义缓存 + LLM + 持久化），会话按微信用户隔离
     session_id = f"wechat-{group_id or from_user}"
     resp = await chat(ChatRequest(message=content, session_id=session_id))
-    result = {"kind": "chat", "cached": getattr(resp, "cached", False),
-              "session_id": session_id, "success": resp.success}
+    result = {
+        "kind": "chat",
+        "cached": getattr(resp, "cached", False),
+        "session_id": session_id,
+        "success": resp.success,
+    }
     return resp.content, result
 
 
@@ -3583,7 +3854,9 @@ async def wechat_inbound(inbound: WeChatInbound):
     settings = await _load_llm_settings()
     wcfg = getattr(settings, "wechat", None)
     if wcfg is not None and not getattr(wcfg, "enabled", False):
-        raise HTTPException(status_code=403, detail="微信 bridge 未启用（symbio.yaml: wechat.enabled）")
+        raise HTTPException(
+            status_code=403, detail="微信 bridge 未启用（symbio.yaml: wechat.enabled）"
+        )
     expected = getattr(wcfg, "inbound_token", "") if wcfg else ""
     if expected and inbound.token != expected:
         raise HTTPException(status_code=401, detail="无效的微信 inbound token")
@@ -3591,7 +3864,10 @@ async def wechat_inbound(inbound: WeChatInbound):
     bridge = get_wechat_bridge()
     bridge.record_message("in", inbound.from_user, inbound.content)
     reply, result = await _wechat_dispatch(
-        inbound.from_user, inbound.content, group_id=inbound.group_id, is_group=inbound.is_group,
+        inbound.from_user,
+        inbound.content,
+        group_id=inbound.group_id,
+        is_group=inbound.is_group,
     )
     bridge.record_message("out", inbound.from_user, reply, kind=result.get("kind", ""))
 
@@ -3612,10 +3888,10 @@ async def wechat_send(req: WeChatSendRequest):
 
 
 class WeChatLoginEvent(BaseModel):
-    status: str                  # logged_out / waiting_scan / scanned / logged_in / failed
-    qr: str = ""                 # 二维码内容（URL/字符串）
-    qr_image: str = ""           # 二维码图片 data URL
-    user: str = ""               # 绑定的微信账号
+    status: str  # logged_out / waiting_scan / scanned / logged_in / failed
+    qr: str = ""  # 二维码内容（URL/字符串）
+    qr_image: str = ""  # 二维码图片 data URL
+    user: str = ""  # 绑定的微信账号
     token: str = ""
 
 
@@ -3628,7 +3904,10 @@ async def wechat_login_event(event: WeChatLoginEvent):
     if expected and event.token != expected:
         raise HTTPException(status_code=401, detail="无效的微信 inbound token")
     state = get_wechat_bridge().update_login(
-        event.status, qr=event.qr, qr_image=event.qr_image, user=event.user,
+        event.status,
+        qr=event.qr,
+        qr_image=event.qr_image,
+        user=event.user,
     )
     return {"ok": True, "login": state}
 
@@ -3734,16 +4013,22 @@ async def hitl_action(
     normalized_action = action.lower().strip()
     try:
         if normalized_action in {"approve", "approved", "yes", "ok"}:
-            result = await gateway.approve(resolved_request_id, approver_id=approver_id, comment=comment)
+            result = await gateway.approve(
+                resolved_request_id, approver_id=approver_id, comment=comment
+            )
             resumed_result = None
             if result.status == ApprovalStatus.APPROVED:
                 resumed_result = await _try_resume_hitl_task(resolved_request_id)
             return {"request": _hitl_request_payload(result), "resumed_result": resumed_result}
         if normalized_action in {"reject", "rejected", "no"}:
-            result = await gateway.reject(resolved_request_id, approver_id=approver_id, comment=comment)
+            result = await gateway.reject(
+                resolved_request_id, approver_id=approver_id, comment=comment
+            )
             return {"request": _hitl_request_payload(result), "resumed_result": None}
     except KeyError:
-        raise HTTPException(status_code=404, detail="Approval request is missing or already handled")
+        raise HTTPException(
+            status_code=404, detail="Approval request is missing or already handled"
+        )
 
     raise HTTPException(status_code=400, detail="Unknown approval action")
 
@@ -3752,14 +4037,8 @@ async def hitl_action(
 async def get_hitl_channels():
     notifier = _get_hitl_notifier()
     return {
-        "channels": [
-            target.model_dump(exclude={"access_token"})
-            for target in notifier.targets
-        ],
-        "enabled": [
-            target.platform
-            for target in notifier.enabled_targets()
-        ],
+        "channels": [target.model_dump(exclude={"access_token"}) for target in notifier.targets],
+        "enabled": [target.platform for target in notifier.enabled_targets()],
     }
 
 
@@ -3781,6 +4060,7 @@ async def get_approval_request(request_id: str):
 
 
 # ============ WebSocket ============
+
 
 @app.websocket("/ws/chat")
 async def websocket_chat(websocket: WebSocket):
@@ -3807,7 +4087,7 @@ async def websocket_chat(websocket: WebSocket):
             await db.create_message(user_msg_id, session_id, "user", content, now_str, 0)
 
             # 自动存入 MemoryManager（语义搜索）
-            if hasattr(app.state, 'memory_manager') and app.state.memory_manager:
+            if hasattr(app.state, "memory_manager") and app.state.memory_manager:
                 await app.state.memory_manager.add_conversation_turn("user", content, session_id)
 
             # 更新会话标题
@@ -3828,10 +4108,14 @@ async def websocket_chat(websocket: WebSocket):
                 base_url = settings.model.anthropic_base_url
 
                 if not api_key:
-                    await websocket.send_text(json.dumps({
-                        "type": "error",
-                        "content": "未配置 API Key，请在 Models 页面配置 LLM",
-                    }))
+                    await websocket.send_text(
+                        json.dumps(
+                            {
+                                "type": "error",
+                                "content": "未配置 API Key，请在 Models 页面配置 LLM",
+                            }
+                        )
+                    )
                     continue
 
                 client = anthropic.AsyncAnthropic(api_key=api_key, base_url=base_url)
@@ -3843,20 +4127,34 @@ async def websocket_chat(websocket: WebSocket):
                 if not verdict["allowed"]:
                     block_msg = f"⛔ 该消息被安全防火墙拦截：{verdict['reason']}"
                     await db.create_message(
-                        f"msg-{uuid.uuid4().hex[:12]}", session_id, "assistant",
-                        block_msg, time.strftime("%Y-%m-%dT%H:%M:%S"), 0,
+                        f"msg-{uuid.uuid4().hex[:12]}",
+                        session_id,
+                        "assistant",
+                        block_msg,
+                        time.strftime("%Y-%m-%dT%H:%M:%S"),
+                        0,
                     )
-                    await websocket.send_text(json.dumps({
-                        "type": "blocked",
-                        "content": block_msg,
-                        "threat_level": verdict["threat_level"],
-                        "attack_type": verdict["attack_type"],
-                    }))
-                    await websocket.send_text(json.dumps({
-                        "type": "done", "content": block_msg, "session_id": session_id,
-                        "blocked": True,
-                        "token_usage": {"input": 0, "output": 0, "total": 0},
-                    }))
+                    await websocket.send_text(
+                        json.dumps(
+                            {
+                                "type": "blocked",
+                                "content": block_msg,
+                                "threat_level": verdict["threat_level"],
+                                "attack_type": verdict["attack_type"],
+                            }
+                        )
+                    )
+                    await websocket.send_text(
+                        json.dumps(
+                            {
+                                "type": "done",
+                                "content": block_msg,
+                                "session_id": session_id,
+                                "blocked": True,
+                                "token_usage": {"input": 0, "output": 0, "total": 0},
+                            }
+                        )
+                    )
                     continue
 
                 # 构建含历史对话的消息列表
@@ -3871,11 +4169,15 @@ async def websocket_chat(websocket: WebSocket):
                     cached_text = cached["content"]
                     chunk_size = 48
                     for i in range(0, len(cached_text), chunk_size):
-                        full_response += cached_text[i:i + chunk_size]
-                        await websocket.send_text(json.dumps({
-                            "type": "token",
-                            "content": cached_text[i:i + chunk_size],
-                        }))
+                        full_response += cached_text[i : i + chunk_size]
+                        await websocket.send_text(
+                            json.dumps(
+                                {
+                                    "type": "token",
+                                    "content": cached_text[i : i + chunk_size],
+                                }
+                            )
+                        )
                         await asyncio.sleep(0.01)
                     token_input = 0
                     token_output = 0
@@ -3889,6 +4191,7 @@ async def websocket_chat(websocket: WebSocket):
                     orchestrator = getattr(app.state, "orchestrator", None)
                     if orchestrator is not None:
                         from symbio.utils.types import Message, MessageSource
+
                         orch_message = Message(
                             source=MessageSource.WEB,
                             user_id="web-user",
@@ -3901,10 +4204,14 @@ async def websocket_chat(websocket: WebSocket):
                         token_input = orch_result.token_usage.input_tokens
                         token_output = orch_result.token_usage.output_tokens
                         # Send as single chunk (Orchestrator doesn't stream yet)
-                        await websocket.send_text(json.dumps({
-                            "type": "token",
-                            "content": full_response,
-                        }))
+                        await websocket.send_text(
+                            json.dumps(
+                                {
+                                    "type": "token",
+                                    "content": full_response,
+                                }
+                            )
+                        )
                     else:
                         # Fallback: streaming Anthropic call
                         async with client.messages.stream(
@@ -3915,20 +4222,28 @@ async def websocket_chat(websocket: WebSocket):
                         ) as stream:
                             async for text in stream.text_stream:
                                 full_response += text
-                                await websocket.send_text(json.dumps({
-                                    "type": "token",
-                                    "content": text,
-                                }))
+                                await websocket.send_text(
+                                    json.dumps(
+                                        {
+                                            "type": "token",
+                                            "content": text,
+                                        }
+                                    )
+                                )
                             final = await stream.get_final_message()
                             token_input = final.usage.input_tokens
                             token_output = final.usage.output_tokens
 
                     # 成本优化管线：记录用量 + 回写语义缓存
                     await pipeline.record_usage(
-                        session_id=session_id, model=model,
-                        input_tokens=token_input, output_tokens=token_output,
+                        session_id=session_id,
+                        model=model,
+                        input_tokens=token_input,
+                        output_tokens=token_output,
                     )
-                    await pipeline.store_cache(content, full_response, model=model, context_hash=ctx_hash)
+                    await pipeline.store_cache(
+                        content, full_response, model=model, context_hash=ctx_hash
+                    )
 
             except ImportError:
                 response = f"收到: {content}"
@@ -3940,34 +4255,48 @@ async def websocket_chat(websocket: WebSocket):
                 token_output = len(full_response) // 4
             except Exception as e:
                 logger.error(f"WebSocket LLM 调用失败: {e}")
-                await websocket.send_text(json.dumps({
-                    "type": "error",
-                    "content": f"LLM 调用失败: {str(e)}",
-                }))
+                await websocket.send_text(
+                    json.dumps(
+                        {
+                            "type": "error",
+                            "content": f"LLM 调用失败: {str(e)}",
+                        }
+                    )
+                )
                 continue
 
             # 保存 AI 回复
             await db.create_message(
-                f"msg-{uuid.uuid4().hex[:12]}", session_id, "assistant",
-                full_response, time.strftime("%Y-%m-%dT%H:%M:%S"), token_input + token_output,
+                f"msg-{uuid.uuid4().hex[:12]}",
+                session_id,
+                "assistant",
+                full_response,
+                time.strftime("%Y-%m-%dT%H:%M:%S"),
+                token_input + token_output,
             )
 
             # 自动存入 MemoryManager（语义搜索）
-            if hasattr(app.state, 'memory_manager') and app.state.memory_manager:
-                await app.state.memory_manager.add_conversation_turn("assistant", full_response, session_id)
+            if hasattr(app.state, "memory_manager") and app.state.memory_manager:
+                await app.state.memory_manager.add_conversation_turn(
+                    "assistant", full_response, session_id
+                )
 
             # 发送完成信号
-            await websocket.send_text(json.dumps({
-                "type": "done",
-                "content": full_response,
-                "session_id": session_id,
-                "cached": cache_hit,
-                "token_usage": {
-                    "input": token_input,
-                    "output": token_output,
-                    "total": token_input + token_output,
-                },
-            }))
+            await websocket.send_text(
+                json.dumps(
+                    {
+                        "type": "done",
+                        "content": full_response,
+                        "session_id": session_id,
+                        "cached": cache_hit,
+                        "token_usage": {
+                            "input": token_input,
+                            "output": token_output,
+                            "total": token_input + token_output,
+                        },
+                    }
+                )
+            )
 
     except WebSocketDisconnect:
         logger.info("WebSocket 连接断开")
@@ -3980,6 +4309,7 @@ async def websocket_chat(websocket: WebSocket):
 
 
 # ============ 交互式终端 WebSocket ============
+
 
 def _terminal_client_allowed(websocket: WebSocket) -> bool:
     """终端 WS 鉴权：默认只允许本机（环回）连接。
@@ -4010,10 +4340,14 @@ async def websocket_terminal(websocket: WebSocket):
 
     await websocket.accept()
     if not _terminal_client_allowed(websocket):
-        await websocket.send_text(json.dumps({
-            "type": "error",
-            "message": "终端仅允许本机访问（设 SYMBIO_TERMINAL_ALLOW_REMOTE=1 可放开，风险自担）",
-        }))
+        await websocket.send_text(
+            json.dumps(
+                {
+                    "type": "error",
+                    "message": "终端仅允许本机访问（设 SYMBIO_TERMINAL_ALLOW_REMOTE=1 可放开，风险自担）",
+                }
+            )
+        )
         await websocket.close()
         return
 
@@ -4057,7 +4391,9 @@ async def websocket_terminal(websocket: WebSocket):
                 try:
                     session.start()
                 except Exception as exc:
-                    await websocket.send_text(json.dumps({"type": "error", "message": f"终端启动失败：{exc}"}))
+                    await websocket.send_text(
+                        json.dumps({"type": "error", "message": f"终端启动失败：{exc}"})
+                    )
                     session = None
                     continue
                 session.start_reader(loop, out_queue)
@@ -4098,11 +4434,9 @@ if web_dir is not None:
 
 # ============ A2A 协议 ============
 
-from symbio.interfaces.a2a import (
-    A2AAgentCard,
+from symbio.interfaces.a2a import (  # noqa: E402
     A2AMessage,
     A2AMessageRole,
-    A2ASession,
     A2ASessionManager,
     A2ATask,
     A2ATaskResult,
@@ -4146,12 +4480,12 @@ def _build_self_agent_card(request):
     metadata: dict = {}
     try:
         from symbio.capabilities import get_capability_report
+
         report = get_capability_report()
         metadata = {
             "capability_summary": report["summary"],
             "implemented_capabilities": [
-                item["id"] for item in report["items"]
-                if item["status"] == "implemented"
+                item["id"] for item in report["items"] if item["status"] == "implemented"
             ],
         }
     except Exception:
@@ -4169,6 +4503,7 @@ def _build_self_agent_card(request):
 
 # -- AgentCard (self-description) ------------------------------------------
 
+
 @app.get("/.well-known/agent.json", tags=["a2a"])
 async def agent_card(request: Request):
     """A2A AgentCard — describes this agent's capabilities to external agents."""
@@ -4182,6 +4517,7 @@ async def get_own_agent_card(request: Request):
 
 
 # -- Inbound tasks (we receive from external agents) -----------------------
+
 
 class A2AInboundTaskRequest(BaseModel):
     id: Optional[str] = None
@@ -4405,6 +4741,7 @@ async def list_a2a_tasks(origin: Optional[str] = None, limit: int = 50):
 
 # -- Outbound sessions (we initiate to remote agents) ---------------------
 
+
 class A2ACreateSessionRequest(BaseModel):
     remote_url: str
     remote_name: str = "remote-agent"
@@ -4538,12 +4875,14 @@ async def poll_a2a_session(session_id: str):
             seen_message_ids.add(reply_id)
             appended = True
 
-        updates.append({
-            "task_id": task_id,
-            "state": state,
-            "reply": reply_text or None,
-            "appended": appended,
-        })
+        updates.append(
+            {
+                "task_id": task_id,
+                "state": state,
+                "reply": reply_text or None,
+                "appended": appended,
+            }
+        )
 
     if all_completed:
         await mgr.update_session_state(session_id, A2ATaskState.COMPLETED)
@@ -4558,6 +4897,7 @@ async def poll_a2a_session(session_id: str):
 
 # -- Remote agent card probe -----------------------------------------------
 
+
 @app.get("/api/a2a/probe", tags=["a2a"])
 async def probe_remote_agent(url: str):
     """Fetch and return the AgentCard from a remote agent URL."""
@@ -4568,6 +4908,7 @@ async def probe_remote_agent(url: str):
 
 
 # ============ HITL 渠道管理 API ============
+
 
 class HITLChannelCreate(BaseModel):
     platform: str
@@ -4600,6 +4941,7 @@ def _save_custom_channels(channels: list[dict]) -> None:
 async def add_hitl_channel(req: HITLChannelCreate):
     """添加一个 HITL 通知渠道（持久化保存）。"""
     from symbio.core.hitl_notifier import HITLNotificationTarget, PLATFORM_LABELS
+
     channels = _load_custom_channels()
     new_ch = req.model_dump()
     new_ch["id"] = f"ch-{uuid.uuid4().hex[:12]}"
@@ -4608,7 +4950,11 @@ async def add_hitl_channel(req: HITLChannelCreate):
     _save_custom_channels(channels)
     # Reload notifier
     notifier = _get_hitl_notifier()
-    notifier.targets.append(HITLNotificationTarget(**{k: v for k, v in new_ch.items() if k not in {"id", "display_name"}}))
+    notifier.targets.append(
+        HITLNotificationTarget(
+            **{k: v for k, v in new_ch.items() if k not in {"id", "display_name"}}
+        )
+    )
     safe = {k: v for k, v in new_ch.items() if k != "access_token"}
     safe["has_access_token"] = bool(new_ch.get("access_token"))
     return {"channel": safe}
@@ -4624,6 +4970,7 @@ async def delete_hitl_channel(channel_id: str):
     _save_custom_channels(new_list)
     # Reload notifier targets
     from symbio.core.hitl_notifier import HITLNotifier as _HN
+
     app.state.hitl_notifier = _HN.from_settings()
     return {"deleted": channel_id}
 
@@ -4632,28 +4979,30 @@ async def delete_hitl_channel(channel_id: str):
 async def list_hitl_channels():
     """列出所有已配置的通知渠道（包括 yaml 和手动添加的）。"""
     from symbio.core.hitl_notifier import PLATFORM_LABELS
+
     notifier = _get_hitl_notifier()
     all_targets = notifier.targets
     saved = _load_custom_channels()
     saved_by_platform_endpoint = {
-        (c.get("platform", ""), c.get("endpoint", "")): c.get("id")
-        for c in saved
+        (c.get("platform", ""), c.get("endpoint", "")): c.get("id") for c in saved
     }
     result = []
     for t in all_targets:
         ch_id = saved_by_platform_endpoint.get((t.platform, t.endpoint), None)
-        result.append({
-            "id": ch_id or f"built-in-{t.platform}",
-            "platform": t.platform,
-            "display_name": PLATFORM_LABELS.get(t.platform.lower(), t.platform),
-            "endpoint": t.endpoint,
-            "chat_id": t.chat_id,
-            "chat_type": t.chat_type,
-            "enabled": t.enabled,
-            "has_access_token": bool(t.access_token),
-            "has_secret": bool(t.secret),
-            "deletable": ch_id is not None,
-        })
+        result.append(
+            {
+                "id": ch_id or f"built-in-{t.platform}",
+                "platform": t.platform,
+                "display_name": PLATFORM_LABELS.get(t.platform.lower(), t.platform),
+                "endpoint": t.endpoint,
+                "chat_id": t.chat_id,
+                "chat_type": t.chat_type,
+                "enabled": t.enabled,
+                "has_access_token": bool(t.access_token),
+                "has_secret": bool(t.secret),
+                "deletable": ch_id is not None,
+            }
+        )
     return {"channels": result, "total": len(result)}
 
 
@@ -4661,7 +5010,7 @@ async def list_hitl_channels():
 async def test_hitl_channel(req: HITLChannelCreate):
     """向指定渠道发送一条测试通知。"""
     from symbio.core.hitl_notifier import HITLNotifier, HITLNotificationTarget
-    from symbio.core.hitl_gateway import ApprovalRequest, RiskLevel
+    from symbio.core.hitl_gateway import ApprovalRequest
 
     test_request = ApprovalRequest(
         request_id=f"test-{uuid.uuid4().hex[:8]}",
@@ -4684,6 +5033,7 @@ async def test_hitl_channel(req: HITLChannelCreate):
 
 
 # ============ HITL 审批超时策略 ============
+
 
 class HITLTimeoutPolicy(BaseModel):
     request_id: str
@@ -4710,10 +5060,13 @@ async def _apply_timeout_action(gateway, request_id: str, action: str, comment: 
         resume_result = await _try_resume_hitl_task(request_id)
     elif norm == "escalate":
         settings = await _load_llm_settings()
-        target = getattr(settings.hitl, "escalation_target", "") if hasattr(settings, "hitl") else ""
+        target = (
+            getattr(settings.hitl, "escalation_target", "") if hasattr(settings, "hitl") else ""
+        )
         updated = await gateway.escalate(request_id, escalation_target=target, comment=comment)
         # 升级后若仍 pending，尝试重新发送审批通知到（可能更高优先级的）渠道
         from symbio.core.hitl_gateway import ApprovalStatus
+
         if updated.status == ApprovalStatus.PENDING:
             try:
                 updated.metadata["escalated"] = True
@@ -4733,11 +5086,15 @@ async def hitl_timeout_action(request_id: str, policy: HITLTimeoutPolicy):
     if request is None:
         raise HTTPException(status_code=404, detail="审批请求不存在")
     from symbio.core.hitl_gateway import ApprovalStatus
+
     if request.status != ApprovalStatus.PENDING:
         return {"skipped": True, "reason": f"Request is {request.status.value}, not pending"}
 
     updated, resume_result = await _apply_timeout_action(
-        gateway, request_id, policy.action, policy.comment,
+        gateway,
+        request_id,
+        policy.action,
+        policy.comment,
     )
 
     return {
@@ -4760,7 +5117,11 @@ async def check_hitl_timeouts(max_age_seconds: int = 300, action: str = ""):
 
     if not action:
         settings = await _load_llm_settings()
-        action = getattr(settings.hitl, "timeout_action", "reject") if hasattr(settings, "hitl") else "reject"
+        action = (
+            getattr(settings.hitl, "timeout_action", "reject")
+            if hasattr(settings, "hitl")
+            else "reject"
+        )
 
     pending = await gateway.list_requests(status_filter="pending")
     now = _time.time()
@@ -4770,6 +5131,7 @@ async def check_hitl_timeouts(max_age_seconds: int = 300, action: str = ""):
         created_ts = None
         try:
             from datetime import datetime
+
             created_ts = datetime.fromisoformat(req.created_at.replace("Z", "+00:00")).timestamp()
         except Exception:
             continue
@@ -4777,14 +5139,21 @@ async def check_hitl_timeouts(max_age_seconds: int = 300, action: str = ""):
         if age >= max_age_seconds:
             comment = f"Auto-handled: timed out after {int(age)}s"
             updated, _ = await _apply_timeout_action(gateway, req.request_id, action, comment)
-            handled.append({
-                "request_id": req.request_id,
-                "age_seconds": int(age),
-                "action": _normalize_timeout_action(action),
-                "status": updated.status.value if updated else "unknown",
-            })
+            handled.append(
+                {
+                    "request_id": req.request_id,
+                    "age_seconds": int(age),
+                    "action": _normalize_timeout_action(action),
+                    "status": updated.status.value if updated else "unknown",
+                }
+            )
 
-    return {"checked": len(pending), "handled": len(handled), "action": _normalize_timeout_action(action), "items": handled}
+    return {
+        "checked": len(pending),
+        "handled": len(handled),
+        "action": _normalize_timeout_action(action),
+        "items": handled,
+    }
 
 
 @app.get("/api/hitl/timeout/policy", tags=["hitl"])
@@ -4819,7 +5188,9 @@ async def set_hitl_timeout_policy(update: HITLTimeoutPolicyConfig):
 
     if update.timeout_action is not None:
         if update.timeout_action not in ("reject", "approve", "escalate"):
-            raise HTTPException(status_code=400, detail="timeout_action 必须是 reject/approve/escalate")
+            raise HTTPException(
+                status_code=400, detail="timeout_action 必须是 reject/approve/escalate"
+            )
         settings.hitl.timeout_action = update.timeout_action
     if update.escalation_target is not None:
         settings.hitl.escalation_target = update.escalation_target
@@ -4832,11 +5203,13 @@ async def set_hitl_timeout_policy(update: HITLTimeoutPolicyConfig):
 
     settings.to_yaml(config_path)
     from symbio.config.settings import get_settings
+
     get_settings.cache_clear()
     return await get_hitl_timeout_policy()
 
 
 # ============ Computer Use API ============
+
 
 class ComputerUseSessionCreate(BaseModel):
     start_url: str = ""
@@ -4859,8 +5232,10 @@ class ComputerUsePlanRequest(BaseModel):
 async def create_computer_use_session(payload: ComputerUseSessionCreate):
     """创建一个 Computer Use 浏览器会话。"""
     from symbio.tools.computer_use import get_computer_use_manager
+
     session = get_computer_use_manager().create_session(
-        start_url=payload.start_url, headless=payload.headless,
+        start_url=payload.start_url,
+        headless=payload.headless,
     )
     return session.to_dict(include_steps=False)
 
@@ -4869,13 +5244,20 @@ async def create_computer_use_session(payload: ComputerUseSessionCreate):
 async def list_computer_use_sessions():
     """列出所有 Computer Use 会话。"""
     from symbio.tools.computer_use import get_computer_use_manager
+
     sessions = get_computer_use_manager().list_sessions()
-    return {"sessions": sessions, "total": len(sessions),
-            "playwright_available": not (sessions[0]["dry_run"] if sessions else _computer_use_dry_run())}
+    return {
+        "sessions": sessions,
+        "total": len(sessions),
+        "playwright_available": not (
+            sessions[0]["dry_run"] if sessions else _computer_use_dry_run()
+        ),
+    }
 
 
 def _computer_use_dry_run() -> bool:
     from symbio.tools.computer_use import _playwright_available
+
     return not _playwright_available()
 
 
@@ -4883,6 +5265,7 @@ def _computer_use_dry_run() -> bool:
 async def get_computer_use_session(session_id: str):
     """获取会话详情与完整审计轨迹。"""
     from symbio.tools.computer_use import get_computer_use_manager
+
     session = get_computer_use_manager().get(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="会话不存在")
@@ -4893,6 +5276,7 @@ async def get_computer_use_session(session_id: str):
 async def computer_use_act(session_id: str, payload: ComputerUseAction):
     """在会话中执行一个动作（navigate/screenshot/click/type/scroll/extract_text/wait）。"""
     from symbio.tools.computer_use import get_computer_use_manager
+
     session = get_computer_use_manager().get(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="会话不存在")
@@ -4905,6 +5289,7 @@ async def computer_use_plan(session_id: str, payload: ComputerUsePlanRequest):
     """规划朝目标的下一步动作；use_llm 为真时用 LLM 视觉/文本规划，否则启发式。
     auto_execute 为真时直接执行。"""
     from symbio.tools.computer_use import get_computer_use_manager, ActionPlanner, LLMActionPlanner
+
     session = get_computer_use_manager().get(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="会话不存在")
@@ -4912,9 +5297,7 @@ async def computer_use_plan(session_id: str, payload: ComputerUsePlanRequest):
         # 视觉规划：先确保有当前截图（没有就截一张），再带图让 VLM 看屏决策
         if payload.use_vision and session.latest_screenshot() is None:
             await session.act("screenshot", {})
-        plan = await LLMActionPlanner().plan(
-            payload.goal, session, use_vision=payload.use_vision
-        )
+        plan = await LLMActionPlanner().plan(payload.goal, session, use_vision=payload.use_vision)
     else:
         plan = ActionPlanner.plan(payload.goal, session)
         plan.setdefault("planner", "heuristic")
@@ -4928,6 +5311,7 @@ async def computer_use_plan(session_id: str, payload: ComputerUsePlanRequest):
 async def computer_use_replay(session_id: str):
     """回放会话已记录的动作轨迹。"""
     from symbio.tools.computer_use import get_computer_use_manager
+
     session = get_computer_use_manager().get(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="会话不存在")
@@ -4938,6 +5322,7 @@ async def computer_use_replay(session_id: str):
 async def close_computer_use_session(session_id: str):
     """关闭会话并持久化审计。"""
     from symbio.tools.computer_use import get_computer_use_manager
+
     ok = await get_computer_use_manager().close_session(session_id)
     if not ok:
         raise HTTPException(status_code=404, detail="会话不存在")
@@ -4945,6 +5330,7 @@ async def close_computer_use_session(session_id: str):
 
 
 # ============ MCP 工具网关 API ============
+
 
 class MCPServerAdd(BaseModel):
     name: str
@@ -4956,19 +5342,33 @@ class MCPServerAdd(BaseModel):
 
 # Allowed MCP server command prefixes (security whitelist)
 _MCP_ALLOWED_COMMANDS = {
-    "npx", "node", "python", "python3", "uvx", "uv", "pip",
-    "docker", "podman",
-    "java", "javac",
+    "npx",
+    "node",
+    "python",
+    "python3",
+    "uvx",
+    "uv",
+    "pip",
+    "docker",
+    "podman",
+    "java",
+    "javac",
     "dotnet",
-    "go", "cargo", "rustc",
-    "ruby", "perl",
-    "bash", "sh", "zsh",
+    "go",
+    "cargo",
+    "rustc",
+    "ruby",
+    "perl",
+    "bash",
+    "sh",
+    "zsh",
 }
 
 
 def _validate_mcp_command(command: str) -> None:
     """Validate MCP server command against whitelist."""
     import shlex
+
     try:
         parts = shlex.split(command)
     except ValueError:
@@ -4984,7 +5384,7 @@ def _validate_mcp_command(command: str) -> None:
     if cmd_name not in _MCP_ALLOWED_COMMANDS:
         raise HTTPException(
             status_code=400,
-            detail=f"不允许的命令: {cmd_name}。允许的命令: {', '.join(sorted(_MCP_ALLOWED_COMMANDS))}"
+            detail=f"不允许的命令: {cmd_name}。允许的命令: {', '.join(sorted(_MCP_ALLOWED_COMMANDS))}",
         )
 
 
@@ -5015,8 +5415,15 @@ async def list_mcp_servers():
         yaml_mcp = getattr(settings, "mcp_servers", None) or {}
         for name, cfg in yaml_mcp.items():
             if isinstance(cfg, dict) and not any(s.get("name") == name for s in servers):
-                servers.append({"name": name, "command": cfg.get("command", ""), "args": cfg.get("args", []),
-                                 "env": cfg.get("env", {}), "source": "yaml"})
+                servers.append(
+                    {
+                        "name": name,
+                        "command": cfg.get("command", ""),
+                        "args": cfg.get("args", []),
+                        "env": cfg.get("env", {}),
+                        "source": "yaml",
+                    }
+                )
     except Exception:
         pass
     return {"servers": servers, "total": len(servers)}
@@ -5058,6 +5465,7 @@ async def probe_mcp_server_tools(server_id: str):
     srv = _find_mcp_server(server_id)
     try:
         from symbio.tools.mcp import get_mcp_pool
+
         cmd = [srv["command"]] + srv.get("args", [])
         client = await get_mcp_pool().get_client(srv["name"], cmd, env=srv.get("env") or None)
         tools = await client.list_tools()
@@ -5078,11 +5486,16 @@ async def probe_mcp_server_resources(server_id: str):
     srv = _find_mcp_server(server_id)
     try:
         from symbio.tools.mcp import get_mcp_pool
+
         cmd = [srv["command"]] + srv.get("args", [])
         client = await get_mcp_pool().get_client(srv["name"], cmd, env=srv.get("env") or None)
         resources = await client.list_resources()
-        return {"server_id": server_id, "resources": resources, "total": len(resources),
-                "supported": client.supports("resources")}
+        return {
+            "server_id": server_id,
+            "resources": resources,
+            "total": len(resources),
+            "supported": client.supports("resources"),
+        }
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"MCP resources probe failed: {exc}")
 
@@ -5093,11 +5506,16 @@ async def probe_mcp_server_prompts(server_id: str):
     srv = _find_mcp_server(server_id)
     try:
         from symbio.tools.mcp import get_mcp_pool
+
         cmd = [srv["command"]] + srv.get("args", [])
         client = await get_mcp_pool().get_client(srv["name"], cmd, env=srv.get("env") or None)
         prompts = await client.list_prompts()
-        return {"server_id": server_id, "prompts": prompts, "total": len(prompts),
-                "supported": client.supports("prompts")}
+        return {
+            "server_id": server_id,
+            "prompts": prompts,
+            "total": len(prompts),
+            "supported": client.supports("prompts"),
+        }
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"MCP prompts probe failed: {exc}")
 
@@ -5109,6 +5527,7 @@ async def mount_mcp_server_tools(server_id: str):
     try:
         from symbio.tools.mcp import get_mcp_pool, MCPTool
         from symbio.tools.registry import get_tool_registry
+
         cmd = [srv["command"]] + srv.get("args", [])
         client = await get_mcp_pool().get_client(srv["name"], cmd, env=srv.get("env") or None)
         specs = await client.list_tools()

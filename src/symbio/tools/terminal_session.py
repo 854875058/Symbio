@@ -61,8 +61,9 @@ def resolve_terminal_command(kind: str, resume_id: str = "") -> list[str]:
 class TerminalSession:
     """一个 PTY 支撑的交互终端会话。跨平台封装 winpty / pty。"""
 
-    def __init__(self, command: list[str], *, cwd: Optional[str] = None,
-                 cols: int = 100, rows: int = 30) -> None:
+    def __init__(
+        self, command: list[str], *, cwd: Optional[str] = None, cols: int = 100, rows: int = 30
+    ) -> None:
         self.command = command
         self.cwd = cwd or os.getcwd()
         self.cols = cols
@@ -84,14 +85,18 @@ class TerminalSession:
 
             cmdline = subprocess.list2cmdline(self.command)
             self._proc = PtyProcess.spawn(
-                cmdline, cwd=self.cwd, env=env,
+                cmdline,
+                cwd=self.cwd,
+                env=env,
                 dimensions=(self.rows, self.cols),
             )
         else:
             from ptyprocess import PtyProcess  # type: ignore
 
             self._proc = PtyProcess.spawn(
-                self.command, cwd=self.cwd, env=env,
+                self.command,
+                cwd=self.cwd,
+                env=env,
                 dimensions=(self.rows, self.cols),
             )
         self._alive = True
@@ -100,7 +105,8 @@ class TerminalSession:
         """把键盘输入写进 PTY。"""
         if self._proc is not None and self._alive:
             try:
-                self._proc.write(data)
+                payload = data.encode("utf-8") if os.name != "nt" else data
+                self._proc.write(payload)
             except (EOFError, OSError):
                 self._alive = False
 
@@ -134,7 +140,9 @@ class TerminalSession:
                     pass
         self._proc = None
 
-    def start_reader(self, loop: asyncio.AbstractEventLoop, queue: "asyncio.Queue[Optional[str]]") -> None:
+    def start_reader(
+        self, loop: asyncio.AbstractEventLoop, queue: "asyncio.Queue[Optional[str]]"
+    ) -> None:
         """起后台线程阻塞读 PTY 输出，把每块灌进 asyncio 队列；EOF 投 None。"""
 
         def _safe_put(item):
@@ -156,6 +164,8 @@ class TerminalSession:
                 except Exception:
                     break
                 if data:
+                    if isinstance(data, bytes):
+                        data = data.decode("utf-8", errors="replace")
                     _safe_put(data)
                 else:
                     break

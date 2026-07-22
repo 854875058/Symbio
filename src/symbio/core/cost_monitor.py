@@ -488,9 +488,13 @@ class BudgetManager:
         month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         # 下月第一天
         if now.month == 12:
-            month_end = now.replace(year=now.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+            month_end = now.replace(
+                year=now.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0
+            )
         else:
-            month_end = now.replace(month=now.month + 1, day=1, hour=0, minute=0, second=0, microsecond=0)
+            month_end = now.replace(
+                month=now.month + 1, day=1, hour=0, minute=0, second=0, microsecond=0
+            )
 
         limit = await self.get_budget_limit(project_id)
 

@@ -54,9 +54,7 @@ class FakeStore:
         self.artifact_calls = []
         self.event_calls = []
 
-    async def create_execution(
-        self, plan: ExecutionPlan, intent_text: str
-    ) -> ExecutionRecord:
+    async def create_execution(self, plan: ExecutionPlan, intent_text: str) -> ExecutionRecord:
         self.create_calls.append((plan, intent_text))
         return self.record
 

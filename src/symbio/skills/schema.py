@@ -180,8 +180,10 @@ SKILL_MANIFEST_SCHEMA: dict[str, Any] = {
 # Pydantic 数据模型
 # ---------------------------------------------------------------------------
 
+
 class SkillIOSchema(BaseModel):
     """Skill 输入/输出 Schema"""
+
     type: str = "object"
     properties: dict[str, dict[str, Any]] = Field(default_factory=dict)
     required: list[str] = Field(default_factory=list)
@@ -190,6 +192,7 @@ class SkillIOSchema(BaseModel):
 
 class SkillDependencySpec(BaseModel):
     """Skill 依赖规格"""
+
     name: str
     version: str = ""
     optional: bool = False
@@ -200,6 +203,7 @@ class SkillManifest(BaseModel):
 
     对应 skill.json 的标准格式。
     """
+
     name: str
     display_name: str = ""
     version: str = "1.0.0"
@@ -238,8 +242,11 @@ class SkillManifest(BaseModel):
 
         # 名称格式验证
         import re
+
         if not re.match(r"^[a-z][a-z0-9_]{2,63}$", self.name):
-            errors.append(f"Skill 名称格式无效: {self.name} (需小写字母开头, 仅含小写字母/数字/下划线, 3-64字符)")
+            errors.append(
+                f"Skill 名称格式无效: {self.name} (需小写字母开头, 仅含小写字母/数字/下划线, 3-64字符)"
+            )
 
         # 版本号格式验证
         if not re.match(r"^\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?$", self.version):
@@ -264,6 +271,7 @@ class SkillManifest(BaseModel):
 # ---------------------------------------------------------------------------
 # Skill 模板生成器
 # ---------------------------------------------------------------------------
+
 
 class SkillTemplateGenerator:
     """Skill 模板生成器"""

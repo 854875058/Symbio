@@ -9,7 +9,9 @@ from symbio.memory.manager import MemoryManager, MemoryManagerConfig
 
 
 @pytest.mark.asyncio
-async def test_initialize_degrades_to_memory_mode_when_vector_backend_import_breaks(monkeypatch, tmp_path):
+async def test_initialize_degrades_to_memory_mode_when_vector_backend_import_breaks(
+    monkeypatch, tmp_path
+):
     """Optional vector backend ABI/import failures should not break API startup."""
     real_import = builtins.__import__
 

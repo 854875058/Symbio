@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 
 from symbio.utils.logger import get_logger
 from symbio.utils.types import Intent, TaskComplexity
@@ -13,22 +12,72 @@ logger = get_logger("evaluator")
 COMPLEXITY_KEYWORDS = {
     # 高复杂度关键词
     "high": [
-        "架构设计", "系统设计", "重构", "优化", "分析", "审查",
-        "architecture", "design", "refactor", "optimize", "analyze", "review",
-        "复杂", "complex", "高级", "advanced", "深度", "deep",
-        "安全", "security", "性能", "performance", "分布式", "distributed",
+        "架构设计",
+        "系统设计",
+        "重构",
+        "优化",
+        "分析",
+        "审查",
+        "architecture",
+        "design",
+        "refactor",
+        "optimize",
+        "analyze",
+        "review",
+        "复杂",
+        "complex",
+        "高级",
+        "advanced",
+        "深度",
+        "deep",
+        "安全",
+        "security",
+        "性能",
+        "performance",
+        "分布式",
+        "distributed",
     ],
     # 中复杂度关键词
     "medium": [
-        "实现", "implement", "开发", "develop", "创建", "create",
-        "修改", "modify", "更新", "update", "修复", "fix",
-        "测试", "test", "调试", "debug", "集成", "integrate",
+        "实现",
+        "implement",
+        "开发",
+        "develop",
+        "创建",
+        "create",
+        "修改",
+        "modify",
+        "更新",
+        "update",
+        "修复",
+        "fix",
+        "测试",
+        "test",
+        "调试",
+        "debug",
+        "集成",
+        "integrate",
     ],
     # 低复杂度关键词
     "low": [
-        "查询", "query", "搜索", "search", "读取", "read",
-        "列出", "list", "显示", "show", "获取", "get",
-        "简单", "simple", "基础", "basic", "快速", "quick",
+        "查询",
+        "query",
+        "搜索",
+        "search",
+        "读取",
+        "read",
+        "列出",
+        "list",
+        "显示",
+        "show",
+        "获取",
+        "get",
+        "简单",
+        "simple",
+        "基础",
+        "basic",
+        "快速",
+        "quick",
     ],
 }
 
@@ -75,17 +124,13 @@ class ComplexityEvaluator:
         scores["context"] = self._score_context(intent.requires_memory)
 
         # 加权平均
-        total_score = sum(
-            scores[dim] * self._weights[dim]
-            for dim in scores
-        )
+        total_score = sum(scores[dim] * self._weights[dim] for dim in scores)
 
         # 映射到复杂度等级
         complexity = self._score_to_complexity(total_score)
 
         logger.debug(
-            f"复杂度评估: scores={scores}, total={total_score:.2f}, "
-            f"result={complexity.value}"
+            f"复杂度评估: scores={scores}, total={total_score:.2f}, result={complexity.value}"
         )
 
         return complexity
@@ -164,7 +209,6 @@ class ComplexityEvaluator:
         Returns:
             复杂度等级
         """
-        intent = Intent(raw_text=text)
         # 同步版本，简化处理
         score = self._score_keywords(text)
         return self._score_to_complexity(score)

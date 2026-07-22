@@ -11,7 +11,9 @@ from symbio.utils.types import Intent
 
 
 def test_feature_work_requires_plan_tdd_and_verification():
-    policy = workflow_policy_for_intent(Intent(raw_text="Implement short approval codes", action="write_code"))
+    policy = workflow_policy_for_intent(
+        Intent(raw_text="Implement short approval codes", action="write_code")
+    )
 
     assert policy.require_plan is True
     assert policy.require_tdd is True
@@ -22,7 +24,9 @@ def test_feature_work_requires_plan_tdd_and_verification():
 
 
 def test_bug_work_requires_root_cause_and_regression_verification():
-    policy = workflow_policy_for_intent(Intent(raw_text="Fix failing HITL callback test", action="write_code"))
+    policy = workflow_policy_for_intent(
+        Intent(raw_text="Fix failing HITL callback test", action="write_code")
+    )
 
     assert policy.require_root_cause_before_fix is True
     assert policy.require_tdd is True

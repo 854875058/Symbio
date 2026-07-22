@@ -88,9 +88,7 @@ class ChatPipeline:
         if cache is None:
             return None
         try:
-            entry = await cache.get(
-                query, current_context_hash=context_hash, model=model or None
-            )
+            entry = await cache.get(query, current_context_hash=context_hash, model=model or None)
         except Exception as e:
             logger.warning(f"语义缓存查询异常，按未命中处理: {e}")
             return None
@@ -344,4 +342,16 @@ def get_chat_pipeline() -> ChatPipeline:
 def reset_chat_pipeline() -> None:
     """测试用：重置单例。"""
     global _pipeline
+    _pipeline = None
+
+
+async def shutdown_chat_pipeline() -> None:
+    """关闭聊天管线持有的进程级资源并重置单例。"""
+    global _pipeline
+    from symbio.core.cost_monitor import shutdown_cost_monitor
+
+    await shutdown_cost_monitor()
+    if _pipeline is not None:
+        _pipeline._cost_tracker = None
+        _pipeline._budget_manager = None
     _pipeline = None

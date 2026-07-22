@@ -12,7 +12,6 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from symbio.config.settings import Settings
 from symbio.interfaces.wechat_bridge import (
     WeChatBridge,
-    WeChatInbound,
     get_wechat_bridge,
     reset_wechat_bridge,
 )
@@ -38,6 +37,7 @@ def _enabled_settings(**wechat_kwargs):
 # ---------------------------------------------------------------------------
 # 分类与出站
 # ---------------------------------------------------------------------------
+
 
 def test_classify_approval_command():
     bridge = WeChatBridge()
@@ -68,6 +68,7 @@ async def test_send_prepared_without_endpoint(monkeypatch):
 # inbound 鉴权
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_inbound_disabled_returns_403(monkeypatch):
     s = Settings()
@@ -80,10 +81,13 @@ async def test_inbound_disabled_returns_403(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_inbound_bad_token_returns_401(monkeypatch):
-    monkeypatch.setattr(api, "_load_llm_settings", _areturn(_enabled_settings(inbound_token="secret")))
+    monkeypatch.setattr(
+        api, "_load_llm_settings", _areturn(_enabled_settings(inbound_token="secret"))
+    )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.post("/api/wechat/inbound",
-                                 json={"from_user": "u1", "content": "hi", "token": "wrong"})
+        resp = await client.post(
+            "/api/wechat/inbound", json={"from_user": "u1", "content": "hi", "token": "wrong"}
+        )
     assert resp.status_code == 401
 
 
@@ -91,18 +95,22 @@ async def test_inbound_bad_token_returns_401(monkeypatch):
 # inbound 对话路由（mock 掉 chat 以免真实调用 LLM）
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_inbound_chat_routes_to_pipeline(monkeypatch):
     monkeypatch.setattr(api, "_load_llm_settings", _areturn(_enabled_settings()))
 
     async def fake_chat(request):
         assert request.session_id.startswith("wechat-")
-        return ChatResponse(success=True, content="你好，我是 Symbio", session_id=request.session_id)
+        return ChatResponse(
+            success=True, content="你好，我是 Symbio", session_id=request.session_id
+        )
 
     monkeypatch.setattr(api, "chat", fake_chat)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.post("/api/wechat/inbound",
-                                 json={"from_user": "wxid_abc", "content": "你好"})
+        resp = await client.post(
+            "/api/wechat/inbound", json={"from_user": "wxid_abc", "content": "你好"}
+        )
     assert resp.status_code == 200
     data = resp.json()
     assert data["ok"] is True
@@ -118,14 +126,18 @@ async def test_inbound_approval_routes_to_hitl(monkeypatch):
     # 先提交一个待审批请求到端点使用的同一个网关
     from symbio.core.hitl_gateway import ApprovalRequest, RiskLevel
     from symbio.core.hitl_notifier import approval_short_code
+
     gateway = api._get_hitl_gateway()
-    req = ApprovalRequest(task_id="t-wx", risk_level=RiskLevel.HIGH, action="删库", timeout_seconds=9999)
+    req = ApprovalRequest(
+        task_id="t-wx", risk_level=RiskLevel.HIGH, action="删库", timeout_seconds=9999
+    )
     rid = await gateway.submit_request(req)
     code = approval_short_code(rid)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.post("/api/wechat/inbound",
-                                 json={"from_user": "wxid_admin", "content": f"同意 {code}"})
+        resp = await client.post(
+            "/api/wechat/inbound", json={"from_user": "wxid_admin", "content": f"同意 {code}"}
+        )
     assert resp.status_code == 200
     data = resp.json()
     assert data["result"]["kind"] == "approval"
@@ -138,11 +150,11 @@ async def test_inbound_approval_routes_to_hitl(monkeypatch):
 # /api/wechat/send 端点
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_send_endpoint():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.post("/api/wechat/send",
-                                 json={"to_user": "u1", "content": "通知一下"})
+        resp = await client.post("/api/wechat/send", json={"to_user": "u1", "content": "通知一下"})
     assert resp.status_code == 200
     assert resp.json()["delivery_status"] in ("prepared", "sent")
 
@@ -150,6 +162,7 @@ async def test_send_endpoint():
 # ---------------------------------------------------------------------------
 # 扫码绑定登录态
 # ---------------------------------------------------------------------------
+
 
 def test_login_state_transitions():
     bridge = WeChatBridge()
@@ -178,15 +191,23 @@ def test_update_login_ignores_unknown_status():
 async def test_login_event_and_status_endpoints(monkeypatch):
     monkeypatch.setattr(api, "_load_llm_settings", _areturn(_enabled_settings()))
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.post("/api/wechat/login/event", json={
-            "status": "waiting_scan", "qr": "https://login.weixin.qq.com/x",
-        })
+        resp = await client.post(
+            "/api/wechat/login/event",
+            json={
+                "status": "waiting_scan",
+                "qr": "https://login.weixin.qq.com/x",
+            },
+        )
         assert resp.status_code == 200
         assert resp.json()["login"]["status"] == "waiting_scan"
 
-        resp = await client.post("/api/wechat/login/event", json={
-            "status": "logged_in", "user": "我的微信",
-        })
+        resp = await client.post(
+            "/api/wechat/login/event",
+            json={
+                "status": "logged_in",
+                "user": "我的微信",
+            },
+        )
         assert resp.status_code == 200
 
         resp = await client.get("/api/wechat/login/status")
@@ -199,23 +220,29 @@ async def test_login_event_and_status_endpoints(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_login_event_bad_token(monkeypatch):
-    monkeypatch.setattr(api, "_load_llm_settings", _areturn(_enabled_settings(inbound_token="secret")))
+    monkeypatch.setattr(
+        api, "_load_llm_settings", _areturn(_enabled_settings(inbound_token="secret"))
+    )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.post("/api/wechat/login/event",
-                                 json={"status": "logged_in", "token": "wrong"})
+        resp = await client.post(
+            "/api/wechat/login/event", json={"status": "logged_in", "token": "wrong"}
+        )
     assert resp.status_code == 401
 
 
 def _areturn(value):
     """构造一个返回固定值的 async 函数（替换 _load_llm_settings）。"""
+
     async def _fn(*args, **kwargs):
         return value
+
     return _fn
 
 
 # ---------------------------------------------------------------------------
 # 内置 iLink 扫码登录（clawbot）
 # ---------------------------------------------------------------------------
+
 
 class _FakeILinkClient:
     """假 iLink 客户端：可编排扫码状态序列与一批入站消息。"""
@@ -235,13 +262,19 @@ class _FakeILinkClient:
     async def poll_qr_status(self, qrcode):
         st = self._status_seq.pop(0) if self._status_seq else "confirmed"
         if st == "confirmed":
-            return {"status": "confirmed", "account_id": "bot_me", "token": "tok-xyz", "base_url": self.base_url}
+            return {
+                "status": "confirmed",
+                "account_id": "bot_me",
+                "token": "tok-xyz",
+                "base_url": self.base_url,
+            }
         return {"status": st}
 
     async def get_updates(self, sync_buf="", timeout_ms=0):
         if self._got_updates:
             # 第二次起阻塞，避免收消息循环空转刷屏
             import asyncio
+
             await asyncio.sleep(3600)
         self._got_updates = True
         return self._updates
@@ -254,6 +287,7 @@ class _FakeILinkClient:
 @pytest.mark.asyncio
 async def test_ilink_login_confirmed_sets_logged_in(monkeypatch):
     import symbio.interfaces.ilink_client as ilink
+
     fake = _FakeILinkClient(status_seq=["scaned", "confirmed"])
     monkeypatch.setattr(ilink, "ILinkClient", lambda **kw: fake)
 
@@ -264,6 +298,7 @@ async def test_ilink_login_confirmed_sets_logged_in(monkeypatch):
 
     # 等后台轮询确认登录
     import asyncio
+
     for _ in range(60):
         await asyncio.sleep(0.1)
         if bridge.is_logged_in:
@@ -276,12 +311,14 @@ async def test_ilink_login_confirmed_sets_logged_in(monkeypatch):
 @pytest.mark.asyncio
 async def test_ilink_login_expired_fails(monkeypatch):
     import symbio.interfaces.ilink_client as ilink
+
     fake = _FakeILinkClient(status_seq=["expired"])
     monkeypatch.setattr(ilink, "ILinkClient", lambda **kw: fake)
 
     bridge = WeChatBridge()
     await bridge.start_ilink_login()
     import asyncio
+
     for _ in range(40):
         await asyncio.sleep(0.1)
         if bridge.login_state()["status"] == "failed":
@@ -293,11 +330,17 @@ async def test_ilink_login_expired_fails(monkeypatch):
 @pytest.mark.asyncio
 async def test_ilink_recv_loop_dispatches_and_replies(monkeypatch):
     import symbio.interfaces.ilink_client as ilink
+
     # iLink getupdates 真实字段是 "msgs"（不是 msg_list）
-    updates = {"msgs": [
-        {"from_user_id": "friend1", "context_token": "ctx1",
-         "item_list": [{"type": 1, "text_item": {"text": "你好机器人"}}]},
-    ]}
+    updates = {
+        "msgs": [
+            {
+                "from_user_id": "friend1",
+                "context_token": "ctx1",
+                "item_list": [{"type": 1, "text_item": {"text": "你好机器人"}}],
+            },
+        ]
+    }
     fake = _FakeILinkClient(status_seq=["confirmed"], updates=updates)
     monkeypatch.setattr(ilink, "ILinkClient", lambda **kw: fake)
 
@@ -312,6 +355,7 @@ async def test_ilink_recv_loop_dispatches_and_replies(monkeypatch):
     await bridge.start_ilink_login()
 
     import asyncio
+
     for _ in range(60):
         await asyncio.sleep(0.1)
         if fake.sent:
@@ -324,12 +368,14 @@ async def test_ilink_recv_loop_dispatches_and_replies(monkeypatch):
 @pytest.mark.asyncio
 async def test_send_uses_ilink_when_logged_in(monkeypatch):
     import symbio.interfaces.ilink_client as ilink
+
     fake = _FakeILinkClient(status_seq=["confirmed"])
     monkeypatch.setattr(ilink, "ILinkClient", lambda **kw: fake)
 
     bridge = WeChatBridge()
     await bridge.start_ilink_login()
     import asyncio
+
     for _ in range(60):
         await asyncio.sleep(0.1)
         if bridge.is_logged_in:
@@ -345,6 +391,7 @@ async def test_send_uses_ilink_when_logged_in(monkeypatch):
 @pytest.mark.asyncio
 async def test_ilink_login_start_endpoint(monkeypatch):
     import symbio.interfaces.ilink_client as ilink
+
     fake = _FakeILinkClient(status_seq=["confirmed"])
     monkeypatch.setattr(ilink, "ILinkClient", lambda **kw: fake)
     monkeypatch.setattr(api, "_load_llm_settings", _areturn(_enabled_settings()))
@@ -376,9 +423,12 @@ async def test_ilink_get_qr_none_marks_failed(monkeypatch):
 @pytest.mark.asyncio
 async def test_recv_loop_records_message_stream(monkeypatch):
     import symbio.interfaces.ilink_client as ilink
-    updates = {"msgs": [
-        {"from_user_id": "friendX", "item_list": [{"type": 1, "text_item": {"text": "在吗"}}]},
-    ]}
+
+    updates = {
+        "msgs": [
+            {"from_user_id": "friendX", "item_list": [{"type": 1, "text_item": {"text": "在吗"}}]},
+        ]
+    }
     fake = _FakeILinkClient(status_seq=["confirmed"], updates=updates)
     monkeypatch.setattr(ilink, "ILinkClient", lambda **kw: fake)
 
@@ -390,6 +440,7 @@ async def test_recv_loop_records_message_stream(monkeypatch):
     bridge.set_message_handler(handler)
     await bridge.start_ilink_login()
     import asyncio
+
     for _ in range(60):
         await asyncio.sleep(0.1)
         if fake.sent:
@@ -428,6 +479,7 @@ def test_record_message_ring_buffer_caps():
 
 def test_extract_text_prefers_text_then_voice():
     from symbio.interfaces.ilink_client import extract_text
+
     assert extract_text([{"type": 1, "text_item": {"text": "hi"}}]) == "hi"
     assert extract_text([{"type": 3, "voice_item": {"text": "语音转写"}}]) == "语音转写"
     assert extract_text([]) == ""
@@ -437,9 +489,11 @@ def test_extract_text_prefers_text_then_voice():
 # 批次A1：登录态持久化（重启免重扫码）
 # ---------------------------------------------------------------------------
 
+
 def test_save_session_writes_token(tmp_path):
     import json
     from types import SimpleNamespace
+
     path = tmp_path / "wx.json"
     bridge = WeChatBridge(session_path=path)
     bridge._client = SimpleNamespace(token="tok-1", account_id="acc@im.bot", base_url="https://x")
@@ -460,11 +514,20 @@ def test_save_session_skips_without_token(tmp_path):
 
 async def test_restore_session_recovers_login(tmp_path, monkeypatch):
     import json
+
     path = tmp_path / "wx.json"
-    path.write_text(json.dumps({
-        "token": "tok-2", "account_id": "acc2@im.bot",
-        "base_url": "https://ilinkai.weixin.qq.com", "user": "acc2@im.bot", "sync_buf": "buf-3",
-    }), encoding="utf-8")
+    path.write_text(
+        json.dumps(
+            {
+                "token": "tok-2",
+                "account_id": "acc2@im.bot",
+                "base_url": "https://ilinkai.weixin.qq.com",
+                "user": "acc2@im.bot",
+                "sync_buf": "buf-3",
+            }
+        ),
+        encoding="utf-8",
+    )
     bridge = WeChatBridge(session_path=path)
     monkeypatch.setattr(bridge, "_start_recv_loop", lambda: None)  # 不起网络收消息循环
 
@@ -484,6 +547,7 @@ async def test_restore_session_no_file(tmp_path):
 
 async def test_restore_session_ignores_empty_token(tmp_path):
     import json
+
     path = tmp_path / "wx.json"
     path.write_text(json.dumps({"token": "", "account_id": "x"}), encoding="utf-8")
     bridge = WeChatBridge(session_path=path)
@@ -492,6 +556,7 @@ async def test_restore_session_ignores_empty_token(tmp_path):
 
 async def test_logout_clears_session_file(tmp_path):
     from types import SimpleNamespace
+
     path = tmp_path / "wx.json"
     bridge = WeChatBridge(session_path=path)
     bridge._client = SimpleNamespace(token="tok", account_id="a", base_url="u")
@@ -507,6 +572,7 @@ async def test_logout_clears_session_file(tmp_path):
 # ---------------------------------------------------------------------------
 # 批次A3a：iLink 出站发送网络异常自动重试
 # ---------------------------------------------------------------------------
+
 
 class _FlakyClient:
     def __init__(self, fail_times: int):
@@ -529,6 +595,7 @@ async def _no_sleep(*args, **kwargs):
 
 async def test_send_retries_then_succeeds(monkeypatch, tmp_path):
     import symbio.interfaces.wechat_bridge as wb
+
     monkeypatch.setattr(wb.asyncio, "sleep", _no_sleep)  # 跳过退避
     bridge = WeChatBridge(session_path=tmp_path / "wx.json")
     bridge._login["status"] = "logged_in"
@@ -541,6 +608,7 @@ async def test_send_retries_then_succeeds(monkeypatch, tmp_path):
 
 async def test_send_all_retries_fail_returns_error(monkeypatch, tmp_path):
     import symbio.interfaces.wechat_bridge as wb
+
     monkeypatch.setattr(wb.asyncio, "sleep", _no_sleep)
     bridge = WeChatBridge(session_path=tmp_path / "wx.json")
     bridge._login["status"] = "logged_in"

@@ -30,24 +30,26 @@ logger = get_logger("analyzer")
 
 class FailureSeverity(str, Enum):
     """失败严重程度。"""
-    LOW = "low"           # 轻微：不影响核心功能
-    MEDIUM = "medium"     # 中等：影响部分功能
-    HIGH = "high"         # 严重：影响核心功能
-    CRITICAL = "critical" # 致命：系统不可用
+
+    LOW = "low"  # 轻微：不影响核心功能
+    MEDIUM = "medium"  # 中等：影响部分功能
+    HIGH = "high"  # 严重：影响核心功能
+    CRITICAL = "critical"  # 致命：系统不可用
 
 
 class FailureCategory(str, Enum):
     """失败类别。"""
-    LOGIC_ERROR = "logic_error"         # 逻辑错误
-    TIMEOUT = "timeout"                 # 超时
-    RESOURCE_EXHAUSTED = "resource"     # 资源耗尽
-    EXTERNAL_API = "external_api"       # 外部 API 故障
-    INPUT_INVALID = "input_invalid"     # 输入无效
-    PERMISSION = "permission"           # 权限不足
-    MODEL_ERROR = "model_error"         # 模型生成错误
-    TOOL_ERROR = "tool_error"           # 工具执行错误
+
+    LOGIC_ERROR = "logic_error"  # 逻辑错误
+    TIMEOUT = "timeout"  # 超时
+    RESOURCE_EXHAUSTED = "resource"  # 资源耗尽
+    EXTERNAL_API = "external_api"  # 外部 API 故障
+    INPUT_INVALID = "input_invalid"  # 输入无效
+    PERMISSION = "permission"  # 权限不足
+    MODEL_ERROR = "model_error"  # 模型生成错误
+    TOOL_ERROR = "tool_error"  # 工具执行错误
     CONTEXT_OVERFLOW = "context_overflow"  # 上下文溢出
-    UNKNOWN = "unknown"                 # 未知
+    UNKNOWN = "unknown"  # 未知
 
 
 class FailureAnalysis(BaseModel):
@@ -61,9 +63,7 @@ class FailureAnalysis(BaseModel):
     severity: FailureSeverity = Field(default=FailureSeverity.MEDIUM, description="严重程度")
     description: str = Field(description="失败描述")
     error_message: str = Field(default="", description="错误信息")
-    context_snapshot: dict[str, Any] = Field(
-        default_factory=dict, description="失败时的上下文快照"
-    )
+    context_snapshot: dict[str, Any] = Field(default_factory=dict, description="失败时的上下文快照")
     steps_to_failure: int = Field(default=0, description="失败前执行步数")
     root_cause_id: Optional[str] = Field(default=None, description="关联的根因 ID")
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -95,9 +95,7 @@ class SuccessPath(BaseModel):
     task_type: str = Field(description="任务类型")
     prompt_id: str = Field(default="", description="关联 Prompt 版本 ID")
     trajectory_id: str = Field(default="", description="关联轨迹 ID")
-    steps: list[dict[str, Any]] = Field(
-        default_factory=list, description="路径步骤列表"
-    )
+    steps: list[dict[str, Any]] = Field(default_factory=list, description="路径步骤列表")
     step_count: int = Field(default=0, description="步骤数")
     total_duration_ms: int = Field(default=0, description="总耗时（毫秒）")
     quality_score: float = Field(default=0.0, description="质量评分")
@@ -116,9 +114,7 @@ class AnalysisResult(BaseModel):
     top_failure_categories: list[tuple[str, int]] = Field(
         default_factory=list, description="高频失败类别"
     )
-    top_root_causes: list[dict[str, Any]] = Field(
-        default_factory=list, description="高频根因"
-    )
+    top_root_causes: list[dict[str, Any]] = Field(default_factory=list, description="高频根因")
     top_success_paths: list[dict[str, Any]] = Field(
         default_factory=list, description="高频成功路径"
     )
@@ -493,8 +489,7 @@ class PatternAnalyzer:
         params.append(limit)
 
         cursor = await self._db.execute(
-            f"SELECT * FROM root_causes WHERE {where} "
-            f"ORDER BY occurrence_count DESC LIMIT ?",
+            f"SELECT * FROM root_causes WHERE {where} ORDER BY occurrence_count DESC LIMIT ?",
             params,
         )
         rows = await cursor.fetchall()
@@ -581,8 +576,7 @@ class PatternAnalyzer:
             )
             await self._db.commit()
             logger.info(
-                f"Merged success path {path_id}: count={new_count}, "
-                f"task_type={path.task_type}"
+                f"Merged success path {path_id}: count={new_count}, task_type={path.task_type}"
             )
             return path_id
 
@@ -771,9 +765,7 @@ class PatternAnalyzer:
         row = await cursor.fetchone()
         return row[0] if row else None
 
-    async def _increment_root_cause(
-        self, analysis_id: str, cause_id: str
-    ) -> None:
+    async def _increment_root_cause(self, analysis_id: str, cause_id: str) -> None:
         """增加根因的出现次数并关联分析 ID。"""
         assert self._db is not None
         cursor = await self._db.execute(
@@ -824,9 +816,7 @@ class PatternAnalyzer:
     def _row_to_dict(row: aiosqlite.Row) -> dict[str, Any]:
         """将数据库行转为字典，处理 JSON 字段。"""
         d = dict(row)
-        json_fields = (
-            "context_snapshot", "metadata", "related_analysis_ids", "steps"
-        )
+        json_fields = ("context_snapshot", "metadata", "related_analysis_ids", "steps")
         for key in json_fields:
             if key in d and isinstance(d[key], str):
                 try:

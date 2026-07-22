@@ -27,7 +27,7 @@ import json
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -263,9 +263,7 @@ class ExternalLiveSessionManager:
 
         session = self._require(session_id)
         if not session.controller_session_id:
-            raise RuntimeError(
-                "Live session has no controller session; cannot resume. Re-attach."
-            )
+            raise RuntimeError("Live session has no controller session; cannot resume. Re-attach.")
 
         controller = self._get_controller()
         run = await controller.run_session(
@@ -323,8 +321,7 @@ class ExternalLiveSessionManager:
         try:
             data = json.loads(self.state_path.read_text(encoding="utf-8"))
             self.sessions = {
-                item["session_id"]: LiveSession(**item)
-                for item in data.get("sessions", [])
+                item["session_id"]: LiveSession(**item) for item in data.get("sessions", [])
             }
         except Exception:
             self.sessions = {}

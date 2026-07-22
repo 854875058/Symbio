@@ -11,7 +11,6 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from symbio.agents.builtin.external_backed_agent import (
     ClaudeCodeAgent,
     CodexAgent,
-    ExternalBackedAgent,
 )
 from symbio.agents.registry import get_registry
 from symbio.utils.types import Intent, Task
@@ -20,6 +19,7 @@ from symbio.utils.types import Intent, Task
 # ---------------------------------------------------------------------------
 # 注册
 # ---------------------------------------------------------------------------
+
 
 def test_agents_registered():
     reg = get_registry()
@@ -32,6 +32,7 @@ def test_agents_registered():
 # ---------------------------------------------------------------------------
 # 注入 controller 的执行
 # ---------------------------------------------------------------------------
+
 
 class _FakeRunResult:
     def __init__(self, *, success=True, stdout="done", error="", exit_code=0, dry_run=False):
@@ -52,8 +53,10 @@ class _FakeController:
 
     def create_session(self, request):
         self.created.append(request)
+
         class _S:
             session_id = "sess-1"
+
         return _S()
 
     async def run_session(self, session_id, request):
@@ -104,10 +107,13 @@ async def test_prompt_includes_workflow_and_memory_context():
 
     ctrl = _CapCtrl(_FakeRunResult())
     agent = ClaudeCodeAgent(controller=ctrl)
-    task = Task(intent=Intent(raw_text="核心问题"), metadata={
-        "workflow_guidance": "先规划再执行",
-        "memory_context": "生产需审批",
-    })
+    task = Task(
+        intent=Intent(raw_text="核心问题"),
+        metadata={
+            "workflow_guidance": "先规划再执行",
+            "memory_context": "生产需审批",
+        },
+    )
     await agent.execute(task)
     assert "先规划再执行" in captured["prompt"]
     assert "生产需审批" in captured["prompt"]
@@ -118,14 +124,18 @@ async def test_prompt_includes_workflow_and_memory_context():
 # dry-run（真实 controller，不需要 CLI 安装）
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_dry_run_with_real_controller(tmp_path, monkeypatch):
     # 用真实 ExternalAgentController，工作区设为项目根的子目录以通过边界校验
     from symbio.tools.external_agents import ExternalAgentController
+
     work = PROJECT_ROOT  # 项目根本身在 workspace_root 内
     ctrl = ExternalAgentController(workspace_root=str(work))
     agent = ClaudeCodeAgent(controller=ctrl, workspace=".")
-    result = await agent.execute(Task(intent=Intent(raw_text="加个函数"), metadata={"dry_run": True}))
+    result = await agent.execute(
+        Task(intent=Intent(raw_text="加个函数"), metadata={"dry_run": True})
+    )
     assert result.success
     assert "Dry run" in result.content
     assert result.data["dry_run"] is True

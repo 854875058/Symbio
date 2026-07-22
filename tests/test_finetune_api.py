@@ -44,10 +44,18 @@ def _make_dataset(tmp_path) -> str:
     ds = tmp_path / "train.jsonl"
     with ds.open("w", encoding="utf-8") as f:
         for i in range(3):
-            f.write(json.dumps({"conversations": [
-                {"role": "user", "content": f"问题{i}"},
-                {"role": "assistant", "content": "回答"},
-            ]}, ensure_ascii=False) + "\n")
+            f.write(
+                json.dumps(
+                    {
+                        "conversations": [
+                            {"role": "user", "content": f"问题{i}"},
+                            {"role": "assistant", "content": "回答"},
+                        ]
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
     return str(ds)
 
 
@@ -62,9 +70,14 @@ async def test_list_datasets_returns_structure(client):
 @pytest.mark.asyncio
 async def test_submit_finetune_returns_job_id_immediately(client, tmp_path):
     dataset = _make_dataset(tmp_path)
-    resp = await client.post("/api/flywheel/finetune", json={
-        "dataset_path": dataset, "model_name": "sshleifer/tiny-gpt2", "epochs": 1,
-    })
+    resp = await client.post(
+        "/api/flywheel/finetune",
+        json={
+            "dataset_path": dataset,
+            "model_name": "sshleifer/tiny-gpt2",
+            "epochs": 1,
+        },
+    )
     assert resp.status_code == 200
     body = resp.json()
     assert body["job_id"]
@@ -73,18 +86,26 @@ async def test_submit_finetune_returns_job_id_immediately(client, tmp_path):
 
 @pytest.mark.asyncio
 async def test_missing_dataset_returns_404(client):
-    resp = await client.post("/api/flywheel/finetune", json={
-        "dataset_path": "definitely-not-here.jsonl",
-    })
+    resp = await client.post(
+        "/api/flywheel/finetune",
+        json={
+            "dataset_path": "definitely-not-here.jsonl",
+        },
+    )
     assert resp.status_code == 404
 
 
 @pytest.mark.asyncio
 async def test_finetune_job_completes_and_is_queryable(client, tmp_path):
     dataset = _make_dataset(tmp_path)
-    submit = await client.post("/api/flywheel/finetune", json={
-        "dataset_path": dataset, "model_name": "sshleifer/tiny-gpt2", "epochs": 2,
-    })
+    submit = await client.post(
+        "/api/flywheel/finetune",
+        json={
+            "dataset_path": dataset,
+            "model_name": "sshleifer/tiny-gpt2",
+            "epochs": 2,
+        },
+    )
     job_id = submit.json()["job_id"]
 
     # 轮询直到作业结束（stub 很快，但后台线程需要极短时间）
@@ -99,8 +120,8 @@ async def test_finetune_job_completes_and_is_queryable(client, tmp_path):
 
     assert status == "completed"
     detail = (await client.get(f"/api/flywheel/finetune/{job_id}")).json()
-    assert detail["backend"] == "stub"          # 强制 stub 生效
-    assert len(detail["metrics"]) > 0            # 有指标曲线
+    assert detail["backend"] == "stub"  # 强制 stub 生效
+    assert len(detail["metrics"]) > 0  # 有指标曲线
     assert detail["progress_ratio"] >= 0.0
 
     # 作业出现在列表里

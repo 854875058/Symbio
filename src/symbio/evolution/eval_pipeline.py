@@ -199,9 +199,7 @@ class EvalCaseResult(BaseModel):
     tool_call_result: Optional[ToolCallAccuracyResult] = Field(
         default=None, description="工具调用准确率结果"
     )
-    quality_result: Optional[OutputQualityResult] = Field(
-        default=None, description="输出质量结果"
-    )
+    quality_result: Optional[OutputQualityResult] = Field(default=None, description="输出质量结果")
 
     # 通用
     error_message: str = Field(default="", description="错误信息")
@@ -395,43 +393,51 @@ class ToolCallEvaluator:
 
             if not exp.required and count == 0:
                 # 非必须且未调用 -> 跳过，不算缺失
-                details.append({
-                    "tool_name": exp.tool_name,
-                    "status": "optional_skip",
-                    "expected_min": exp.min_call_count,
-                    "actual_count": 0,
-                })
+                details.append(
+                    {
+                        "tool_name": exp.tool_name,
+                        "status": "optional_skip",
+                        "expected_min": exp.min_call_count,
+                        "actual_count": 0,
+                    }
+                )
                 continue
 
             if count >= exp.min_call_count:
                 if exp.max_call_count is not None and count > exp.max_call_count:
                     # 超过最大次数
                     matched_total += exp.max_call_count
-                    details.append({
-                        "tool_name": exp.tool_name,
-                        "status": "over_called",
-                        "expected_range": f"[{exp.min_call_count}, {exp.max_call_count}]",
-                        "actual_count": count,
-                    })
+                    details.append(
+                        {
+                            "tool_name": exp.tool_name,
+                            "status": "over_called",
+                            "expected_range": f"[{exp.min_call_count}, {exp.max_call_count}]",
+                            "actual_count": count,
+                        }
+                    )
                 else:
                     matched_total += count
-                    details.append({
-                        "tool_name": exp.tool_name,
-                        "status": "matched",
-                        "expected_min": exp.min_call_count,
-                        "actual_count": count,
-                    })
+                    details.append(
+                        {
+                            "tool_name": exp.tool_name,
+                            "status": "matched",
+                            "expected_min": exp.min_call_count,
+                            "actual_count": count,
+                        }
+                    )
             else:
                 # 调用次数不足
                 matched_total += count
                 result.missing += 1
                 result.missing_tools.append(exp.tool_name)
-                details.append({
-                    "tool_name": exp.tool_name,
-                    "status": "insufficient",
-                    "expected_min": exp.min_call_count,
-                    "actual_count": count,
-                })
+                details.append(
+                    {
+                        "tool_name": exp.tool_name,
+                        "status": "insufficient",
+                        "expected_min": exp.min_call_count,
+                        "actual_count": count,
+                    }
+                )
 
         # 检查意外调用（实际有但预期中没有的工具）
         expected_names = {exp.tool_name for exp in expected}
@@ -460,8 +466,7 @@ class ToolCallEvaluator:
         # F1
         if result.precision + result.recall > 0:
             result.f1_score = (
-                2 * result.precision * result.recall
-                / (result.precision + result.recall)
+                2 * result.precision * result.recall / (result.precision + result.recall)
             )
         else:
             result.f1_score = 0.0
@@ -546,9 +551,7 @@ class OutputQualityEvaluator:
 
         # 4. 自定义标准评估
         for criterion in criteria:
-            score = self._evaluate_custom_criterion(
-                criterion, actual_output, expected_output
-            )
+            score = self._evaluate_custom_criterion(criterion, actual_output, expected_output)
             criterion_scores.append(score)
 
         # 计算综合得分
@@ -561,10 +564,7 @@ class OutputQualityEvaluator:
             result.overall_score = 0.0
 
         # 判定是否通过：所有标准都通过且综合分 >= 0.5
-        result.passed = (
-            all(cs.passed for cs in criterion_scores)
-            and result.overall_score >= 0.5
-        )
+        result.passed = all(cs.passed for cs in criterion_scores) and result.overall_score >= 0.5
         result.criterion_scores = criterion_scores
 
         return result
@@ -775,50 +775,60 @@ class RegressionDetector:
                 current_acc = result.tool_call_result.accuracy
                 drop = base.tool_accuracy - current_acc
                 if drop > self._accuracy_threshold:
-                    regressions.append({
-                        "case_id": result.case_id,
-                        "case_name": result.case_name,
-                        "type": "tool_accuracy_regression",
-                        "severity": SeverityLevel.CRITICAL.value if drop > 0.2 else SeverityLevel.ERROR_LEVEL.value,
-                        "description": (
-                            f"工具调用准确率从 {base.tool_accuracy:.3f} 下降到 "
-                            f"{current_acc:.3f} (下降 {drop:.3f})"
-                        ),
-                        "baseline_value": base.tool_accuracy,
-                        "current_value": current_acc,
-                        "drop": drop,
-                    })
+                    regressions.append(
+                        {
+                            "case_id": result.case_id,
+                            "case_name": result.case_name,
+                            "type": "tool_accuracy_regression",
+                            "severity": SeverityLevel.CRITICAL.value
+                            if drop > 0.2
+                            else SeverityLevel.ERROR_LEVEL.value,
+                            "description": (
+                                f"工具调用准确率从 {base.tool_accuracy:.3f} 下降到 "
+                                f"{current_acc:.3f} (下降 {drop:.3f})"
+                            ),
+                            "baseline_value": base.tool_accuracy,
+                            "current_value": current_acc,
+                            "drop": drop,
+                        }
+                    )
 
             # 检查输出质量回归
             if result.quality_result and base.quality_score > 0:
                 current_quality = result.quality_result.overall_score
                 drop = base.quality_score - current_quality
                 if drop > self._quality_threshold:
-                    regressions.append({
-                        "case_id": result.case_id,
-                        "case_name": result.case_name,
-                        "type": "quality_regression",
-                        "severity": SeverityLevel.CRITICAL.value if drop > 0.3 else SeverityLevel.ERROR_LEVEL.value,
-                        "description": (
-                            f"输出质量从 {base.quality_score:.3f} 下降到 "
-                            f"{current_quality:.3f} (下降 {drop:.3f})"
-                        ),
-                        "baseline_value": base.quality_score,
-                        "current_value": current_quality,
-                        "drop": drop,
-                    })
+                    regressions.append(
+                        {
+                            "case_id": result.case_id,
+                            "case_name": result.case_name,
+                            "type": "quality_regression",
+                            "severity": SeverityLevel.CRITICAL.value
+                            if drop > 0.3
+                            else SeverityLevel.ERROR_LEVEL.value,
+                            "description": (
+                                f"输出质量从 {base.quality_score:.3f} 下降到 "
+                                f"{current_quality:.3f} (下降 {drop:.3f})"
+                            ),
+                            "baseline_value": base.quality_score,
+                            "current_value": current_quality,
+                            "drop": drop,
+                        }
+                    )
 
             # 检查新增失败
             if result.status in (EvalStatus.FAILED, EvalStatus.ERROR):
                 # 基线中有记录说明之前通过过
-                regressions.append({
-                    "case_id": result.case_id,
-                    "case_name": result.case_name,
-                    "type": "new_failure",
-                    "severity": SeverityLevel.CRITICAL.value,
-                    "description": f"用例从通过变为 {result.status.value}",
-                    "error_message": result.error_message,
-                })
+                regressions.append(
+                    {
+                        "case_id": result.case_id,
+                        "case_name": result.case_name,
+                        "type": "new_failure",
+                        "severity": SeverityLevel.CRITICAL.value,
+                        "description": f"用例从通过变为 {result.status.value}",
+                        "error_message": result.error_message,
+                    }
+                )
 
         return regressions
 
@@ -850,9 +860,7 @@ class BaselineManager:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
             store = BaselineStore(**data)
-            logger.info(
-                f"Loaded baseline for '{suite_name}': {len(store.metrics)} metrics"
-            )
+            logger.info(f"Loaded baseline for '{suite_name}': {len(store.metrics)} metrics")
             return store
         except (json.JSONDecodeError, Exception) as exc:
             logger.error(f"Failed to load baseline for '{suite_name}': {exc}")
@@ -868,9 +876,7 @@ class BaselineManager:
                 store.model_dump_json(indent=2),
                 encoding="utf-8",
             )
-            logger.info(
-                f"Saved baseline for '{store.suite_name}': {len(store.metrics)} metrics"
-            )
+            logger.info(f"Saved baseline for '{store.suite_name}': {len(store.metrics)} metrics")
         except OSError as exc:
             logger.error(f"Failed to save baseline: {exc}")
 
@@ -890,9 +896,7 @@ class BaselineManager:
             existing = BaselineStore(suite_name=report.suite_name)
 
         # 构建已有指标索引
-        metric_map: dict[str, BaselineMetric] = {
-            m.case_id: m for m in existing.metrics
-        }
+        metric_map: dict[str, BaselineMetric] = {m.case_id: m for m in existing.metrics}
 
         for case_result in report.case_results:
             if case_result.status not in (EvalStatus.PASSED, EvalStatus.FAILED):
@@ -1168,8 +1172,7 @@ class EvalPipeline:
         )
 
         logger.info(
-            f"Starting evaluation: '{suite.name}' v{suite.version} "
-            f"({len(suite.cases)} cases)"
+            f"Starting evaluation: '{suite.name}' v{suite.version} ({len(suite.cases)} cases)"
         )
 
         # 执行每个用例
@@ -1193,24 +1196,18 @@ class EvalPipeline:
         # 回归检测
         baseline = self._baseline_manager.load(suite.name)
         if baseline is not None:
-            regressions = self._regression_detector.detect(
-                report.case_results, baseline
-            )
+            regressions = self._regression_detector.detect(report.case_results, baseline)
             report.regressions = regressions
             report.has_regression = len(regressions) > 0
             if regressions:
-                logger.warning(
-                    f"Detected {len(regressions)} regression(s) in suite '{suite.name}'"
-                )
+                logger.warning(f"Detected {len(regressions)} regression(s) in suite '{suite.name}'")
                 for reg in regressions:
                     logger.warning(
                         f"  [{reg['severity']}] {reg['case_name']}: {reg['description']}"
                     )
 
         report.completed_at = datetime.now()
-        report.duration_seconds = (
-            report.completed_at - report.started_at
-        ).total_seconds()
+        report.duration_seconds = (report.completed_at - report.started_at).total_seconds()
 
         # 更新基线
         if update_baseline:
@@ -1321,9 +1318,7 @@ class EvalPipeline:
 
         return result
 
-    def _evaluate_tool_calls(
-        self, case: EvalTestCase, result: EvalCaseResult
-    ) -> None:
+    def _evaluate_tool_calls(self, case: EvalTestCase, result: EvalCaseResult) -> None:
         """评估工具调用准确率。"""
         if not case.expected_tool_calls:
             return
@@ -1335,21 +1330,23 @@ class EvalPipeline:
 
         # 记录问题
         if tool_result.missing_tools:
-            result.issues.append({
-                "type": "missing_tools",
-                "severity": SeverityLevel.ERROR_LEVEL.value,
-                "description": f"缺失工具调用: {', '.join(tool_result.missing_tools)}",
-            })
+            result.issues.append(
+                {
+                    "type": "missing_tools",
+                    "severity": SeverityLevel.ERROR_LEVEL.value,
+                    "description": f"缺失工具调用: {', '.join(tool_result.missing_tools)}",
+                }
+            )
         if tool_result.unexpected_tools:
-            result.issues.append({
-                "type": "unexpected_tools",
-                "severity": SeverityLevel.WARNING.value,
-                "description": f"意外工具调用: {', '.join(tool_result.unexpected_tools)}",
-            })
+            result.issues.append(
+                {
+                    "type": "unexpected_tools",
+                    "severity": SeverityLevel.WARNING.value,
+                    "description": f"意外工具调用: {', '.join(tool_result.unexpected_tools)}",
+                }
+            )
 
-    def _evaluate_output_quality(
-        self, case: EvalTestCase, result: EvalCaseResult
-    ) -> None:
+    def _evaluate_output_quality(self, case: EvalTestCase, result: EvalCaseResult) -> None:
         """评估输出质量。"""
         quality_result = self._quality_evaluator.evaluate(
             result.actual_output,
@@ -1361,17 +1358,17 @@ class EvalPipeline:
         # 记录未通过的标准
         for cs in quality_result.criterion_scores:
             if not cs.passed:
-                result.issues.append({
-                    "type": "quality_criterion_failed",
-                    "severity": SeverityLevel.WARNING.value,
-                    "criterion": cs.criterion_name,
-                    "description": f"质量标准 '{cs.criterion_name}' 未通过: {cs.reason}",
-                })
+                result.issues.append(
+                    {
+                        "type": "quality_criterion_failed",
+                        "severity": SeverityLevel.WARNING.value,
+                        "criterion": cs.criterion_name,
+                        "description": f"质量标准 '{cs.criterion_name}' 未通过: {cs.reason}",
+                    }
+                )
 
     @staticmethod
-    def _determine_status(
-        result: EvalCaseResult, case: EvalTestCase
-    ) -> EvalStatus:
+    def _determine_status(result: EvalCaseResult, case: EvalTestCase) -> EvalStatus:
         """根据评估结果判定最终状态。"""
         has_tool_eval = result.tool_call_result is not None
         has_quality_eval = result.quality_result is not None
@@ -1413,9 +1410,7 @@ class EvalPipeline:
         report.avg_tool_accuracy = (
             sum(tool_accuracies) / len(tool_accuracies) if tool_accuracies else 0.0
         )
-        report.avg_tool_f1 = (
-            sum(tool_f1s) / len(tool_f1s) if tool_f1s else 0.0
-        )
+        report.avg_tool_f1 = sum(tool_f1s) / len(tool_f1s) if tool_f1s else 0.0
         report.avg_quality_score = (
             sum(quality_scores) / len(quality_scores) if quality_scores else 0.0
         )
@@ -1470,7 +1465,8 @@ class EvalPipeline:
             if cr_a.status == EvalStatus.FAILED and cr_b.status == EvalStatus.PASSED:
                 comparison["improved"].append(cr_b.case_name)
             elif cr_a.status == EvalStatus.PASSED and cr_b.status in (
-                EvalStatus.FAILED, EvalStatus.ERROR
+                EvalStatus.FAILED,
+                EvalStatus.ERROR,
             ):
                 comparison["degraded"].append(cr_b.case_name)
 
@@ -1513,8 +1509,8 @@ class EvalPipeline:
             "",
             "## Summary",
             "",
-            f"| Metric | Value |",
-            f"|--------|-------|",
+            "| Metric | Value |",
+            "|--------|-------|",
             f"| Total Cases | {report.total_cases} |",
             f"| Passed | {report.passed} |",
             f"| Failed | {report.failed} |",

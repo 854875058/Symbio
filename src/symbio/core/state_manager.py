@@ -25,6 +25,7 @@ logger = get_logger("state_manager")
 # Data models
 # ---------------------------------------------------------------------------
 
+
 class TaskPhase(str, Enum):
     """任务阶段枚举"""
 
@@ -133,6 +134,7 @@ class GlobalState(BaseModel):
 # State Manager
 # ---------------------------------------------------------------------------
 
+
 class StateManager:
     """状态管理器 - 线程安全的全局状态管理
 
@@ -230,12 +232,14 @@ class StateManager:
 
         checkpoint = WorkflowCheckpoint(name=name, details=details or {})
         return await self.update(
-            lambda s: s.model_copy(update={
-                "workflow_checkpoints": [
-                    *s.workflow_checkpoints,
-                    checkpoint,
-                ],
-            })
+            lambda s: s.model_copy(
+                update={
+                    "workflow_checkpoints": [
+                        *s.workflow_checkpoints,
+                        checkpoint,
+                    ],
+                }
+            )
         )
 
     async def record_agent_handoff(
@@ -257,12 +261,14 @@ class StateManager:
             payload=payload or {},
         )
         return await self.update(
-            lambda s: s.model_copy(update={
-                "agent_handoffs": [
-                    *s.agent_handoffs,
-                    handoff,
-                ],
-            })
+            lambda s: s.model_copy(
+                update={
+                    "agent_handoffs": [
+                        *s.agent_handoffs,
+                        handoff,
+                    ],
+                }
+            )
         )
 
     async def compare_and_swap(
@@ -288,8 +294,7 @@ class StateManager:
 
             if self._state.version != expected_version:
                 logger.warning(
-                    f"CAS 版本冲突: expected={expected_version}, "
-                    f"actual={self._state.version}"
+                    f"CAS 版本冲突: expected={expected_version}, actual={self._state.version}"
                 )
                 return False
 
@@ -347,10 +352,7 @@ class StateManager:
             ),
         )
         await self._db.commit()
-        logger.debug(
-            f"状态已持久化: task_id={self._state.task_id}, "
-            f"version={self._state.version}"
-        )
+        logger.debug(f"状态已持久化: task_id={self._state.task_id}, version={self._state.version}")
 
     async def restore(self, task_id: str) -> Optional[GlobalState]:
         """从 SQLite 恢复最新版本的状态
@@ -376,9 +378,7 @@ class StateManager:
             return None
 
         self._state = GlobalState.model_validate_json(row[0])
-        logger.info(
-            f"状态恢复成功: task_id={task_id}, version={self._state.version}"
-        )
+        logger.info(f"状态恢复成功: task_id={task_id}, version={self._state.version}")
         return self._state.model_copy(deep=True)
 
     async def list_snapshots(
@@ -404,15 +404,13 @@ class StateManager:
             (task_id, limit),
         )
         rows = await cursor.fetchall()
-        return [
-            {"version": row[0], "created_at": row[1]}
-            for row in rows
-        ]
+        return [{"version": row[0], "created_at": row[1]} for row in rows]
 
 
 # ---------------------------------------------------------------------------
 # Instruction Generator
 # ---------------------------------------------------------------------------
+
 
 class InstructionGenerator:
     """从全局状态生成 Agent 任务指令
@@ -442,9 +440,7 @@ class InstructionGenerator:
         instruction += f"{next_item.get('description', '')}\n\n"
 
         if next_item.get("files"):
-            instruction += (
-                f"Expected output files: {', '.join(next_item['files'])}\n"
-            )
+            instruction += f"Expected output files: {', '.join(next_item['files'])}\n"
 
         if next_item.get("test"):
             instruction += f"Verification: {next_item['test']}\n"
@@ -476,9 +472,7 @@ class InstructionGenerator:
             "task_id": state.task_id,
             "phase": state.phase.value,
             "current_item": current_item,
-            "completed_count": sum(
-                1 for i in items if i.get("status") == "completed"
-            ),
+            "completed_count": sum(1 for i in items if i.get("status") == "completed"),
             "total_count": len(items),
             "test_results": state.test_results.model_dump(),
             "agent_handoffs": [
@@ -490,9 +484,7 @@ class InstructionGenerator:
                 }
                 for handoff in state.agent_handoffs[-3:]
             ],
-            "errors": [
-                e.model_dump() for e in state.errors[-3:]
-            ],  # 最近 3 条错误
+            "errors": [e.model_dump() for e in state.errors[-3:]],  # 最近 3 条错误
         }
 
 

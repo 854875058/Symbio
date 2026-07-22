@@ -34,14 +34,16 @@ logger = get_logger("resource_manager")
 
 class CircuitLevel(str, Enum):
     """熔断等级"""
-    NORMAL = "normal"          # 正常运行
-    WARNING = "warning"        # 接近阈值，发出预警
-    CRITICAL = "critical"      # 高度危险，建议挂起
-    HALTED = "halted"          # 已熔断，任务挂起
+
+    NORMAL = "normal"  # 正常运行
+    WARNING = "warning"  # 接近阈值，发出预警
+    CRITICAL = "critical"  # 高度危险，建议挂起
+    HALTED = "halted"  # 已熔断，任务挂起
 
 
 class ResourceBudget(BaseModel):
     """资源配置 — 用户提交任务时指定的资源上限"""
+
     task_id: str
     max_cost_usd: float = 10.0
     max_steps: int = 50
@@ -49,9 +51,9 @@ class ResourceBudget(BaseModel):
     timeout_seconds: int = 3600
 
     # 熔断阈值（百分比，0.0 ~ 1.0）
-    warning_threshold: float = 0.7    # 70% 时发出警告
-    critical_threshold: float = 0.9   # 90% 时进入临界
-    halt_threshold: float = 1.0       # 100% 时熔断停机
+    warning_threshold: float = 0.7  # 70% 时发出警告
+    critical_threshold: float = 0.9  # 90% 时进入临界
+    halt_threshold: float = 1.0  # 100% 时熔断停机
 
     # 创建时间（用于计算经过时间，避免访问底层私有成员）
     created_at: datetime = Field(default_factory=datetime.now)
@@ -59,6 +61,7 @@ class ResourceBudget(BaseModel):
 
 class ResourceStatusSnapshot(BaseModel):
     """实时资源状态快照 — 用于仪表盘展示"""
+
     task_id: str
     circuit_level: CircuitLevel
 
@@ -95,6 +98,7 @@ class ResourceStatusSnapshot(BaseModel):
 
 class AggregateStats(BaseModel):
     """全局聚合统计 — 所有活跃任务的汇总数据"""
+
     active_task_count: int = 0
     total_consumed_cost_usd: float = 0.0
     total_consumed_tokens: int = 0
@@ -467,21 +471,9 @@ class ResourceManager:
         remaining = guardrail_status["remaining"]
 
         # 计算使用率
-        cost_ratio = (
-            consumed["cost_usd"] / budget.max_cost_usd
-            if budget.max_cost_usd > 0
-            else 0.0
-        )
-        step_ratio = (
-            consumed["steps"] / budget.max_steps
-            if budget.max_steps > 0
-            else 0.0
-        )
-        token_ratio = (
-            consumed["tokens"] / budget.max_tokens
-            if budget.max_tokens > 0
-            else 0.0
-        )
+        cost_ratio = consumed["cost_usd"] / budget.max_cost_usd if budget.max_cost_usd > 0 else 0.0
+        step_ratio = consumed["steps"] / budget.max_steps if budget.max_steps > 0 else 0.0
+        token_ratio = consumed["tokens"] / budget.max_tokens if budget.max_tokens > 0 else 0.0
 
         # 计算经过时间（使用 budget 的 created_at，不访问 guardrail 私有成员）
         elapsed = (datetime.now() - budget.created_at).total_seconds()
@@ -504,7 +496,8 @@ class ResourceManager:
             elapsed_seconds=elapsed,
             timeout_seconds=budget.timeout_seconds,
             is_expired=guardrail_status["expired"],
-            is_exhausted=guardrail_status["expired"] or (
+            is_exhausted=guardrail_status["expired"]
+            or (
                 consumed["cost_usd"] >= budget.max_cost_usd
                 or consumed["steps"] >= budget.max_steps
                 or consumed["tokens"] >= budget.max_tokens
@@ -539,10 +532,7 @@ class ResourceManager:
         total_tokens = sum(s.consumed_tokens for s in snapshots)
         total_steps = sum(s.consumed_steps for s in snapshots)
         suspended_count = sum(1 for s in snapshots if s.is_suspended)
-        halted_count = sum(
-            1 for s in snapshots
-            if s.circuit_level == CircuitLevel.HALTED
-        )
+        halted_count = sum(1 for s in snapshots if s.circuit_level == CircuitLevel.HALTED)
 
         return AggregateStats(
             active_task_count=len(snapshots),
@@ -730,9 +720,7 @@ class ResourceManager:
                 loop.create_task(callback(task_id, new_level, snapshot))
             except RuntimeError:
                 # 没有运行中的事件循环，同步调用
-                logger.debug(
-                    f"无事件循环，跳过异步回调: {callback.__qualname__}"
-                )
+                logger.debug(f"无事件循环，跳过异步回调: {callback.__qualname__}")
 
     def _suspend_task(
         self,
@@ -761,9 +749,7 @@ class ResourceManager:
                 "tokens": snapshot.remaining_tokens,
             }
 
-        logger.error(
-            f"任务挂起: task_id={task_id}, reason={reason}, remaining={remaining}"
-        )
+        logger.error(f"任务挂起: task_id={task_id}, reason={reason}, remaining={remaining}")
 
         self._emit_event_sync(
             EventType.HITL_SUSPENDED,
@@ -805,6 +791,4 @@ class ResourceManager:
             loop = asyncio.get_running_loop()
             loop.create_task(self._event_bus.emit(event))
         except RuntimeError:
-            logger.debug(
-                f"无事件循环，跳过事件发布: {event_type.value}"
-            )
+            logger.debug(f"无事件循环，跳过事件发布: {event_type.value}")

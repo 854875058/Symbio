@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import threading
-import time
 from datetime import datetime
 from enum import Enum
 from typing import Any, Callable, Optional
@@ -21,8 +20,10 @@ logger = get_logger("interfaces.edge.iot")
 # 数据模型
 # ---------------------------------------------------------------------------
 
+
 class DeviceStatus(str, Enum):
     """设备状态"""
+
     OFFLINE = "offline"
     ONLINE = "online"
     PROVISIONING = "provisioning"
@@ -33,13 +34,15 @@ class DeviceStatus(str, Enum):
 
 class MQTTQoS(int, Enum):
     """MQTT QoS 级别"""
-    AT_MOST_ONCE = 0    # 最多一次
-    AT_LEAST_ONCE = 1   # 至少一次
-    EXACTLY_ONCE = 2    # 恰好一次
+
+    AT_MOST_ONCE = 0  # 最多一次
+    AT_LEAST_ONCE = 1  # 至少一次
+    EXACTLY_ONCE = 2  # 恰好一次
 
 
 class CommandType(str, Enum):
     """设备命令类型"""
+
     REBOOT = "reboot"
     UPDATE_FIRMWARE = "update_firmware"
     UPDATE_CONFIG = "update_config"
@@ -50,6 +53,7 @@ class CommandType(str, Enum):
 
 class CommandStatus(str, Enum):
     """命令执行状态"""
+
     PENDING = "pending"
     SENT = "sent"
     ACKNOWLEDGED = "acknowledged"
@@ -61,6 +65,7 @@ class CommandStatus(str, Enum):
 
 class MQTTConfig(BaseModel):
     """MQTT 连接配置"""
+
     broker_host: str = "localhost"
     broker_port: int = 1883
     username: str = ""
@@ -76,6 +81,7 @@ class MQTTConfig(BaseModel):
 
 class DeviceProfile(BaseModel):
     """设备档案"""
+
     device_id: str
     name: str
     device_type: str = "generic"
@@ -93,6 +99,7 @@ class DeviceProfile(BaseModel):
 
 class DeviceCommand(BaseModel):
     """设备命令"""
+
     command_id: str = Field(default_factory=lambda: str(uuid4()))
     device_id: str
     command_type: CommandType
@@ -109,6 +116,7 @@ class DeviceCommand(BaseModel):
 
 class TelemetryData(BaseModel):
     """设备遥测数据"""
+
     data_id: str = Field(default_factory=lambda: str(uuid4()))
     device_id: str
     metrics: dict[str, Any] = Field(default_factory=dict)
@@ -117,6 +125,7 @@ class TelemetryData(BaseModel):
 
 class MQTTMessage(BaseModel):
     """MQTT 消息"""
+
     message_id: str = Field(default_factory=lambda: str(uuid4()))
     topic: str
     payload: str
@@ -128,6 +137,7 @@ class MQTTMessage(BaseModel):
 # ---------------------------------------------------------------------------
 # MQTT 客户端接口
 # ---------------------------------------------------------------------------
+
 
 class MQTTClientInterface:
     """MQTT 客户端接口
@@ -211,6 +221,7 @@ class MQTTClientInterface:
 # ---------------------------------------------------------------------------
 # 设备管理器
 # ---------------------------------------------------------------------------
+
 
 class IoTDeviceManager:
     """IoT 设备管理器
@@ -340,11 +351,13 @@ class IoTDeviceManager:
 
         # 通过 MQTT 发送命令
         topic = f"devices/{device_id}/command"
-        message = json.dumps({
-            "command_id": command.command_id,
-            "type": command_type.value,
-            "payload": command.payload,
-        })
+        message = json.dumps(
+            {
+                "command_id": command.command_id,
+                "type": command_type.value,
+                "payload": command.payload,
+            }
+        )
 
         success = self._mqtt_client.publish(topic, message, qos=MQTTQoS.AT_LEAST_ONCE)
         command.status = CommandStatus.SENT if success else CommandStatus.FAILED
@@ -385,9 +398,7 @@ class IoTDeviceManager:
         limit: int = 100,
     ) -> list[TelemetryData]:
         """获取设备遥测数据"""
-        return [
-            t for t in self._telemetry_buffer if t.device_id == device_id
-        ][-limit:]
+        return [t for t in self._telemetry_buffer if t.device_id == device_id][-limit:]
 
     def get_command_status(self, command_id: str) -> DeviceCommand | None:
         """获取命令状态"""
@@ -405,7 +416,9 @@ class IoTDeviceManager:
             "total_devices": len(devices),
             "status_counts": status_counts,
             "total_commands": len(self._commands),
-            "pending_commands": sum(1 for c in self._commands.values() if c.status == CommandStatus.PENDING),
+            "pending_commands": sum(
+                1 for c in self._commands.values() if c.status == CommandStatus.PENDING
+            ),
             "total_telemetry_records": len(self._telemetry_buffer),
         }
 

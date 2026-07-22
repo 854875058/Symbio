@@ -28,6 +28,7 @@ logger = get_logger("database")
 # Uses PBKDF2 + XOR cipher. For production, consider using 'cryptography' lib.
 # ---------------------------------------------------------------------------
 
+
 class _FieldEncryptor:
     """Encrypt/decrypt sensitive database fields."""
 
@@ -258,9 +259,7 @@ class Database:
 
         # Migration: add sequence column to existing messages table
         try:
-            await self.db.execute(
-                "ALTER TABLE messages ADD COLUMN sequence INTEGER"
-            )
+            await self.db.execute("ALTER TABLE messages ADD COLUMN sequence INTEGER")
             await self.db.commit()
         except Exception:
             pass  # Column already exists
@@ -310,18 +309,66 @@ class Database:
     async def _seed_skills(self) -> None:
         """插入示例技能数据"""
         skills = [
-            ("sk-001", "code-review", "Review code for correctness, security, and performance issues with detailed findings",
-             "1.2.0", "builtin", True, json.dumps(["代码审查", "code review", "review"]), "2026-05-20T10:00:00"),
-            ("sk-002", "doc-writer", "Generate technical documentation from code, APIs, or specifications",
-             "1.0.3", "builtin", True, json.dumps(["文档", "documentation", "docs"]), "2026-05-20T10:00:00"),
-            ("sk-003", "data-analyst", "Analyze datasets, generate statistics, and produce visualizations",
-             "0.9.1", "custom", True, json.dumps(["数据分析", "data analysis", "统计"]), "2026-05-21T14:00:00"),
-            ("sk-004", "test-generator", "Automatically generate unit tests and integration tests for given code",
-             "1.1.0", "builtin", True, json.dumps(["测试", "test", "单元测试"]), "2026-05-22T09:00:00"),
-            ("sk-005", "security-scanner", "Scan code and dependencies for known security vulnerabilities and CVEs",
-             "2.0.1", "external", False, json.dumps(["安全", "security", "CVE", "漏洞"]), "2026-05-23T16:00:00"),
-            ("sk-006", "translator", "Translate text between multiple languages with context-aware accuracy",
-             "1.3.2", "builtin", True, json.dumps(["翻译", "translate", "i18n"]), "2026-05-24T11:00:00"),
+            (
+                "sk-001",
+                "code-review",
+                "Review code for correctness, security, and performance issues with detailed findings",
+                "1.2.0",
+                "builtin",
+                True,
+                json.dumps(["代码审查", "code review", "review"]),
+                "2026-05-20T10:00:00",
+            ),
+            (
+                "sk-002",
+                "doc-writer",
+                "Generate technical documentation from code, APIs, or specifications",
+                "1.0.3",
+                "builtin",
+                True,
+                json.dumps(["文档", "documentation", "docs"]),
+                "2026-05-20T10:00:00",
+            ),
+            (
+                "sk-003",
+                "data-analyst",
+                "Analyze datasets, generate statistics, and produce visualizations",
+                "0.9.1",
+                "custom",
+                True,
+                json.dumps(["数据分析", "data analysis", "统计"]),
+                "2026-05-21T14:00:00",
+            ),
+            (
+                "sk-004",
+                "test-generator",
+                "Automatically generate unit tests and integration tests for given code",
+                "1.1.0",
+                "builtin",
+                True,
+                json.dumps(["测试", "test", "单元测试"]),
+                "2026-05-22T09:00:00",
+            ),
+            (
+                "sk-005",
+                "security-scanner",
+                "Scan code and dependencies for known security vulnerabilities and CVEs",
+                "2.0.1",
+                "external",
+                False,
+                json.dumps(["安全", "security", "CVE", "漏洞"]),
+                "2026-05-23T16:00:00",
+            ),
+            (
+                "sk-006",
+                "translator",
+                "Translate text between multiple languages with context-aware accuracy",
+                "1.3.2",
+                "builtin",
+                True,
+                json.dumps(["翻译", "translate", "i18n"]),
+                "2026-05-24T11:00:00",
+            ),
         ]
         await self.db.executemany(
             "INSERT INTO skills (id, name, description, version, source, enabled, trigger_keywords, created_at) "
@@ -332,12 +379,36 @@ class Database:
     async def _seed_models(self) -> None:
         """插入示例模型数据"""
         models = [
-            ("m-001", "claude-3-5-haiku-20241022", "anthropic", "Claude 3.5 Haiku",
-             "", "https://api.anthropic.com", True, "2026-05-20T10:00:00"),
-            ("m-002", "claude-sonnet-4-20250514", "anthropic", "Claude Sonnet 4",
-             "", "https://api.anthropic.com", True, "2026-05-20T10:00:00"),
-            ("m-003", "claude-opus-4-20250514", "anthropic", "Claude Opus 4",
-             "", "https://api.anthropic.com", True, "2026-05-20T10:00:00"),
+            (
+                "m-001",
+                "claude-3-5-haiku-20241022",
+                "anthropic",
+                "Claude 3.5 Haiku",
+                "",
+                "https://api.anthropic.com",
+                True,
+                "2026-05-20T10:00:00",
+            ),
+            (
+                "m-002",
+                "claude-sonnet-4-20250514",
+                "anthropic",
+                "Claude Sonnet 4",
+                "",
+                "https://api.anthropic.com",
+                True,
+                "2026-05-20T10:00:00",
+            ),
+            (
+                "m-003",
+                "claude-opus-4-20250514",
+                "anthropic",
+                "Claude Opus 4",
+                "",
+                "https://api.anthropic.com",
+                True,
+                "2026-05-20T10:00:00",
+            ),
         ]
         await self.db.executemany(
             "INSERT INTO models (id, model_id, provider, display_name, api_key, base_url, enabled, created_at) "
@@ -348,21 +419,56 @@ class Database:
     async def _seed_memories(self) -> None:
         """插入示例记忆数据"""
         memories = [
-            ("mem-001", "Python 快速排序算法",
-             "快速排序使用分治策略，选择基准元素，将数组分成两部分，递归排序。时间复杂度 O(n log n)，最坏 O(n^2)。实现要点：选择中间元素作为 pivot，使用双指针分区。",
-             json.dumps(["python", "算法", "排序"]), "chat", 0.85, "2026-05-27T14:30:00", 5),
-            ("mem-002", "DAG 引擎设计模式",
-             "动态 DAG 引擎用于编排多 Agent 工作流。核心概念：节点表示 Agent 任务，边表示依赖关系。支持条件分支、并行执行、错误重试。拓扑排序决定执行顺序。",
-             json.dumps(["架构", "DAG", "Agent"]), "chat", 0.92, "2026-05-27T15:00:00", 8),
-            ("mem-003", "数据库 Schema 设计规范",
-             "设计数据库 schema 的关键原则：第三范式避免冗余，适度反范式提升查询性能。命名使用 snake_case，主键用 UUID 或自增 ID，时间字段用 TIMESTAMP WITH TIME ZONE。",
-             json.dumps(["数据库", "设计", "PostgreSQL"]), "chat", 0.78, "2026-05-26T11:00:00", 3),
-            ("mem-004", "Anthropic API 认证方式",
-             "Anthropic API 使用 x-api-key 头部认证。Base URL 默认 https://api.anthropic.com，支持自定义。推荐使用 AsyncAnthropic 客户端进行异步调用，配合 retry 和 timeout 配置。",
-             json.dumps(["API", "认证", "Anthropic"]), "system", 0.95, "2026-05-25T09:00:00", 12),
-            ("mem-005", "WebSocket 心跳机制",
-             "WebSocket 长连接需要心跳保活。客户端每 30 秒发送 ping 帧，服务端返回 pong。超过 3 次未收到 pong 则判定断线，触发重连逻辑。指数退避策略：1s, 2s, 4s, 8s, 最大 30s。",
-             json.dumps(["WebSocket", "网络", "保活"]), "chat", 0.72, "2026-05-26T16:00:00", 2),
+            (
+                "mem-001",
+                "Python 快速排序算法",
+                "快速排序使用分治策略，选择基准元素，将数组分成两部分，递归排序。时间复杂度 O(n log n)，最坏 O(n^2)。实现要点：选择中间元素作为 pivot，使用双指针分区。",
+                json.dumps(["python", "算法", "排序"]),
+                "chat",
+                0.85,
+                "2026-05-27T14:30:00",
+                5,
+            ),
+            (
+                "mem-002",
+                "DAG 引擎设计模式",
+                "动态 DAG 引擎用于编排多 Agent 工作流。核心概念：节点表示 Agent 任务，边表示依赖关系。支持条件分支、并行执行、错误重试。拓扑排序决定执行顺序。",
+                json.dumps(["架构", "DAG", "Agent"]),
+                "chat",
+                0.92,
+                "2026-05-27T15:00:00",
+                8,
+            ),
+            (
+                "mem-003",
+                "数据库 Schema 设计规范",
+                "设计数据库 schema 的关键原则：第三范式避免冗余，适度反范式提升查询性能。命名使用 snake_case，主键用 UUID 或自增 ID，时间字段用 TIMESTAMP WITH TIME ZONE。",
+                json.dumps(["数据库", "设计", "PostgreSQL"]),
+                "chat",
+                0.78,
+                "2026-05-26T11:00:00",
+                3,
+            ),
+            (
+                "mem-004",
+                "Anthropic API 认证方式",
+                "Anthropic API 使用 x-api-key 头部认证。Base URL 默认 https://api.anthropic.com，支持自定义。推荐使用 AsyncAnthropic 客户端进行异步调用，配合 retry 和 timeout 配置。",
+                json.dumps(["API", "认证", "Anthropic"]),
+                "system",
+                0.95,
+                "2026-05-25T09:00:00",
+                12,
+            ),
+            (
+                "mem-005",
+                "WebSocket 心跳机制",
+                "WebSocket 长连接需要心跳保活。客户端每 30 秒发送 ping 帧，服务端返回 pong。超过 3 次未收到 pong 则判定断线，触发重连逻辑。指数退避策略：1s, 2s, 4s, 8s, 最大 30s。",
+                json.dumps(["WebSocket", "网络", "保活"]),
+                "chat",
+                0.72,
+                "2026-05-26T16:00:00",
+                2,
+            ),
         ]
         await self.db.executemany(
             "INSERT INTO memories (id, title, content, tags, source, importance, created_at, access_count) "
@@ -373,24 +479,56 @@ class Database:
     async def _seed_tasks(self) -> None:
         """插入示例任务及步骤数据"""
         tasks = [
-            ("t-001", "代码审查: api.py", "completed", "general_agent",
-             "2026-05-28T09:30:00", "2026-05-28T09:45:00",
-             "对 api.py 进行代码审查，检查安全性与性能问题",
-             "发现 3 个潜在问题，已生成修复建议"),
-            ("t-002", "数据清洗: 用户数据集", "running", "data_agent",
-             "2026-05-28T10:00:00", None,
-             "清洗用户行为数据，移除异常值和重复记录", None),
-            ("t-003", "API 文档生成", "failed", "doc_agent",
-             "2026-05-28T08:00:00", "2026-05-28T08:10:00",
-             "自动生成 OpenAPI 文档并导出为 Markdown",
-             "错误: 模板引擎渲染失败，缺少依赖模块 jinja2"),
-            ("t-004", "单元测试: core/orchestrator.py", "completed", "test_agent",
-             "2026-05-27T16:00:00", "2026-05-27T16:20:00",
-             "运行 orchestrator 模块的单元测试套件",
-             "42 个测试通过，0 个失败，覆盖率 87%"),
-            ("t-005", "依赖安全扫描", "running", "security_agent",
-             "2026-05-28T11:00:00", None,
-             "扫描项目依赖，检查已知 CVE 漏洞", None),
+            (
+                "t-001",
+                "代码审查: api.py",
+                "completed",
+                "general_agent",
+                "2026-05-28T09:30:00",
+                "2026-05-28T09:45:00",
+                "对 api.py 进行代码审查，检查安全性与性能问题",
+                "发现 3 个潜在问题，已生成修复建议",
+            ),
+            (
+                "t-002",
+                "数据清洗: 用户数据集",
+                "running",
+                "data_agent",
+                "2026-05-28T10:00:00",
+                None,
+                "清洗用户行为数据，移除异常值和重复记录",
+                None,
+            ),
+            (
+                "t-003",
+                "API 文档生成",
+                "failed",
+                "doc_agent",
+                "2026-05-28T08:00:00",
+                "2026-05-28T08:10:00",
+                "自动生成 OpenAPI 文档并导出为 Markdown",
+                "错误: 模板引擎渲染失败，缺少依赖模块 jinja2",
+            ),
+            (
+                "t-004",
+                "单元测试: core/orchestrator.py",
+                "completed",
+                "test_agent",
+                "2026-05-27T16:00:00",
+                "2026-05-27T16:20:00",
+                "运行 orchestrator 模块的单元测试套件",
+                "42 个测试通过，0 个失败，覆盖率 87%",
+            ),
+            (
+                "t-005",
+                "依赖安全扫描",
+                "running",
+                "security_agent",
+                "2026-05-28T11:00:00",
+                None,
+                "扫描项目依赖，检查已知 CVE 漏洞",
+                None,
+            ),
         ]
         await self.db.executemany(
             "INSERT INTO tasks (id, name, status, agent, created_at, completed_at, description, result) "
@@ -715,7 +853,16 @@ class Database:
         await self.db.execute(
             "INSERT INTO models (id, model_id, provider, display_name, api_key, base_url, enabled, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (record_id, model_id, provider, display_name or model_id, encrypted_key, base_url, enabled, created_at),
+            (
+                record_id,
+                model_id,
+                provider,
+                display_name or model_id,
+                encrypted_key,
+                base_url,
+                enabled,
+                created_at,
+            ),
         )
         await self.db.commit()
         logger.info(f"模型已添加: {display_name or model_id}")
@@ -997,7 +1144,9 @@ class Database:
         if existing is None:
             return None
 
-        completed_at = time.strftime("%Y-%m-%dT%H:%M:%S") if status in ("completed", "failed") else None
+        completed_at = (
+            time.strftime("%Y-%m-%dT%H:%M:%S") if status in ("completed", "failed") else None
+        )
 
         if result is not None:
             await self.db.execute(
@@ -1158,7 +1307,16 @@ class Database:
         await self.db.execute(
             "INSERT INTO memories (id, title, content, tags, source, importance, created_at, access_count) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (memory_id, title, content, json.dumps(tags, ensure_ascii=False), source, importance, created_at, access_count),
+            (
+                memory_id,
+                title,
+                content,
+                json.dumps(tags, ensure_ascii=False),
+                source,
+                importance,
+                created_at,
+                access_count,
+            ),
         )
         await self.db.commit()
         logger.info(f"记忆已创建: {title}")
@@ -1357,8 +1515,16 @@ class Database:
         await self.db.execute(
             "INSERT INTO skills (id, name, description, version, source, enabled, trigger_keywords, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (skill_id, name, description, version, source, enabled,
-             json.dumps(trigger_keywords, ensure_ascii=False), created_at),
+            (
+                skill_id,
+                name,
+                description,
+                version,
+                source,
+                enabled,
+                json.dumps(trigger_keywords, ensure_ascii=False),
+                created_at,
+            ),
         )
         await self.db.commit()
         logger.info(f"技能已创建: {name}")

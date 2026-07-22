@@ -88,16 +88,12 @@ class ExecutionPlanner:
                 metadata={
                     "parameters": subtask.parameters,
                     "task_metadata": self._task_metadata(task),
-                    "estimated_complexity": self._json_value(
-                        subtask.estimated_complexity
-                    ),
+                    "estimated_complexity": self._json_value(subtask.estimated_complexity),
                 },
             )
             for subtask in decomposition.subtasks
         ]
-        root_node_id = next(
-            node.node_id for node in nodes if not node.dependencies
-        )
+        root_node_id = next(node.node_id for node in nodes if not node.dependencies)
         edges = [
             {"source": dependency, "target": node.node_id}
             for node in nodes
@@ -119,12 +115,8 @@ class ExecutionPlanner:
     ) -> dict[str, Any]:
         metadata = {
             "intent": task.intent.model_dump(mode="json"),
-            "decomposition_reasoning": decomposition.reasoning
-            if decomposition is not None
-            else "",
-            "needs_debate": decomposition.needs_debate
-            if decomposition is not None
-            else False,
+            "decomposition_reasoning": decomposition.reasoning if decomposition is not None else "",
+            "needs_debate": decomposition.needs_debate if decomposition is not None else False,
         }
         if rejection_reason:
             metadata["decomposition_rejected"] = True
@@ -165,10 +157,7 @@ class ExecutionPlanner:
         if hasattr(value, "model_dump"):
             return value.model_dump(mode="json")
         if isinstance(value, dict):
-            return {
-                str(key): ExecutionPlanner._json_value(item)
-                for key, item in value.items()
-            }
+            return {str(key): ExecutionPlanner._json_value(item) for key, item in value.items()}
         if isinstance(value, list):
             return [ExecutionPlanner._json_value(item) for item in value]
         return value.value if hasattr(value, "value") else value
@@ -176,8 +165,7 @@ class ExecutionPlanner:
     @staticmethod
     def _task_metadata(task: Task) -> dict[str, Any]:
         meta = {
-            str(key): ExecutionPlanner._json_value(value)
-            for key, value in task.metadata.items()
+            str(key): ExecutionPlanner._json_value(value) for key, value in task.metadata.items()
         }
         # Preserve model selection through DAG pipeline
         if task.model:
@@ -194,8 +182,7 @@ class ExecutionPlanner:
             return "duplicate subtask_id"
 
         dependencies_by_id = {
-            subtask.subtask_id: list(subtask.dependencies)
-            for subtask in decomposition.subtasks
+            subtask.subtask_id: list(subtask.dependencies) for subtask in decomposition.subtasks
         }
         for subtask_id, dependencies in dependencies_by_id.items():
             for dependency in dependencies:

@@ -49,18 +49,35 @@ _SKILL_MD = (
 
 def _fake_source() -> GitHubSkillSource:
     json_map = {
-        "git/trees": {"tree": [
-            {"path": "skills/algorithmic-art/SKILL.md", "type": "blob"},
-            {"path": "skills/algorithmic-art/templates/sketch.html", "type": "blob"},
-            {"path": "skills/docx/SKILL.md", "type": "blob"},
-            {"path": "README.md", "type": "blob"},
-        ]},
+        "git/trees": {
+            "tree": [
+                {"path": "skills/algorithmic-art/SKILL.md", "type": "blob"},
+                {"path": "skills/algorithmic-art/templates/sketch.html", "type": "blob"},
+                {"path": "skills/docx/SKILL.md", "type": "blob"},
+                {"path": "README.md", "type": "blob"},
+            ]
+        },
         "contents/skills/algorithmic-art/templates": [
-            {"name": "sketch.html", "type": "file", "download_url": "https://raw/sketch", "path": "skills/algorithmic-art/templates/sketch.html"},
+            {
+                "name": "sketch.html",
+                "type": "file",
+                "download_url": "https://raw/sketch",
+                "path": "skills/algorithmic-art/templates/sketch.html",
+            },
         ],
         "contents/skills/algorithmic-art": [
-            {"name": "SKILL.md", "type": "file", "download_url": "https://raw/skillmd", "path": "skills/algorithmic-art/SKILL.md"},
-            {"name": "LICENSE.txt", "type": "file", "download_url": "https://raw/license", "path": "skills/algorithmic-art/LICENSE.txt"},
+            {
+                "name": "SKILL.md",
+                "type": "file",
+                "download_url": "https://raw/skillmd",
+                "path": "skills/algorithmic-art/SKILL.md",
+            },
+            {
+                "name": "LICENSE.txt",
+                "type": "file",
+                "download_url": "https://raw/license",
+                "path": "skills/algorithmic-art/LICENSE.txt",
+            },
             {"name": "templates", "type": "dir", "path": "skills/algorithmic-art/templates"},
         ],
     }
@@ -119,5 +136,6 @@ def test_install_from_remote_end_to_end(tmp_path):
     assert (install_dir / "SKILL.md").is_file()
     assert (install_dir / "templates" / "sketch.html").is_file()
     # 已进入本地市场目录
-    assert any(p.name == "algorithmic_art" for p in mkt.search().packages) or \
-        any("algorithmic" in p.name for p in mkt.search().packages)
+    assert any(p.name == "algorithmic_art" for p in mkt.search().packages) or any(
+        "algorithmic" in p.name for p in mkt.search().packages
+    )

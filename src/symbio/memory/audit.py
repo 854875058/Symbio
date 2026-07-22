@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 from uuid import uuid4
@@ -30,19 +30,19 @@ logger = get_logger("memory.audit")
 class AuditFlag(str, Enum):
     """审计标记类型"""
 
-    PII_DETECTED = "pii_detected"              # 检测到个人信息
+    PII_DETECTED = "pii_detected"  # 检测到个人信息
     INJECTION_DETECTED = "injection_detected"  # 检测到注入攻击模式
-    STALE = "stale"                            # 记忆过期（超过30天未访问）
-    LOW_IMPORTANCE = "low_importance"          # 重要性过低（< 0.2）
-    DUPLICATE = "duplicate"                    # 重复记忆
-    EXPIRED = "expired"                        # 短期记忆已过期
+    STALE = "stale"  # 记忆过期（超过30天未访问）
+    LOW_IMPORTANCE = "low_importance"  # 重要性过低（< 0.2）
+    DUPLICATE = "duplicate"  # 重复记忆
+    EXPIRED = "expired"  # 短期记忆已过期
 
 
 class Severity(str, Enum):
     """问题严重程度"""
 
-    INFO = "info"          # 信息性提示
-    WARNING = "warning"    # 警告
+    INFO = "info"  # 信息性提示
+    WARNING = "warning"  # 警告
     CRITICAL = "critical"  # 严重，需要立即处理
 
 
@@ -61,11 +61,11 @@ class AuditResult(BaseModel):
 
     result_id: str = Field(default_factory=lambda: str(uuid4()))
     memory_id: str
-    content_preview: str = ""                   # 内容摘要（前100字符）
-    is_clean: bool = True                       # 是否通过审计
+    content_preview: str = ""  # 内容摘要（前100字符）
+    is_clean: bool = True  # 是否通过审计
     flags: list[AuditItem] = Field(default_factory=list)
     pii_matches: list[PIIMatch] = Field(default_factory=list)
-    threat_level: str = "safe"                  # 注入检测威胁等级
+    threat_level: str = "safe"  # 注入检测威胁等级
     timestamp: datetime = Field(default_factory=datetime.now)
 
     @property
@@ -115,9 +115,9 @@ class AuditReport(BaseModel):
 class CleanupAction(str, Enum):
     """清理动作"""
 
-    KEEP = "keep"          # 保留
-    ARCHIVE = "archive"    # 归档
-    REMOVE = "remove"      # 移除
+    KEEP = "keep"  # 保留
+    ARCHIVE = "archive"  # 归档
+    REMOVE = "remove"  # 移除
     SANITIZE = "sanitize"  # 脱敏后保留
 
 
@@ -251,11 +251,13 @@ class MemoryAuditor:
 
         # 6. 短期记忆过期检测
         if memory_item.is_expired():
-            flags.append(AuditItem(
-                flag=AuditFlag.EXPIRED,
-                severity=Severity.WARNING,
-                message=f"短期记忆已过期: expires_at={memory_item.expires_at}",
-            ))
+            flags.append(
+                AuditItem(
+                    flag=AuditFlag.EXPIRED,
+                    severity=Severity.WARNING,
+                    message=f"短期记忆已过期: expires_at={memory_item.expires_at}",
+                )
+            )
 
         result.flags = flags
         result.pii_matches = pii_matches
@@ -266,10 +268,7 @@ class MemoryAuditor:
             logger.debug(f"记忆审计通过: {memory_item.memory_id}")
         else:
             flag_types = [f.flag.value for f in flags]
-            logger.info(
-                f"记忆审计发现问题: {memory_item.memory_id}, "
-                f"flags={flag_types}"
-            )
+            logger.info(f"记忆审计发现问题: {memory_item.memory_id}, flags={flag_types}")
 
         return result
 
@@ -311,9 +310,7 @@ class MemoryAuditor:
                 severity_dist[key] = severity_dist.get(key, 0) + 1
 
         # 找出出现频率最高的问题（前5个）
-        sorted_issues = sorted(
-            flags_by_type.items(), key=lambda x: x[1], reverse=True
-        )
+        sorted_issues = sorted(flags_by_type.items(), key=lambda x: x[1], reverse=True)
         top_issues = [f"{k} ({v}次)" for k, v in sorted_issues[:5]]
 
         report = AuditReport(
@@ -381,12 +378,14 @@ class MemoryAuditor:
             # 无审计结果或通过审计 -> 保留
             if audit_result is None or audit_result.is_clean:
                 cleanup_result.kept += 1
-                cleanup_result.details.append(CleanupDetail(
-                    memory_id=memory.memory_id,
-                    action=CleanupAction.KEEP,
-                    reason="通过审计",
-                    original_content_preview=memory.content[:50],
-                ))
+                cleanup_result.details.append(
+                    CleanupDetail(
+                        memory_id=memory.memory_id,
+                        action=CleanupAction.KEEP,
+                        reason="通过审计",
+                        original_content_preview=memory.content[:50],
+                    )
+                )
                 continue
 
             action = CleanupAction.KEEP
@@ -396,8 +395,7 @@ class MemoryAuditor:
             if remove_critical and audit_result.has_critical:
                 # 检查是否有注入检测
                 injection_flags = [
-                    f for f in audit_result.flags
-                    if f.flag == AuditFlag.INJECTION_DETECTED
+                    f for f in audit_result.flags if f.flag == AuditFlag.INJECTION_DETECTED
                 ]
                 if injection_flags:
                     action = CleanupAction.REMOVE
@@ -407,22 +405,17 @@ class MemoryAuditor:
             if action == CleanupAction.KEEP and audit_result.pii_matches:
                 if sanitize_pii:
                     action = CleanupAction.SANITIZE
-                    pii_types = list(set(
-                        m.pii_type.value for m in audit_result.pii_matches
-                    ))
+                    pii_types = list(set(m.pii_type.value for m in audit_result.pii_matches))
                     reason = f"检测到 PII，执行脱敏: types={pii_types}"
                 else:
                     action = CleanupAction.REMOVE
-                    pii_types = list(set(
-                        m.pii_type.value for m in audit_result.pii_matches
-                    ))
+                    pii_types = list(set(m.pii_type.value for m in audit_result.pii_matches))
                     reason = f"检测到 PII: types={pii_types}"
 
             # 检查过期
             if action == CleanupAction.KEEP and archive_stale:
                 stale_flags = [
-                    f for f in audit_result.flags
-                    if f.flag in (AuditFlag.STALE, AuditFlag.EXPIRED)
+                    f for f in audit_result.flags if f.flag in (AuditFlag.STALE, AuditFlag.EXPIRED)
                 ]
                 if stale_flags:
                     action = CleanupAction.ARCHIVE
@@ -431,8 +424,7 @@ class MemoryAuditor:
             # 检查低重要性
             if action == CleanupAction.KEEP:
                 low_imp_flags = [
-                    f for f in audit_result.flags
-                    if f.flag == AuditFlag.LOW_IMPORTANCE
+                    f for f in audit_result.flags if f.flag == AuditFlag.LOW_IMPORTANCE
                 ]
                 if low_imp_flags:
                     action = CleanupAction.ARCHIVE
@@ -452,12 +444,14 @@ class MemoryAuditor:
             else:
                 cleanup_result.kept += 1
 
-            cleanup_result.details.append(CleanupDetail(
-                memory_id=memory.memory_id,
-                action=action,
-                reason=reason,
-                original_content_preview=memory.content[:50],
-            ))
+            cleanup_result.details.append(
+                CleanupDetail(
+                    memory_id=memory.memory_id,
+                    action=action,
+                    reason=reason,
+                    original_content_preview=memory.content[:50],
+                )
+            )
 
         logger.info(
             f"记忆清理完成: total={cleanup_result.total_processed}, "
@@ -471,64 +465,66 @@ class MemoryAuditor:
     # 内部检测方法
     # ------------------------------------------------------------------
 
-    def _check_pii(
-        self, memory: MemoryItem
-    ) -> tuple[list[AuditItem], list[PIIMatch]]:
+    def _check_pii(self, memory: MemoryItem) -> tuple[list[AuditItem], list[PIIMatch]]:
         """检测 PII 内容"""
         flags: list[AuditItem] = []
         matches = self._sanitizer.detector.detect(memory.content)
 
         if matches:
             pii_types = list(set(m.pii_type.value for m in matches))
-            flags.append(AuditItem(
-                flag=AuditFlag.PII_DETECTED,
-                severity=Severity.CRITICAL,
-                message=f"检测到个人信息: types={pii_types}, count={len(matches)}",
-                details={
-                    "pii_types": pii_types,
-                    "match_count": len(matches),
-                },
-            ))
+            flags.append(
+                AuditItem(
+                    flag=AuditFlag.PII_DETECTED,
+                    severity=Severity.CRITICAL,
+                    message=f"检测到个人信息: types={pii_types}, count={len(matches)}",
+                    details={
+                        "pii_types": pii_types,
+                        "match_count": len(matches),
+                    },
+                )
+            )
 
         return flags, matches
 
-    def _check_injection(
-        self, memory: MemoryItem
-    ) -> tuple[list[AuditItem], str]:
+    def _check_injection(self, memory: MemoryItem) -> tuple[list[AuditItem], str]:
         """检测注入攻击模式"""
         flags: list[AuditItem] = []
         record = self._injection_guard.analyze(memory.content)
         threat_level = record.threat_level.value
 
         if record.threat_level in (ThreatLevel.HIGH, ThreatLevel.CRITICAL):
-            flags.append(AuditItem(
-                flag=AuditFlag.INJECTION_DETECTED,
-                severity=Severity.CRITICAL,
-                message=(
-                    f"检测到注入攻击模式: "
-                    f"threat={threat_level}, "
-                    f"attack={record.attack_type.value}"
-                ),
-                details={
-                    "threat_level": threat_level,
-                    "attack_type": record.attack_type.value,
-                    "action_taken": record.action_taken,
-                },
-            ))
+            flags.append(
+                AuditItem(
+                    flag=AuditFlag.INJECTION_DETECTED,
+                    severity=Severity.CRITICAL,
+                    message=(
+                        f"检测到注入攻击模式: "
+                        f"threat={threat_level}, "
+                        f"attack={record.attack_type.value}"
+                    ),
+                    details={
+                        "threat_level": threat_level,
+                        "attack_type": record.attack_type.value,
+                        "action_taken": record.action_taken,
+                    },
+                )
+            )
         elif record.threat_level == ThreatLevel.MEDIUM:
-            flags.append(AuditItem(
-                flag=AuditFlag.INJECTION_DETECTED,
-                severity=Severity.WARNING,
-                message=(
-                    f"检测到可疑注入模式: "
-                    f"threat={threat_level}, "
-                    f"attack={record.attack_type.value}"
-                ),
-                details={
-                    "threat_level": threat_level,
-                    "attack_type": record.attack_type.value,
-                },
-            ))
+            flags.append(
+                AuditItem(
+                    flag=AuditFlag.INJECTION_DETECTED,
+                    severity=Severity.WARNING,
+                    message=(
+                        f"检测到可疑注入模式: "
+                        f"threat={threat_level}, "
+                        f"attack={record.attack_type.value}"
+                    ),
+                    details={
+                        "threat_level": threat_level,
+                        "attack_type": record.attack_type.value,
+                    },
+                )
+            )
 
         return flags, threat_level
 
@@ -543,20 +539,22 @@ class MemoryAuditor:
         days_since_access = (now - memory.last_accessed).days
 
         if days_since_access > self._staleness_days:
-            flags.append(AuditItem(
-                flag=AuditFlag.STALE,
-                severity=Severity.WARNING,
-                message=(
-                    f"记忆超过 {self._staleness_days} 天未访问: "
-                    f"last_accessed={memory.last_accessed.isoformat()}, "
-                    f"days_since={days_since_access}"
-                ),
-                details={
-                    "last_accessed": memory.last_accessed.isoformat(),
-                    "days_since_access": days_since_access,
-                    "staleness_threshold": self._staleness_days,
-                },
-            ))
+            flags.append(
+                AuditItem(
+                    flag=AuditFlag.STALE,
+                    severity=Severity.WARNING,
+                    message=(
+                        f"记忆超过 {self._staleness_days} 天未访问: "
+                        f"last_accessed={memory.last_accessed.isoformat()}, "
+                        f"days_since={days_since_access}"
+                    ),
+                    details={
+                        "last_accessed": memory.last_accessed.isoformat(),
+                        "days_since_access": days_since_access,
+                        "staleness_threshold": self._staleness_days,
+                    },
+                )
+            )
 
         return flags
 
@@ -565,19 +563,21 @@ class MemoryAuditor:
         flags: list[AuditItem] = []
 
         if memory.importance < self._low_importance_threshold:
-            flags.append(AuditItem(
-                flag=AuditFlag.LOW_IMPORTANCE,
-                severity=Severity.INFO,
-                message=(
-                    f"记忆重要性过低: "
-                    f"importance={memory.importance}, "
-                    f"threshold={self._low_importance_threshold}"
-                ),
-                details={
-                    "importance": memory.importance,
-                    "threshold": self._low_importance_threshold,
-                },
-            ))
+            flags.append(
+                AuditItem(
+                    flag=AuditFlag.LOW_IMPORTANCE,
+                    severity=Severity.INFO,
+                    message=(
+                        f"记忆重要性过低: "
+                        f"importance={memory.importance}, "
+                        f"threshold={self._low_importance_threshold}"
+                    ),
+                    details={
+                        "importance": memory.importance,
+                        "threshold": self._low_importance_threshold,
+                    },
+                )
+            )
 
         return flags
 
@@ -585,25 +585,23 @@ class MemoryAuditor:
         """检测重复记忆（基于内容哈希）"""
         flags: list[AuditItem] = []
 
-        content_hash = hashlib.sha256(
-            memory.content.strip().encode("utf-8")
-        ).hexdigest()
+        content_hash = hashlib.sha256(memory.content.strip().encode("utf-8")).hexdigest()
 
         if content_hash in self._content_hashes:
             existing_id = self._content_hashes[content_hash]
-            flags.append(AuditItem(
-                flag=AuditFlag.DUPLICATE,
-                severity=Severity.WARNING,
-                message=(
-                    f"检测到重复记忆: "
-                    f"current={memory.memory_id}, "
-                    f"duplicate_of={existing_id}"
-                ),
-                details={
-                    "content_hash": content_hash,
-                    "duplicate_of": existing_id,
-                },
-            ))
+            flags.append(
+                AuditItem(
+                    flag=AuditFlag.DUPLICATE,
+                    severity=Severity.WARNING,
+                    message=(
+                        f"检测到重复记忆: current={memory.memory_id}, duplicate_of={existing_id}"
+                    ),
+                    details={
+                        "content_hash": content_hash,
+                        "duplicate_of": existing_id,
+                    },
+                )
+            )
         else:
             self._content_hashes[content_hash] = memory.memory_id
 

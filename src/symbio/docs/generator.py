@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import ast
-import inspect
-import textwrap
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -21,8 +19,10 @@ logger = get_logger("docs.generator")
 # 数据模型
 # ---------------------------------------------------------------------------
 
+
 class DocFormat(str, Enum):
     """文档输出格式"""
+
     MARKDOWN = "markdown"
     HTML = "html"
     RST = "rst"
@@ -30,6 +30,7 @@ class DocFormat(str, Enum):
 
 class ParameterInfo(BaseModel):
     """参数信息"""
+
     name: str
     type_hint: str = ""
     default: str = ""
@@ -39,12 +40,14 @@ class ParameterInfo(BaseModel):
 
 class ReturnInfo(BaseModel):
     """返回值信息"""
+
     type_hint: str = ""
     description: str = ""
 
 
 class FunctionDoc(BaseModel):
     """函数/方法文档"""
+
     name: str
     qualified_name: str = ""
     docstring: str = ""
@@ -61,6 +64,7 @@ class FunctionDoc(BaseModel):
 
 class ClassDoc(BaseModel):
     """类文档"""
+
     name: str
     qualified_name: str = ""
     docstring: str = ""
@@ -74,6 +78,7 @@ class ClassDoc(BaseModel):
 
 class ModuleDoc(BaseModel):
     """模块文档"""
+
     name: str
     file_path: str = ""
     docstring: str = ""
@@ -85,6 +90,7 @@ class ModuleDoc(BaseModel):
 
 class PackageDoc(BaseModel):
     """包文档"""
+
     package_name: str
     description: str = ""
     version: str = ""
@@ -95,6 +101,7 @@ class PackageDoc(BaseModel):
 # ---------------------------------------------------------------------------
 # 代码解析器
 # ---------------------------------------------------------------------------
+
 
 class CodeParser:
     """Python 代码 AST 解析器"""
@@ -207,9 +214,7 @@ class CodeParser:
 
         # 解析返回值类型
         if node.returns:
-            func_doc.return_info = ReturnInfo(
-                type_hint=self._get_annotation(node.returns)
-            )
+            func_doc.return_info = ReturnInfo(type_hint=self._get_annotation(node.returns))
 
         # 从 docstring 提取参数描述
         self._enrich_from_docstring(func_doc)
@@ -242,7 +247,9 @@ class CodeParser:
             params.append(
                 ParameterInfo(
                     name=f"*{args.vararg.arg}",
-                    type_hint=self._get_annotation(args.vararg.annotation) if args.vararg.annotation else "",
+                    type_hint=self._get_annotation(args.vararg.annotation)
+                    if args.vararg.annotation
+                    else "",
                 )
             )
 
@@ -251,7 +258,9 @@ class CodeParser:
             params.append(
                 ParameterInfo(
                     name=f"**{args.kwarg.arg}",
-                    type_hint=self._get_annotation(args.kwarg.annotation) if args.kwarg.annotation else "",
+                    type_hint=self._get_annotation(args.kwarg.annotation)
+                    if args.kwarg.annotation
+                    else "",
                 )
             )
 
@@ -311,11 +320,13 @@ class CodeParser:
             if isinstance(target, ast.Name):
                 name = target.id
                 if name.isupper():
-                    constants.append({
-                        "name": name,
-                        "value": self._get_value(node.value),
-                        "type": type(node.value).__name__,
-                    })
+                    constants.append(
+                        {
+                            "name": name,
+                            "value": self._get_value(node.value),
+                            "type": type(node.value).__name__,
+                        }
+                    )
         return constants
 
     def _enrich_from_docstring(self, func_doc: FunctionDoc) -> None:
@@ -348,6 +359,7 @@ class CodeParser:
 # ---------------------------------------------------------------------------
 # 文档渲染器
 # ---------------------------------------------------------------------------
+
 
 class MarkdownRenderer:
     """Markdown 文档渲染器"""
@@ -428,9 +440,7 @@ class MarkdownRenderer:
         elif func_doc.is_property:
             prefix = "@property "
 
-        params_str = ", ".join(
-            self._render_param(p) for p in func_doc.parameters
-        )
+        params_str = ", ".join(self._render_param(p) for p in func_doc.parameters)
         ret_str = f" -> {func_doc.return_info.type_hint}" if func_doc.return_info.type_hint else ""
 
         lines.append(f"#### `{prefix}{func_doc.name}({params_str}){ret_str}`")
@@ -448,7 +458,9 @@ class MarkdownRenderer:
                 required = "Yes" if p.required else "No"
                 default = f"`{p.default}`" if p.default else "-"
                 type_hint = f"`{p.type_hint}`" if p.type_hint else "-"
-                lines.append(f"| `{p.name}` | {type_hint} | {default} | {required} | {p.description} |")
+                lines.append(
+                    f"| `{p.name}` | {type_hint} | {default} | {required} | {p.description} |"
+                )
             lines.append("")
 
         return "\n".join(lines)
@@ -496,6 +508,7 @@ class MarkdownRenderer:
 # ---------------------------------------------------------------------------
 # 文档生成器
 # ---------------------------------------------------------------------------
+
 
 class APIDocGenerator:
     """API 文档生成器

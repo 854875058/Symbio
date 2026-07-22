@@ -6,7 +6,7 @@ from typing import Optional
 
 from symbio.agents.base import BaseAgent
 from symbio.utils.logger import get_logger
-from symbio.utils.types import AgentState, Intent, TaskComplexity
+from symbio.utils.types import AgentState, Intent
 
 logger = get_logger("registry")
 
@@ -67,12 +67,13 @@ class AgentRegistry:
 
         # 收集可用候选
         available = [
-            agent for agent in self._agents.values()
+            agent
+            for agent in self._agents.values()
             if agent.state in [AgentState.IDLE, AgentState.COMPLETED]
         ]
 
         if not available:
-            logger.warning(f"无可用 Agent")
+            logger.warning("无可用 Agent")
             return None
 
         # 并发检查每个 Agent 能否处理该意图
@@ -102,7 +103,8 @@ class AgentRegistry:
     def get_available_agents(self) -> list[BaseAgent]:
         """获取所有可用的 Agent"""
         return [
-            agent for agent in self._agents.values()
+            agent
+            for agent in self._agents.values()
             if agent.state in [AgentState.IDLE, AgentState.COMPLETED]
         ]
 
@@ -124,9 +126,11 @@ def register_agent(name: str = None):
         class MyAgent(BaseAgent):
             ...
     """
+
     def decorator(agent_class: type[BaseAgent]) -> type[BaseAgent]:
         if name:
             agent_class.name = name
         _registry.register(agent_class)
         return agent_class
+
     return decorator

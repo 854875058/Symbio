@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import json
 import threading
-import time
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -22,8 +20,10 @@ logger = get_logger("security.audit")
 # 数据模型
 # ---------------------------------------------------------------------------
 
+
 class AuditLevel(str, Enum):
     """审计级别"""
+
     DEBUG = "debug"
     INFO = "info"
     WARNING = "warning"
@@ -33,6 +33,7 @@ class AuditLevel(str, Enum):
 
 class AuditAction(str, Enum):
     """审计动作类型"""
+
     CREATE = "create"
     READ = "read"
     UPDATE = "update"
@@ -49,6 +50,7 @@ class AuditAction(str, Enum):
 
 class AuditOutcome(str, Enum):
     """操作结果"""
+
     SUCCESS = "success"
     FAILURE = "failure"
     DENIED = "denied"
@@ -57,14 +59,15 @@ class AuditOutcome(str, Enum):
 
 class AuditEntry(BaseModel):
     """审计日志条目"""
+
     entry_id: str = Field(default_factory=lambda: str(uuid4()))
     timestamp: datetime = Field(default_factory=datetime.now)
     level: AuditLevel = AuditLevel.INFO
     action: AuditAction = AuditAction.CUSTOM
     outcome: AuditOutcome = AuditOutcome.SUCCESS
-    actor: str = ""           # 操作者
-    target: str = ""          # 操作对象
-    description: str = ""     # 操作描述
+    actor: str = ""  # 操作者
+    target: str = ""  # 操作对象
+    description: str = ""  # 操作描述
     details: dict[str, Any] = Field(default_factory=dict)
     source_ip: str = ""
     session_id: str = ""
@@ -75,6 +78,7 @@ class AuditEntry(BaseModel):
 
 class AuditQuery(BaseModel):
     """审计日志查询条件"""
+
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
     levels: list[AuditLevel] = Field(default_factory=list)
@@ -89,6 +93,7 @@ class AuditQuery(BaseModel):
 
 class AuditQueryResult(BaseModel):
     """审计查询结果"""
+
     entries: list[AuditEntry] = Field(default_factory=list)
     total: int = 0
     has_more: bool = False
@@ -96,6 +101,7 @@ class AuditQueryResult(BaseModel):
 
 class AuditStatistics(BaseModel):
     """审计统计信息"""
+
     total_entries: int = 0
     entries_by_level: dict[str, int] = Field(default_factory=dict)
     entries_by_action: dict[str, int] = Field(default_factory=dict)
@@ -108,6 +114,7 @@ class AuditStatistics(BaseModel):
 # ---------------------------------------------------------------------------
 # 审计日志写入器
 # ---------------------------------------------------------------------------
+
 
 class AuditWriter:
     """审计日志写入器 - 线程安全的日志持久化"""
@@ -216,6 +223,7 @@ class AuditWriter:
 # 审计查询引擎
 # ---------------------------------------------------------------------------
 
+
 class AuditQueryEngine:
     """审计日志查询引擎"""
 
@@ -273,6 +281,7 @@ class AuditQueryEngine:
 # ---------------------------------------------------------------------------
 # 审计日志管理器
 # ---------------------------------------------------------------------------
+
 
 class AuditLogger:
     """审计日志管理器
@@ -482,7 +491,9 @@ class AuditLogger:
         }
 
         # 失败率
-        failures = stats.entries_by_outcome.get("failure", 0) + stats.entries_by_outcome.get("error", 0)
+        failures = stats.entries_by_outcome.get("failure", 0) + stats.entries_by_outcome.get(
+            "error", 0
+        )
         stats.failure_rate = failures / len(entries) if entries else 0.0
 
         return stats

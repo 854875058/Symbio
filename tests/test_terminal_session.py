@@ -28,10 +28,13 @@ try:
 except Exception:
     _PTY_READY = False
 
-requires_pty = pytest.mark.skipif(not _PTY_READY, reason="PTY backend (winpty/ptyprocess) not available")
+requires_pty = pytest.mark.skipif(
+    not _PTY_READY, reason="PTY backend (winpty/ptyprocess) not available"
+)
 
 
 # ---------- 命令解析（纯逻辑，无条件跑）----------
+
 
 def test_shell_kind_resolves_to_default_shell():
     assert resolve_terminal_command("shell") == [_SHELL_DEFAULT]
@@ -81,11 +84,16 @@ def test_shell_ignores_resume_id():
 
 def test_empty_resume_id_stays_fresh():
     if shutil.which("claude"):
-        assert resolve_terminal_command("claude-code", resume_id="") == resolve_terminal_command("claude-code")
-        assert resolve_terminal_command("claude-code", resume_id="   ") == resolve_terminal_command("claude-code")
+        assert resolve_terminal_command("claude-code", resume_id="") == resolve_terminal_command(
+            "claude-code"
+        )
+        assert resolve_terminal_command("claude-code", resume_id="   ") == resolve_terminal_command(
+            "claude-code"
+        )
 
 
 # ---------- 真实 PTY 往返（需要 PTY 后端）----------
+
 
 @requires_pty
 def test_pty_roundtrip_captures_command_output():

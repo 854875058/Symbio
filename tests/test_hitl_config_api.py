@@ -52,7 +52,7 @@ async def test_config_api_persists_hitl_targets_and_refreshes_channels(tmp_path,
 
     config = config_resp.json()
     assert config["hitl"]["callback_base_url"] == "https://symbio.example.com"
-    assert config["hitl"]["im_webhook_token"] == "shared-token"
+    assert config["hitl"]["im_webhook_token"] == "****oken"
     assert config["hitl"]["notify_targets"][0]["platform"] == "feishu"
 
     channels = channels_resp.json()

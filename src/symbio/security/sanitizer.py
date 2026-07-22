@@ -7,7 +7,7 @@ import re
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -21,8 +21,10 @@ logger = get_logger("security.sanitizer")
 # 数据模型
 # ---------------------------------------------------------------------------
 
+
 class PIIType(str, Enum):
     """PII 数据类型"""
+
     PHONE = "phone"
     EMAIL = "email"
     ID_CARD = "id_card"
@@ -38,16 +40,18 @@ class PIIType(str, Enum):
 
 class SanitizeStrategy(str, Enum):
     """脱敏策略"""
-    MASK = "mask"           # 掩码替换 (如 138****1234)
-    HASH = "hash"           # 哈希替换
-    REPLACE = "replace"     # 固定替换
-    REDACT = "redact"       # 完全移除
-    TOKENIZE = "tokenize"   # 令牌化
-    ENCRYPT = "encrypt"     # 加密
+
+    MASK = "mask"  # 掩码替换 (如 138****1234)
+    HASH = "hash"  # 哈希替换
+    REPLACE = "replace"  # 固定替换
+    REDACT = "redact"  # 完全移除
+    TOKENIZE = "tokenize"  # 令牌化
+    ENCRYPT = "encrypt"  # 加密
 
 
 class SanitizeRule(BaseModel):
     """脱敏规则"""
+
     rule_id: str = Field(default_factory=lambda: str(uuid4()))
     pii_type: PIIType
     strategy: SanitizeStrategy
@@ -62,6 +66,7 @@ class SanitizeRule(BaseModel):
 
 class PIIMatch(BaseModel):
     """PII 检测结果"""
+
     match_id: str = Field(default_factory=lambda: str(uuid4()))
     pii_type: PIIType
     value: str
@@ -73,6 +78,7 @@ class PIIMatch(BaseModel):
 
 class SanitizeResult(BaseModel):
     """脱敏结果"""
+
     result_id: str = Field(default_factory=lambda: str(uuid4()))
     original_length: int = 0
     sanitized_text: str = ""
@@ -84,6 +90,7 @@ class SanitizeResult(BaseModel):
 
 class SanitizeReport(BaseModel):
     """脱敏报告"""
+
     report_id: str = Field(default_factory=lambda: str(uuid4()))
     total_texts: int = 0
     total_matches: int = 0
@@ -95,6 +102,7 @@ class SanitizeReport(BaseModel):
 # ---------------------------------------------------------------------------
 # PII 检测器
 # ---------------------------------------------------------------------------
+
 
 class PIIDetector:
     """PII 检测器 - 通过正则表达式检测各类个人信息"""
@@ -181,6 +189,7 @@ class PIIDetector:
 # ---------------------------------------------------------------------------
 # 脱敏执行器
 # ---------------------------------------------------------------------------
+
 
 class SanitizeExecutor:
     """脱敏执行器 - 按规则对 PII 进行脱敏处理"""
@@ -343,6 +352,7 @@ class SanitizeExecutor:
     def _hash(self, value: str) -> str:
         """哈希替换"""
         import hashlib
+
         return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
 
     def _tokenize(self, value: str) -> str:
@@ -371,6 +381,7 @@ class SanitizeExecutor:
 # ---------------------------------------------------------------------------
 # 数据脱敏器
 # ---------------------------------------------------------------------------
+
 
 class DataSanitizer:
     """数据脱敏器
@@ -424,15 +435,14 @@ class DataSanitizer:
             rule = self.executor.get_rule(match.pii_type)
             if rule and rule.enabled:
                 replacement = self.executor.sanitize_value(match.value, rule)
-                sanitized = sanitized[:match.start] + replacement + sanitized[match.end:]
+                sanitized = sanitized[: match.start] + replacement + sanitized[match.end :]
                 result.rules_applied.append(rule.rule_id)
 
         result.sanitized_text = sanitized
         self._results.append(result)
 
         logger.info(
-            f"文本脱敏完成: 发现 {len(matches)} 处 PII, "
-            f"应用 {len(result.rules_applied)} 条规则"
+            f"文本脱敏完成: 发现 {len(matches)} 处 PII, 应用 {len(result.rules_applied)} 条规则"
         )
         return result
 

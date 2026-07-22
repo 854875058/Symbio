@@ -91,9 +91,7 @@ class ExternalRelayOrchestrator:
         raise ValueError(f"Could not create relay session for provider {provider}")
 
     @staticmethod
-    def _build_turn_prompt(
-        role: str, history: list[RelayTurn], seed: str, is_first: bool
-    ) -> str:
+    def _build_turn_prompt(role: str, history: list[RelayTurn], seed: str, is_first: bool) -> str:
         lines: list[str] = []
         if role:
             lines.append(role)
@@ -132,11 +130,17 @@ class ExternalRelayOrchestrator:
         for index in range(max(config.rounds, 1)):
             if index % 2 == 0:
                 provider, session_id, role, model = (
-                    provider_a, session_a, config.role_a, config.model_a,
+                    provider_a,
+                    session_a,
+                    config.role_a,
+                    config.model_a,
                 )
             else:
                 provider, session_id, role, model = (
-                    provider_b, session_b, config.role_b, config.model_b,
+                    provider_b,
+                    session_b,
+                    config.role_b,
+                    config.model_b,
                 )
 
             prompt = self._build_turn_prompt(role, turns, config.seed_prompt, index == 0)

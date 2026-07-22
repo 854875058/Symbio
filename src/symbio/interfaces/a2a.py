@@ -62,9 +62,7 @@ class A2AMessage(BaseModel):
     role: A2AMessageRole
     parts: list[A2ATextPart]
     messageId: str = Field(default_factory=lambda: f"msg-{uuid.uuid4().hex[:12]}")
-    timestamp: str = Field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
-    )
+    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     @classmethod
     def text(cls, role: A2AMessageRole, content: str) -> "A2AMessage":
@@ -88,12 +86,8 @@ class A2ATask(BaseModel):
     id: str = Field(default_factory=lambda: f"a2a-task-{uuid.uuid4().hex[:16]}")
     sessionId: Optional[str] = None
     message: A2AMessage
-    created_at: str = Field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
-    )
-    updated_at: str = Field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
-    )
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     state: A2ATaskState = A2ATaskState.SUBMITTED
     result: Optional[A2ATaskResult] = None
     # origin: "inbound" = received from external agent; "outbound" = we sent it
@@ -108,12 +102,8 @@ class A2ASession(BaseModel):
     id: str = Field(default_factory=lambda: f"a2a-session-{uuid.uuid4().hex[:16]}")
     remote_url: str
     remote_name: str = "remote-agent"
-    created_at: str = Field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
-    )
-    last_active: str = Field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
-    )
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    last_active: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     state: A2ATaskState = A2ATaskState.SUBMITTED
     messages: list[A2AMessage] = Field(default_factory=list)
     task_ids: list[str] = Field(default_factory=list)
@@ -148,12 +138,8 @@ class A2AAgentCard(BaseModel):
             "url": "https://github.com/854875058/Symbio",
         }
     )
-    capabilities: A2AAgentCapabilities = Field(
-        default_factory=A2AAgentCapabilities
-    )
-    authentication: dict[str, Any] = Field(
-        default_factory=lambda: {"schemes": ["none"]}
-    )
+    capabilities: A2AAgentCapabilities = Field(default_factory=A2AAgentCapabilities)
+    authentication: dict[str, Any] = Field(default_factory=lambda: {"schemes": ["none"]})
     defaultInputModes: list[str] = Field(default_factory=lambda: ["text/plain"])
     defaultOutputModes: list[str] = Field(default_factory=lambda: ["text/plain"])
     skills: list[dict[str, Any]] = Field(
@@ -300,9 +286,7 @@ class A2ASessionManager:
     async def get_task(self, task_id: str) -> Optional[A2ATask]:
         return self._tasks.get(task_id)
 
-    async def list_tasks(
-        self, origin: Optional[str] = None, limit: int = 50
-    ) -> list[A2ATask]:
+    async def list_tasks(self, origin: Optional[str] = None, limit: int = 50) -> list[A2ATask]:
         tasks = list(self._tasks.values())
         if origin:
             tasks = [t for t in tasks if t.origin == origin]
@@ -474,9 +458,7 @@ async def send_task_to_agent(
             ) as resp:
                 body = await resp.json()
                 if resp.status >= 400:
-                    raise ValueError(
-                        f"Remote agent returned HTTP {resp.status}: {body}"
-                    )
+                    raise ValueError(f"Remote agent returned HTTP {resp.status}: {body}")
                 return {"task_id": task_id, "remote_url": remote_url, **body}
     except ImportError:
         # Fallback: stdlib urllib
@@ -496,18 +478,12 @@ async def send_task_to_agent(
         except urllib.error.HTTPError as exc:
             raise ValueError(f"Remote agent returned HTTP {exc.code}") from exc
         except Exception as exc:
-            raise ConnectionError(
-                f"Failed to reach remote agent at {remote_url}: {exc}"
-            ) from exc
+            raise ConnectionError(f"Failed to reach remote agent at {remote_url}: {exc}") from exc
     except Exception as exc:
-        raise ConnectionError(
-            f"Failed to reach remote agent at {remote_url}: {exc}"
-        ) from exc
+        raise ConnectionError(f"Failed to reach remote agent at {remote_url}: {exc}") from exc
 
 
-async def fetch_remote_agent_card(
-    remote_url: str, timeout: int = 10
-) -> Optional[dict[str, Any]]:
+async def fetch_remote_agent_card(remote_url: str, timeout: int = 10) -> Optional[dict[str, Any]]:
     """Fetch the AgentCard from /.well-known/agent.json of a remote agent."""
     endpoint = remote_url.rstrip("/") + "/.well-known/agent.json"
     try:

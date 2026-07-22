@@ -8,7 +8,6 @@ import threading
 import time
 from datetime import datetime
 from enum import Enum
-from pathlib import Path
 from typing import Any, Callable, Optional
 from uuid import uuid4
 
@@ -23,16 +22,19 @@ logger = get_logger("interfaces.edge.runtime")
 # 数据模型
 # ---------------------------------------------------------------------------
 
+
 class DeviceTier(str, Enum):
     """设备资源等级"""
-    TIER_0 = "tier_0"   # 极低资源 (< 64MB RAM, 单核)
-    TIER_1 = "tier_1"   # 低资源 (64-256MB RAM, 双核)
-    TIER_2 = "tier_2"   # 中等资源 (256MB-1GB RAM, 四核)
-    TIER_3 = "tier_3"   # 较高资源 (> 1GB RAM, 多核)
+
+    TIER_0 = "tier_0"  # 极低资源 (< 64MB RAM, 单核)
+    TIER_1 = "tier_1"  # 低资源 (64-256MB RAM, 双核)
+    TIER_2 = "tier_2"  # 中等资源 (256MB-1GB RAM, 四核)
+    TIER_3 = "tier_3"  # 较高资源 (> 1GB RAM, 多核)
 
 
 class RuntimeStatus(str, Enum):
     """运行时状态"""
+
     CREATED = "created"
     INITIALIZING = "initializing"
     RUNNING = "running"
@@ -44,6 +46,7 @@ class RuntimeStatus(str, Enum):
 
 class TaskPriority(str, Enum):
     """任务优先级"""
+
     LOW = "low"
     NORMAL = "normal"
     HIGH = "high"
@@ -52,6 +55,7 @@ class TaskPriority(str, Enum):
 
 class ResourceUsage(BaseModel):
     """资源使用情况"""
+
     memory_used_mb: float = 0.0
     memory_limit_mb: float = 0.0
     cpu_percent: float = 0.0
@@ -64,6 +68,7 @@ class ResourceUsage(BaseModel):
 
 class RuntimeTask(BaseModel):
     """运行时任务"""
+
     task_id: str = Field(default_factory=lambda: str(uuid4()))
     name: str
     handler: str = ""  # 处理函数名
@@ -82,6 +87,7 @@ class RuntimeTask(BaseModel):
 
 class RuntimeConfig(BaseModel):
     """运行时配置"""
+
     device_tier: DeviceTier = DeviceTier.TIER_1
     memory_limit_mb: float = 64.0
     disk_limit_mb: float = 256.0
@@ -96,6 +102,7 @@ class RuntimeConfig(BaseModel):
 
 class RuntimeMetrics(BaseModel):
     """运行时指标"""
+
     uptime_seconds: float = 0.0
     total_tasks_executed: int = 0
     total_tasks_failed: int = 0
@@ -108,6 +115,7 @@ class RuntimeMetrics(BaseModel):
 # ---------------------------------------------------------------------------
 # 资源监控器
 # ---------------------------------------------------------------------------
+
 
 class ResourceMonitor:
     """资源监控器 - 跟踪设备资源使用"""
@@ -165,6 +173,7 @@ class ResourceMonitor:
         """估算内存使用 (MB)"""
         try:
             import psutil
+
             process = psutil.Process(os.getpid())
             return process.memory_info().rss / (1024 * 1024)
         except ImportError:
@@ -175,6 +184,7 @@ class ResourceMonitor:
         """估算 CPU 使用百分比"""
         try:
             import psutil
+
             return psutil.cpu_percent(interval=0)
         except ImportError:
             return 0.0
@@ -187,6 +197,7 @@ class ResourceMonitor:
 # ---------------------------------------------------------------------------
 # 任务调度器
 # ---------------------------------------------------------------------------
+
 
 class TaskScheduler:
     """轻量级任务调度器 - 适配资源受限环境"""
@@ -327,6 +338,7 @@ class TaskScheduler:
 # 轻量级运行时
 # ---------------------------------------------------------------------------
 
+
 class EdgeRuntime:
     """轻量级边缘运行时
 
@@ -402,9 +414,7 @@ class EdgeRuntime:
 
         # 启动遥测线程
         if self._config.enable_telemetry:
-            self._telemetry_thread = threading.Thread(
-                target=self._telemetry_loop, daemon=True
-            )
+            self._telemetry_thread = threading.Thread(target=self._telemetry_loop, daemon=True)
             self._telemetry_thread.start()
 
         self._status = RuntimeStatus.RUNNING
@@ -482,6 +492,7 @@ class EdgeRuntime:
         """自动检测设备资源等级"""
         try:
             import psutil
+
             mem = psutil.virtual_memory()
             mem_mb = mem.total / (1024 * 1024)
             cpu_count = psutil.cpu_count() or 1

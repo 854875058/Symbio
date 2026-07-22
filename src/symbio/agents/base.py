@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -11,7 +11,6 @@ from symbio.utils.logger import get_logger
 from symbio.utils.types import (
     AgentState,
     Intent,
-    Message,
     Result,
     Task,
     TaskComplexity,
@@ -23,6 +22,7 @@ logger = get_logger("agent")
 
 class AgentCapability(BaseModel):
     """Agent 能力声明"""
+
     name: str
     description: str = ""
     tools: list[str] = Field(default_factory=list)

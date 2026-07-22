@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 import os
 from typing import Any, Optional
-from uuid import uuid4
 
 import httpx
 
@@ -81,16 +80,10 @@ class InitializerAgent:
         anthropic_base_url: Optional[str] = None,
         anthropic_api_key: Optional[str] = None,
     ) -> None:
-        self._anthropic_base_url = (
-            anthropic_base_url or os.environ.get("ANTHROPIC_BASE_URL", "")
-        )
-        self._anthropic_api_key = (
-            anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY", "")
-        )
+        self._anthropic_base_url = anthropic_base_url or os.environ.get("ANTHROPIC_BASE_URL", "")
+        self._anthropic_api_key = anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY", "")
 
-    async def generate_checklist(
-        self, intent: Intent, task_id: str
-    ) -> TaskChecklist:
+    async def generate_checklist(self, intent: Intent, task_id: str) -> TaskChecklist:
         """根据用户意图生成任务完成清单
 
         策略：
@@ -129,9 +122,7 @@ class InitializerAgent:
     # 内部方法
     # ------------------------------------------------------------------
 
-    def _from_template(
-        self, action: str, task_id: str, intent: Intent
-    ) -> TaskChecklist:
+    def _from_template(self, action: str, task_id: str, intent: Intent) -> TaskChecklist:
         """从预定义模板生成 Checklist"""
         template = _CHECKLIST_TEMPLATES.get(action, _CHECKLIST_TEMPLATES["chat"])
 
@@ -154,9 +145,7 @@ class InitializerAgent:
 
         return TaskChecklist(task_id=task_id, items=items)
 
-    async def _try_llm_decomposition(
-        self, intent: Intent
-    ) -> Optional[list[ChecklistItem]]:
+    async def _try_llm_decomposition(self, intent: Intent) -> Optional[list[ChecklistItem]]:
         """尝试使用 LLM 将任务分解为 Checklist 条目
 
         Returns:

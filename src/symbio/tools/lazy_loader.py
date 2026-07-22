@@ -22,6 +22,7 @@ logger = get_logger("tool.lazy_loader")
 # 估算 token 数: JSON 字符串长度 / 4（粗略近似）
 # ---------------------------------------------------------------------------
 
+
 def _estimate_tokens(schema_dict: dict[str, Any]) -> int:
     """估算一个 Schema 字典占用的 token 数（len(json) / 4）。"""
     return len(json.dumps(schema_dict, ensure_ascii=False)) // 4
@@ -155,9 +156,7 @@ class ToolLazyLoader:
 
             result = [m.name for m in self._manifests.values() if m.enabled]
 
-        logger.info(
-            f"项目级过滤: {len(result)}/{len(self._manifests)} 个工具启用"
-        )
+        logger.info(f"项目级过滤: {len(result)}/{len(self._manifests)} 个工具启用")
         return result
 
     # ------------------------------------------------------------------
@@ -192,9 +191,7 @@ class ToolLazyLoader:
                     continue
 
                 if not manifest.enabled:
-                    logger.warning(
-                        f"节点 {node_id} 请求的工具 '{name}' 在当前项目中未启用，跳过"
-                    )
+                    logger.warning(f"节点 {node_id} 请求的工具 '{name}' 在当前项目中未启用，跳过")
                     continue
 
                 # 注册节点依赖
@@ -219,10 +216,7 @@ class ToolLazyLoader:
             self._stats.loaded_tools = len(self._loaded_schemas)
             self._update_token_savings()
 
-        logger.info(
-            f"节点 {node_id} 加载了 {len(schemas)} 个工具: "
-            f"{[s.name for s in schemas]}"
-        )
+        logger.info(f"节点 {node_id} 加载了 {len(schemas)} 个工具: {[s.name for s in schemas]}")
         return schemas
 
     # ------------------------------------------------------------------
@@ -323,7 +317,5 @@ class ToolLazyLoader:
 
     def __repr__(self) -> str:
         return (
-            f"<ToolLazyLoader "
-            f"total={self._stats.total_tools} "
-            f"loaded={len(self._loaded_schemas)}>"
+            f"<ToolLazyLoader total={self._stats.total_tools} loaded={len(self._loaded_schemas)}>"
         )

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import re
 from datetime import datetime
 from enum import Enum
@@ -20,38 +19,43 @@ logger = get_logger("injection_guard")
 # Pydantic 数据模型
 # ---------------------------------------------------------------------------
 
+
 class ThreatLevel(str, Enum):
     """威胁等级"""
-    SAFE = "safe"              # 安全
-    LOW = "low"                # 低风险
-    MEDIUM = "medium"          # 中等风险
-    HIGH = "high"              # 高风险
-    CRITICAL = "critical"      # 严重风险
+
+    SAFE = "safe"  # 安全
+    LOW = "low"  # 低风险
+    MEDIUM = "medium"  # 中等风险
+    HIGH = "high"  # 高风险
+    CRITICAL = "critical"  # 严重风险
 
 
 class DefenseLayer(str, Enum):
     """防御层级"""
-    INPUT_SANITIZATION = "input_sanitization"    # 第一层：输入净化
-    SEMANTIC_DETECTION = "semantic_detection"    # 第二层：语义检测
-    INTENT_AUDIT = "intent_audit"                # 第三层：意图审计
+
+    INPUT_SANITIZATION = "input_sanitization"  # 第一层：输入净化
+    SEMANTIC_DETECTION = "semantic_detection"  # 第二层：语义检测
+    INTENT_AUDIT = "intent_audit"  # 第三层：意图审计
 
 
 class AttackType(str, Enum):
     """攻击类型"""
-    DIRECT_INJECTION = "direct_injection"          # 直接注入
-    INDIRECT_INJECTION = "indirect_injection"      # 间接注入
-    JAILBREAK = "jailbreak"                        # 越狱攻击
-    PROMPT_LEAK = "prompt_leak"                    # 提示词泄露
-    ROLE_HIJACK = "role_hijack"                    # 角色劫持
-    ENCODING_BYPASS = "encoding_bypass"            # 编码绕过
-    CONTEXT_OVERFLOW = "context_overflow"          # 上下文溢出
-    SOCIAL_ENGINEERING = "social_engineering"      # 社会工程 / 权限胁迫
-    DATA_EXFILTRATION = "data_exfiltration"        # 数据外泄
-    NONE = "none"                                  # 无攻击
+
+    DIRECT_INJECTION = "direct_injection"  # 直接注入
+    INDIRECT_INJECTION = "indirect_injection"  # 间接注入
+    JAILBREAK = "jailbreak"  # 越狱攻击
+    PROMPT_LEAK = "prompt_leak"  # 提示词泄露
+    ROLE_HIJACK = "role_hijack"  # 角色劫持
+    ENCODING_BYPASS = "encoding_bypass"  # 编码绕过
+    CONTEXT_OVERFLOW = "context_overflow"  # 上下文溢出
+    SOCIAL_ENGINEERING = "social_engineering"  # 社会工程 / 权限胁迫
+    DATA_EXFILTRATION = "data_exfiltration"  # 数据外泄
+    NONE = "none"  # 无攻击
 
 
 class SanitizeResult(BaseModel):
     """净化结果"""
+
     result_id: str = Field(default_factory=lambda: str(uuid4()))
     original_text: str
     sanitized_text: str
@@ -63,6 +67,7 @@ class SanitizeResult(BaseModel):
 
 class DetectionResult(BaseModel):
     """检测结果"""
+
     result_id: str = Field(default_factory=lambda: str(uuid4()))
     text: str
     threat_level: ThreatLevel = ThreatLevel.SAFE
@@ -76,6 +81,7 @@ class DetectionResult(BaseModel):
 
 class AuditRecord(BaseModel):
     """审计记录"""
+
     record_id: str = Field(default_factory=lambda: str(uuid4()))
     session_id: str = ""
     user_id: str = ""
@@ -83,7 +89,7 @@ class AuditRecord(BaseModel):
     sanitized_input: str
     threat_level: ThreatLevel = ThreatLevel.SAFE
     attack_type: AttackType = AttackType.NONE
-    action_taken: str = "allow"    # allow / warn / block / quarantine
+    action_taken: str = "allow"  # allow / warn / block / quarantine
     defense_layers_passed: list[DefenseLayer] = Field(default_factory=list)
     detection_results: list[DetectionResult] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -92,6 +98,7 @@ class AuditRecord(BaseModel):
 
 class InjectionGuardConfig(BaseModel):
     """防护引擎配置"""
+
     # 第一层：输入净化
     enable_sanitization: bool = True
     max_input_length: int = 10000
@@ -118,6 +125,7 @@ class InjectionGuardConfig(BaseModel):
 # ---------------------------------------------------------------------------
 # Prompt Injection 防护引擎
 # ---------------------------------------------------------------------------
+
 
 class InjectionGuard:
     """Prompt Injection 防护引擎
@@ -153,7 +161,6 @@ class InjectionGuard:
         r"(?:新的|现在)(?:的)?(?:指令|规则|任务)(?:是|如下|如下)",
         r"(?:系统|管理员|开发者)(?:模式|权限|指令)",
         r"(?:覆盖|覆写|替换|修改)(?:之前|上面|前面)(?:的)?(?:指令|提示|规则)",
-
         # 英文（兼容 "ignore all previous instructions" 等语序）
         r"ignore\s+(?:all\s+)?(?:(?:previous|above|prior|earlier|preceding|the)\s+)*(?:instructions?|prompts?|rules?|directives?|context)",
         r"disregard\s+(?:all\s+)?(?:(?:previous|above|prior|earlier|the)\s+)*(?:instructions?|prompts?|rules?|directives?)",
@@ -188,7 +195,6 @@ class InjectionGuard:
         r"(?:evil\s*gpt|evilgpt|evil\s+twin)",
         r"opposite\s+day",
         r"(?:your\s+)?safety\s+(?:guidelines?|rules?)\s+(?:are\s+)?reversed",
-
         # 中文越狱
         r"(?:假装|假设|模拟)(?:你)?(?:是|成为|变成)(?:一个|位)?(?:人类|真人|不受限)",
         r"(?:无限制|无约束|无规则)(?:模式|状态|版本)",
@@ -266,18 +272,16 @@ class InjectionGuard:
 
     # 零宽字符
     ZERO_WIDTH_CHARS = [
-        '​',  # ZERO WIDTH SPACE
-        '‌',  # ZERO WIDTH NON-JOINER
-        '‍',  # ZERO WIDTH JOINER
-        '﻿',  # ZERO WIDTH NO-BREAK SPACE
-        '⁠',  # WORD JOINER
-        '᠎',  # MONGOLIAN VOWEL SEPARATOR
+        "​",  # ZERO WIDTH SPACE
+        "‌",  # ZERO WIDTH NON-JOINER
+        "‍",  # ZERO WIDTH JOINER
+        "﻿",  # ZERO WIDTH NO-BREAK SPACE
+        "⁠",  # WORD JOINER
+        "᠎",  # MONGOLIAN VOWEL SEPARATOR
     ]
 
     # 控制字符（保留换行和制表符）
-    CONTROL_CHAR_PATTERN = re.compile(
-        r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]'
-    )
+    CONTROL_CHAR_PATTERN = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 
     def __init__(self, config: Optional[InjectionGuardConfig] = None):
         self._config = config or InjectionGuardConfig()
@@ -296,30 +300,14 @@ class InjectionGuard:
         """预编译正则表达式"""
         flags = 0 if self._config.case_sensitive else re.IGNORECASE
 
-        self._direct_patterns = [
-            re.compile(p, flags) for p in self.DIRECT_INJECTION_PATTERNS
-        ]
-        self._jailbreak_patterns = [
-            re.compile(p, flags) for p in self.JAILBREAK_PATTERNS
-        ]
-        self._leak_patterns = [
-            re.compile(p, flags) for p in self.PROMPT_LEAK_PATTERNS
-        ]
-        self._role_patterns = [
-            re.compile(p, flags) for p in self.ROLE_HIJACK_PATTERNS
-        ]
-        self._indirect_patterns = [
-            re.compile(p, flags) for p in self.INDIRECT_INJECTION_PATTERNS
-        ]
-        self._encoding_patterns = [
-            re.compile(p, flags) for p in self.ENCODING_BYPASS_INDICATORS
-        ]
-        self._social_patterns = [
-            re.compile(p, flags) for p in self.SOCIAL_ENGINEERING_PATTERNS
-        ]
-        self._exfil_patterns = [
-            re.compile(p, flags) for p in self.DATA_EXFILTRATION_PATTERNS
-        ]
+        self._direct_patterns = [re.compile(p, flags) for p in self.DIRECT_INJECTION_PATTERNS]
+        self._jailbreak_patterns = [re.compile(p, flags) for p in self.JAILBREAK_PATTERNS]
+        self._leak_patterns = [re.compile(p, flags) for p in self.PROMPT_LEAK_PATTERNS]
+        self._role_patterns = [re.compile(p, flags) for p in self.ROLE_HIJACK_PATTERNS]
+        self._indirect_patterns = [re.compile(p, flags) for p in self.INDIRECT_INJECTION_PATTERNS]
+        self._encoding_patterns = [re.compile(p, flags) for p in self.ENCODING_BYPASS_INDICATORS]
+        self._social_patterns = [re.compile(p, flags) for p in self.SOCIAL_ENGINEERING_PATTERNS]
+        self._exfil_patterns = [re.compile(p, flags) for p in self.DATA_EXFILTRATION_PATTERNS]
 
     # ------------------------------------------------------------------
     # 主分析入口
@@ -433,7 +421,7 @@ class InjectionGuard:
 
         # 1. 移除控制字符
         if self._config.strip_control_chars:
-            cleaned = self.CONTROL_CHAR_PATTERN.sub('', text)
+            cleaned = self.CONTROL_CHAR_PATTERN.sub("", text)
             if cleaned != text:
                 removed_patterns.append("control_chars")
                 text = cleaned
@@ -442,20 +430,21 @@ class InjectionGuard:
         if self._config.remove_zero_width_chars:
             for char in self.ZERO_WIDTH_CHARS:
                 if char in text:
-                    text = text.replace(char, '')
+                    text = text.replace(char, "")
                     removed_patterns.append(f"zero_width_{repr(char)}")
 
         # 3. Unicode 规范化
         if self._config.normalize_unicode:
             import unicodedata
-            normalized = unicodedata.normalize('NFKC', text)
+
+            normalized = unicodedata.normalize("NFKC", text)
             if normalized != text:
                 encoding_changes.append("unicode_nfc")
                 text = normalized
 
         # 4. 长度截断
         if len(text) > self._config.max_input_length:
-            text = text[:self._config.max_input_length]
+            text = text[: self._config.max_input_length]
             removed_patterns.append("length_truncation")
 
         is_modified = text != original
@@ -481,64 +470,71 @@ class InjectionGuard:
 
         # 直接注入检测
         direct_result = self._match_patterns(
-            text, self._direct_patterns, AttackType.DIRECT_INJECTION,
-            DefenseLayer.SEMANTIC_DETECTION
+            text,
+            self._direct_patterns,
+            AttackType.DIRECT_INJECTION,
+            DefenseLayer.SEMANTIC_DETECTION,
         )
         if direct_result:
             results.append(direct_result)
 
         # 越狱攻击检测
         jailbreak_result = self._match_patterns(
-            text, self._jailbreak_patterns, AttackType.JAILBREAK,
-            DefenseLayer.SEMANTIC_DETECTION
+            text, self._jailbreak_patterns, AttackType.JAILBREAK, DefenseLayer.SEMANTIC_DETECTION
         )
         if jailbreak_result:
             results.append(jailbreak_result)
 
         # 提示词泄露检测
         leak_result = self._match_patterns(
-            text, self._leak_patterns, AttackType.PROMPT_LEAK,
-            DefenseLayer.SEMANTIC_DETECTION
+            text, self._leak_patterns, AttackType.PROMPT_LEAK, DefenseLayer.SEMANTIC_DETECTION
         )
         if leak_result:
             results.append(leak_result)
 
         # 角色劫持检测
         role_result = self._match_patterns(
-            text, self._role_patterns, AttackType.ROLE_HIJACK,
-            DefenseLayer.SEMANTIC_DETECTION
+            text, self._role_patterns, AttackType.ROLE_HIJACK, DefenseLayer.SEMANTIC_DETECTION
         )
         if role_result:
             results.append(role_result)
 
         # 间接注入检测
         indirect_result = self._match_patterns(
-            text, self._indirect_patterns, AttackType.INDIRECT_INJECTION,
-            DefenseLayer.SEMANTIC_DETECTION
+            text,
+            self._indirect_patterns,
+            AttackType.INDIRECT_INJECTION,
+            DefenseLayer.SEMANTIC_DETECTION,
         )
         if indirect_result:
             results.append(indirect_result)
 
         # 编码绕过检测
         encoding_result = self._match_patterns(
-            text, self._encoding_patterns, AttackType.ENCODING_BYPASS,
-            DefenseLayer.SEMANTIC_DETECTION
+            text,
+            self._encoding_patterns,
+            AttackType.ENCODING_BYPASS,
+            DefenseLayer.SEMANTIC_DETECTION,
         )
         if encoding_result:
             results.append(encoding_result)
 
         # 社会工程 / 权限胁迫检测
         social_result = self._match_patterns(
-            text, self._social_patterns, AttackType.SOCIAL_ENGINEERING,
-            DefenseLayer.SEMANTIC_DETECTION
+            text,
+            self._social_patterns,
+            AttackType.SOCIAL_ENGINEERING,
+            DefenseLayer.SEMANTIC_DETECTION,
         )
         if social_result:
             results.append(social_result)
 
         # 数据外泄检测
         exfil_result = self._match_patterns(
-            text, self._exfil_patterns, AttackType.DATA_EXFILTRATION,
-            DefenseLayer.SEMANTIC_DETECTION
+            text,
+            self._exfil_patterns,
+            AttackType.DATA_EXFILTRATION,
+            DefenseLayer.SEMANTIC_DETECTION,
         )
         if exfil_result:
             results.append(exfil_result)
@@ -579,7 +575,7 @@ class InjectionGuard:
             threat_level=threat_level,
             attack_type=attack_type,
             confidence=confidence,
-            matched_patterns=matched[:self._config.max_pattern_matches],
+            matched_patterns=matched[: self._config.max_pattern_matches],
             layer=layer,
         )
 
@@ -607,20 +603,35 @@ class InjectionGuard:
 
         # 2. 检查指令密度（多条指令可能是注入）
         instruction_keywords = [
-            "请", "必须", "一定要", "需要", "please", "must", "should",
-            "执行", "运行", "调用", "execute", "run", "call",
+            "请",
+            "必须",
+            "一定要",
+            "需要",
+            "please",
+            "must",
+            "should",
+            "执行",
+            "运行",
+            "调用",
+            "execute",
+            "run",
+            "call",
         ]
-        instruction_count = sum(
-            1 for kw in instruction_keywords if kw in text_lower
-        )
+        instruction_count = sum(1 for kw in instruction_keywords if kw in text_lower)
         if instruction_count >= 5:
             threat_indicators += 1
             suspicious_segments.append(f"指令密度异常: {instruction_count} 个指令词")
 
         # 3. 检查角色切换尝试
         role_keywords = [
-            "你是", "你现在是", "你扮演", "you are", "you're now",
-            "act as", "pretend", "roleplay",
+            "你是",
+            "你现在是",
+            "你扮演",
+            "you are",
+            "you're now",
+            "act as",
+            "pretend",
+            "roleplay",
         ]
         role_count = sum(1 for kw in role_keywords if kw in text_lower)
         if role_count >= 2:
@@ -629,13 +640,14 @@ class InjectionGuard:
 
         # 4. 检查编码内容
         import base64
-        base64_pattern = re.compile(r'[A-Za-z0-9+/]{20,}={0,2}')
+
+        base64_pattern = re.compile(r"[A-Za-z0-9+/]{20,}={0,2}")
         base64_matches = base64_pattern.findall(text)
         if base64_matches:
             # 尝试解码
             for match in base64_matches[:3]:
                 try:
-                    decoded = base64.b64decode(match).decode('utf-8', errors='ignore')
+                    decoded = base64.b64decode(match).decode("utf-8", errors="ignore")
                     if any(kw in decoded.lower() for kw in instruction_keywords):
                         threat_indicators += 2
                         suspicious_segments.append(f"Base64 编码的指令: {decoded[:50]}")
@@ -645,7 +657,8 @@ class InjectionGuard:
         # 5. 检查是否有前序检测结果
         if previous_results:
             high_threat_count = sum(
-                1 for r in previous_results
+                1
+                for r in previous_results
                 if r.threat_level in (ThreatLevel.HIGH, ThreatLevel.CRITICAL)
             )
             if high_threat_count >= 2:
@@ -669,7 +682,9 @@ class InjectionGuard:
         return DetectionResult(
             text=text[:200],
             threat_level=threat_level,
-            attack_type=AttackType.NONE if threat_level == ThreatLevel.SAFE else AttackType.CONTEXT_OVERFLOW,
+            attack_type=AttackType.NONE
+            if threat_level == ThreatLevel.SAFE
+            else AttackType.CONTEXT_OVERFLOW,
             confidence=confidence,
             suspicious_segments=suspicious_segments,
             layer=DefenseLayer.INTENT_AUDIT,
@@ -696,13 +711,12 @@ class InjectionGuard:
             ThreatLevel.CRITICAL: 4,
         }
 
-        max_threat = max(
-            threat_values.get(r.threat_level, 0) for r in results
-        )
+        max_threat = max(threat_values.get(r.threat_level, 0) for r in results)
 
         # 多重独立攻击信号叠加：≥2 个 HIGH 及以上的检测结果，升级为 CRITICAL
         high_plus = sum(
-            1 for r in results
+            1
+            for r in results
             if threat_values.get(r.threat_level, 0) >= threat_values[ThreatLevel.HIGH]
         )
         if high_plus >= 2:
@@ -862,27 +876,31 @@ class InjectionGuard:
     @classmethod
     def create_strict(cls) -> InjectionGuard:
         """创建严格模式防护"""
-        return cls(InjectionGuardConfig(
-            enable_sanitization=True,
-            enable_semantic_detection=True,
-            enable_intent_audit=True,
-            auto_block_critical=True,
-            quarantine_suspicious=True,
-            threat_threshold=ThreatLevel.LOW,
-            max_input_length=5000,
-        ))
+        return cls(
+            InjectionGuardConfig(
+                enable_sanitization=True,
+                enable_semantic_detection=True,
+                enable_intent_audit=True,
+                auto_block_critical=True,
+                quarantine_suspicious=True,
+                threat_threshold=ThreatLevel.LOW,
+                max_input_length=5000,
+            )
+        )
 
     @classmethod
     def create_permissive(cls) -> InjectionGuard:
         """创建宽松模式防护（仅记录，不拦截）"""
-        return cls(InjectionGuardConfig(
-            enable_sanitization=True,
-            enable_semantic_detection=True,
-            enable_intent_audit=True,
-            auto_block_critical=False,
-            quarantine_suspicious=False,
-            threat_threshold=ThreatLevel.HIGH,
-        ))
+        return cls(
+            InjectionGuardConfig(
+                enable_sanitization=True,
+                enable_semantic_detection=True,
+                enable_intent_audit=True,
+                auto_block_critical=False,
+                quarantine_suspicious=False,
+                threat_threshold=ThreatLevel.HIGH,
+            )
+        )
 
 
 class InjectionError(Exception):

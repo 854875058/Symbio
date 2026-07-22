@@ -21,6 +21,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from symbio.utils.logger import get_logger
+
 # OpenTelemetry imports (optional dependency)
 _OTEL_AVAILABLE = False
 try:
@@ -44,11 +46,13 @@ try:
     from opentelemetry.propagate import extract, inject
     from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
     from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+
     _OTEL_AVAILABLE = True
 except ImportError:
     # Provide fallback stubs when opentelemetry is not installed
     class _StubEnum:
         """Fallback for OTel enums."""
+
         INTERNAL = "INTERNAL"
         CLIENT = "CLIENT"
         SERVER = "SERVER"
@@ -60,14 +64,17 @@ except ImportError:
 
     class SpanKind(_StubEnum):
         """Stub SpanKind when opentelemetry is not available."""
+
         pass
 
     class StatusCode(_StubEnum):
         """Stub StatusCode when opentelemetry is not available."""
+
         pass
 
     class Status:
         """Stub Status when opentelemetry is not available."""
+
         def __init__(self, status_code=None, description=""):
             self.status_code = status_code
             self.description = description
@@ -91,23 +98,34 @@ except ImportError:
 
     class _StubMetrics:
         """Stub for opentelemetry.metrics module."""
+
         Counter = None
         Histogram = None
         ObservableGauge = None
         Meter = None
-        def set_meter_provider(self, *a, **kw): pass
-        def get_meter(self, *a, **kw): return None
+
+        def set_meter_provider(self, *a, **kw):
+            pass
+
+        def get_meter(self, *a, **kw):
+            return None
 
         class Observation:
             """Stub for metrics.Observation."""
+
             def __init__(self, value=0.0):
                 self.value = value
 
     class _StubTrace:
         """Stub for opentelemetry.trace module."""
+
         Tracer = None
-        def set_tracer_provider(self, *a, **kw): pass
-        def get_tracer(self, *a, **kw): return None
+
+        def set_tracer_provider(self, *a, **kw):
+            pass
+
+        def get_tracer(self, *a, **kw):
+            return None
 
     metrics = _StubMetrics()
     trace = _StubTrace()
@@ -118,7 +136,6 @@ except ImportError:
     def extract(carrier):
         return None
 
-from symbio.utils.logger import get_logger
 
 logger = get_logger("tracer")
 
@@ -134,8 +151,10 @@ _current_span_id: ContextVar[Optional[str]] = ContextVar("_current_span_id", def
 # Enums
 # ---------------------------------------------------------------------------
 
+
 class ExporterType(str, Enum):
     """Span / Metric 导出器类型。"""
+
     CONSOLE = "console"
     OTLP_GRPC = "otlp_grpc"
     NONE = "none"
@@ -143,6 +162,7 @@ class ExporterType(str, Enum):
 
 class MetricType(str, Enum):
     """指标类型。"""
+
     COUNTER = "counter"
     HISTOGRAM = "histogram"
     GAUGE = "gauge"
@@ -152,36 +172,25 @@ class MetricType(str, Enum):
 # Pydantic Data Models
 # ---------------------------------------------------------------------------
 
+
 class TraceConfig(BaseModel):
     """追踪系统配置。"""
 
     service_name: str = Field(default="symbio", description="服务名称")
     service_version: str = Field(default="0.1.0", description="服务版本")
-    exporter_type: ExporterType = Field(
-        default=ExporterType.CONSOLE, description="Span 导出器类型"
-    )
-    otlp_endpoint: str = Field(
-        default="http://localhost:4317", description="OTLP gRPC 端点"
-    )
+    exporter_type: ExporterType = Field(default=ExporterType.CONSOLE, description="Span 导出器类型")
+    otlp_endpoint: str = Field(default="http://localhost:4317", description="OTLP gRPC 端点")
     otlp_insecure: bool = Field(default=True, description="OTLP 是否使用非安全连接")
     metric_exporter_type: ExporterType = Field(
         default=ExporterType.CONSOLE, description="Metric 导出器类型"
     )
-    metric_export_interval_ms: int = Field(
-        default=30000, description="指标导出间隔（毫秒）"
-    )
-    batch_export_max_queue_size: int = Field(
-        default=2048, description="批导出最大队列长度"
-    )
+    metric_export_interval_ms: int = Field(default=30000, description="指标导出间隔（毫秒）")
+    batch_export_max_queue_size: int = Field(default=2048, description="批导出最大队列长度")
     batch_export_max_export_batch_size: int = Field(
         default=512, description="批导出每批最大 Span 数"
     )
-    batch_export_schedule_delay_ms: int = Field(
-        default=5000, description="批导出调度延迟（毫秒）"
-    )
-    console_exporter_pretty: bool = Field(
-        default=False, description="控制台导出器是否美化输出"
-    )
+    batch_export_schedule_delay_ms: int = Field(default=5000, description="批导出调度延迟（毫秒）")
+    console_exporter_pretty: bool = Field(default=False, description="控制台导出器是否美化输出")
     enabled: bool = Field(default=True, description="是否启用追踪")
 
 
@@ -200,9 +209,7 @@ class SpanData(BaseModel):
     status_code: str = Field(default="UNSET", description="状态码")
     status_message: str = Field(default="", description="状态消息")
     events: list[SpanEvent] = Field(default_factory=list, description="Span 事件")
-    token_usage: Optional[TokenUsageSnapshot] = Field(
-        default=None, description="Token 消耗信息"
-    )
+    token_usage: Optional[TokenUsageSnapshot] = Field(default=None, description="Token 消耗信息")
 
 
 class SpanEvent(BaseModel):
@@ -235,9 +242,7 @@ class TokenHeatmapEntry(BaseModel):
     total_tokens: int = Field(default=0, description="总 Token 数")
     model: str = Field(default="", description="模型名称")
     cost_usd: float = Field(default=0.0, description="费用（美元）")
-    timestamp: datetime = Field(
-        default_factory=datetime.now, description="记录时间"
-    )
+    timestamp: datetime = Field(default_factory=datetime.now, description="记录时间")
 
 
 class TokenHeatmapSummary(BaseModel):
@@ -250,24 +255,18 @@ class TokenHeatmapSummary(BaseModel):
     by_component: dict[str, TokenUsageSnapshot] = Field(
         default_factory=dict, description="按组件汇总"
     )
-    entries: list[TokenHeatmapEntry] = Field(
-        default_factory=list, description="详细条目"
-    )
+    entries: list[TokenHeatmapEntry] = Field(default_factory=list, description="详细条目")
 
 
 class MemorySnapshot(BaseModel):
     """记忆快照 - 在某个 Trace 节点保存的完整记忆状态，用于回放恢复。"""
 
-    snapshot_id: str = Field(
-        default_factory=lambda: str(uuid4()), description="快照 ID"
-    )
+    snapshot_id: str = Field(default_factory=lambda: str(uuid4()), description="快照 ID")
     trace_id: str = Field(description="关联的 Trace ID")
     span_id: str = Field(description="关联的 Span ID")
     task_id: Optional[str] = Field(default=None, description="关联的任务 ID")
     agent_name: str = Field(default="", description="Agent 名称")
-    created_at: datetime = Field(
-        default_factory=datetime.now, description="快照创建时间"
-    )
+    created_at: datetime = Field(default_factory=datetime.now, description="快照创建时间")
     short_term_memory: list[dict[str, Any]] = Field(
         default_factory=list, description="短期记忆（对话窗口内的消息）"
     )
@@ -277,9 +276,7 @@ class MemorySnapshot(BaseModel):
     working_memory: dict[str, Any] = Field(
         default_factory=dict, description="工作记忆（当前任务上下文）"
     )
-    metadata: dict[str, Any] = Field(
-        default_factory=dict, description="额外元数据"
-    )
+    metadata: dict[str, Any] = Field(default_factory=dict, description="额外元数据")
 
 
 class MetricRecord(BaseModel):
@@ -290,9 +287,7 @@ class MetricRecord(BaseModel):
     value: float = Field(description="指标值")
     unit: str = Field(default="", description="单位")
     attributes: dict[str, str] = Field(default_factory=dict, description="指标属性")
-    timestamp: datetime = Field(
-        default_factory=datetime.now, description="记录时间"
-    )
+    timestamp: datetime = Field(default_factory=datetime.now, description="记录时间")
 
 
 # Fix forward references
@@ -302,6 +297,7 @@ SpanData.model_rebuild()
 # ---------------------------------------------------------------------------
 # Async batch exporter for MemorySnapshots and TokenHeatmapEntries
 # ---------------------------------------------------------------------------
+
 
 class _AsyncBatchCollector:
     """异步批量收集器 - 将 Token 热力图条目和记忆快照异步写入持久化存储。"""
@@ -418,6 +414,7 @@ class _AsyncBatchCollector:
 # Custom Span Exporter that captures SpanData for internal use
 # ---------------------------------------------------------------------------
 
+
 class _SpanDataCaptureExporter(SpanExporter if SpanExporter is not None else object):
     """捕获 SpanData 的自定义导出器，用于内部 Span 数据收集。"""
 
@@ -475,11 +472,13 @@ class _SpanDataCaptureExporter(SpanExporter if SpanExporter is not None else obj
 
         events: list[SpanEvent] = []
         for ev in sdk_span.events or []:
-            events.append(SpanEvent(
-                name=ev.name,
-                timestamp=datetime.fromtimestamp(ev.timestamp / 1e9),
-                attributes=dict(ev.attributes) if ev.attributes else {},
-        ))
+            events.append(
+                SpanEvent(
+                    name=ev.name,
+                    timestamp=datetime.fromtimestamp(ev.timestamp / 1e9),
+                    attributes=dict(ev.attributes) if ev.attributes else {},
+                )
+            )
 
         status = sdk_span.status
         status_code = status.status_code.name if status else "UNSET"
@@ -520,6 +519,7 @@ class _SpanDataCaptureExporter(SpanExporter if SpanExporter is not None else obj
 # ---------------------------------------------------------------------------
 # Core Tracer
 # ---------------------------------------------------------------------------
+
 
 class Tracer:
     """可观测性追踪器。
@@ -582,7 +582,9 @@ class Tracer:
         self._metric_records: list[MetricRecord] = []
         self._metric_records_lock = asyncio.Lock()
 
-        logger.info(f"Tracer 初始化: service={self._config.service_name}, exporter={self._config.exporter_type.value}")
+        logger.info(
+            f"Tracer 初始化: service={self._config.service_name}, exporter={self._config.exporter_type.value}"
+        )
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -607,12 +609,14 @@ class Tracer:
             self._started = True
             return
 
-        resource = Resource.create({
-            SERVICE_NAME: self._config.service_name,
-            SERVICE_VERSION: self._config.service_version,
-            "telemetry.sdk.language": "python",
-            "telemetry.sdk.name": "opentelemetry",
-        })
+        resource = Resource.create(
+            {
+                SERVICE_NAME: self._config.service_name,
+                SERVICE_VERSION: self._config.service_version,
+                "telemetry.sdk.language": "python",
+                "telemetry.sdk.name": "opentelemetry",
+            }
+        )
 
         # --- Tracer Provider ---
         self._tracer_provider = TracerProvider(resource=resource)
@@ -1342,9 +1346,7 @@ class Tracer:
             },
         }
 
-        logger.info(
-            f"记忆快照已恢复: id={snapshot_id}, agent={snapshot.agent_name}"
-        )
+        logger.info(f"记忆快照已恢复: id={snapshot_id}, agent={snapshot.agent_name}")
         return restored
 
     # ------------------------------------------------------------------
@@ -1443,8 +1445,7 @@ class Tracer:
 
         # Root spans have no parent or parent not in this trace
         root_ids = [
-            s.span_id for s in spans
-            if s.parent_span_id is None or s.parent_span_id not in span_map
+            s.span_id for s in spans if s.parent_span_id is None or s.parent_span_id not in span_map
         ]
 
         return {
@@ -1481,6 +1482,7 @@ class Tracer:
 # No-op Span (when tracer is disabled or not started)
 # ---------------------------------------------------------------------------
 
+
 class _NoOpSpan:
     """空操作 Span，在追踪禁用时使用。"""
 
@@ -1506,6 +1508,7 @@ class _NoOpSpan:
 # ---------------------------------------------------------------------------
 # Decorators for automatic span creation
 # ---------------------------------------------------------------------------
+
 
 def trace_agent(
     tracer: Tracer,
@@ -1590,7 +1593,7 @@ def trace_agent(
 
                     return result
 
-                except Exception as exc:
+                except Exception:
                     elapsed = (time.monotonic() - start) * 1000
                     span.set_attribute("agent.success", False)
                     tracer.increment_counter(
@@ -1605,6 +1608,7 @@ def trace_agent(
                     raise
 
         return wrapper
+
     return decorator
 
 
@@ -1682,7 +1686,7 @@ def trace_task(
 
                     return result
 
-                except Exception as exc:
+                except Exception:
                     elapsed = (time.monotonic() - start) * 1000
                     span.set_attribute("task.success", False)
                     tracer.increment_counter(
@@ -1697,6 +1701,7 @@ def trace_task(
                     raise
 
         return wrapper
+
     return decorator
 
 
@@ -1745,7 +1750,9 @@ def trace_tool(
                 )
 
                 # Add params as event (not attributes, to avoid high cardinality)
-                span.add_event("tool.params", {"params": json.dumps(params_summary, ensure_ascii=False)[:1000]})
+                span.add_event(
+                    "tool.params", {"params": json.dumps(params_summary, ensure_ascii=False)[:1000]}
+                )
 
                 start = time.monotonic()
                 try:
@@ -1765,7 +1772,7 @@ def trace_tool(
 
                     return result
 
-                except Exception as exc:
+                except Exception:
                     elapsed = (time.monotonic() - start) * 1000
                     span.set_attribute("tool.success", False)
                     tracer.record_histogram(
@@ -1776,6 +1783,7 @@ def trace_tool(
                     raise
 
         return wrapper
+
     return decorator
 
 

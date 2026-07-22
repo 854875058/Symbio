@@ -54,6 +54,7 @@ class TokenBucket:
 
 class RateLimitExceededError(Exception):
     """速率限制超限错误"""
+
     pass
 
 
@@ -65,7 +66,7 @@ class RateLimiter:
 
     # 默认速率配置（请求/秒）
     DEFAULT_RATES = {
-        "claude-3-5-haiku-20241022": (50, 100),    # (rate, capacity)
+        "claude-3-5-haiku-20241022": (50, 100),  # (rate, capacity)
         "claude-sonnet-4-20250514": (20, 50),
         "claude-opus-4-20250514": (10, 30),
         "default": (10, 30),
@@ -83,9 +84,7 @@ class RateLimiter:
     def _get_bucket(self, model: str) -> TokenBucket:
         """获取或创建令牌桶"""
         if model not in self._buckets:
-            rate, capacity = self.DEFAULT_RATES.get(
-                model, self.DEFAULT_RATES["default"]
-            )
+            rate, capacity = self.DEFAULT_RATES.get(model, self.DEFAULT_RATES["default"])
             self._buckets[model] = TokenBucket(rate, capacity)
             logger.debug(f"创建令牌桶: {model}, rate={rate}, capacity={capacity}")
         return self._buckets[model]
@@ -117,18 +116,11 @@ class RateLimiter:
 
         if retry_count > self.MAX_RETRIES:
             del self._retry_counts[retry_key]
-            raise RateLimitExceededError(
-                f"模型 {model} 速率限制重试次数耗尽"
-            )
+            raise RateLimitExceededError(f"模型 {model} 速率限制重试次数耗尽")
 
         # 指数退避
-        delay = min(
-            self.BASE_DELAY * (2 ** (retry_count - 1)),
-            self.MAX_DELAY
-        )
-        logger.warning(
-            f"速率限制: {model}, 第 {retry_count} 次重试, 等待 {delay:.1f}s"
-        )
+        delay = min(self.BASE_DELAY * (2 ** (retry_count - 1)), self.MAX_DELAY)
+        logger.warning(f"速率限制: {model}, 第 {retry_count} 次重试, 等待 {delay:.1f}s")
         await asyncio.sleep(delay)
 
     def clear_retry(self, model: str) -> None:

@@ -25,7 +25,7 @@ from symbio.core.decomposer import SubTask
 from symbio.core.event_bus import Event, EventBus, EventType
 from symbio.core.rate_limiter import RateLimiter
 from symbio.utils.logger import get_logger
-from symbio.utils.types import AgentState, Intent, Result, Task, TokenUsage
+from symbio.utils.types import Intent, Result, Task, TokenUsage
 
 logger = get_logger("subagent_manager")
 
@@ -144,8 +144,7 @@ class SubAgentManager:
                 )
             else:
                 coros = [
-                    self._execute_single_subtask(subtask_map[sid], parent_task)
-                    for sid in group_ids
+                    self._execute_single_subtask(subtask_map[sid], parent_task) for sid in group_ids
                 ]
                 await asyncio.gather(*coros)
 
@@ -208,9 +207,7 @@ class SubAgentManager:
         # 4. 执行（含速率限制与错误隔离）
         try:
             if agent is None:
-                raise RuntimeError(
-                    f"未找到适合子任务 '{subtask.name}' 的 Agent"
-                )
+                raise RuntimeError(f"未找到适合子任务 '{subtask.name}' 的 Agent")
 
             model = task.model or "default"
             await self.rate_limiter.acquire(model)
@@ -244,10 +241,7 @@ class SubAgentManager:
         except Exception as exc:
             duration_ms = (time.monotonic() - start_time) * 1000
             error_msg = str(exc)
-            logger.error(
-                f"子任务 '{subtask.name}' (id={subtask.subtask_id}) "
-                f"执行失败: {error_msg}"
-            )
+            logger.error(f"子任务 '{subtask.name}' (id={subtask.subtask_id}) 执行失败: {error_msg}")
 
             sub_result = SubAgentResult(
                 subtask_id=subtask.subtask_id,
@@ -353,7 +347,9 @@ class SubAgentManager:
                         success=bool(rd.get("success", False)),
                         content=rd.get("content", ""),
                         token_usage=self._token_usage_to_dict(
-                            TokenUsage(**rd["token_usage"]) if rd.get("token_usage") else TokenUsage()
+                            TokenUsage(**rd["token_usage"])
+                            if rd.get("token_usage")
+                            else TokenUsage()
                         ),
                     )
                 else:
@@ -391,10 +387,7 @@ class SubAgentManager:
         if subtask.suggested_agent:
             agent = self.registry.get(subtask.suggested_agent)
             if agent is not None:
-                logger.debug(
-                    f"子任务 '{subtask.name}' 使用建议 Agent: "
-                    f"{subtask.suggested_agent}"
-                )
+                logger.debug(f"子任务 '{subtask.name}' 使用建议 Agent: {subtask.suggested_agent}")
                 return agent
 
         # 2. 通过 Intent 匹配
@@ -405,17 +398,13 @@ class SubAgentManager:
         )
         agent = await self.registry.find_best(intent)
         if agent is not None:
-            logger.debug(
-                f"子任务 '{subtask.name}' 通过意图匹配 Agent: {agent.name}"
-            )
+            logger.debug(f"子任务 '{subtask.name}' 通过意图匹配 Agent: {agent.name}")
             return agent
 
         # 3. 回退到 general
         fallback = self.registry.get("general")
         if fallback is not None:
-            logger.debug(
-                f"子任务 '{subtask.name}' 回退到 general Agent"
-            )
+            logger.debug(f"子任务 '{subtask.name}' 回退到 general Agent")
             return fallback
 
         logger.warning(f"子任务 '{subtask.name}' 未找到任何可用 Agent")
@@ -555,10 +544,7 @@ class SubAgentManager:
 
     def get_active_subagents(self) -> dict[str, str]:
         """返回当前活跃子 Agent 的 ``{subtask_id: agent_name}`` 映射。"""
-        return {
-            sid: agent.name
-            for sid, agent in self._active_subagents.items()
-        }
+        return {sid: agent.name for sid, agent in self._active_subagents.items()}
 
     def get_results(self) -> dict[str, SubAgentResult]:
         """返回已完成子任务的结果映射。"""

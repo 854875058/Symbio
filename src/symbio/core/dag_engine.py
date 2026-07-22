@@ -246,9 +246,7 @@ class DAGEngine:
                     self._graph.remove_edge(dep_id, node_id)
             self._graph.remove_node(node_id)
             del self._nodes[node_id]
-            raise ValueError(
-                f"Adding node '{node_id}' would create a cycle; operation rolled back"
-            )
+            raise ValueError(f"Adding node '{node_id}' would create a cycle; operation rolled back")
 
         logger.info(f"Added node '{name}' (id={node_id}, deps={dependencies})")
         return node
@@ -317,9 +315,7 @@ class DAGEngine:
         if not nx.is_directed_acyclic_graph(self._graph):
             self._graph.remove_edge(source_id, target_id)
             self._nodes[target_id].dependencies.remove(source_id)
-            raise ValueError(
-                f"Adding edge '{source_id}' -> '{target_id}' would create a cycle"
-            )
+            raise ValueError(f"Adding edge '{source_id}' -> '{target_id}' would create a cycle")
 
         logger.info(f"Added edge: {source_id} -> {target_id}")
 
@@ -387,10 +383,7 @@ class DAGEngine:
 
     def get_execution_order(self) -> list[str]:
         """返回当前图的拓扑排序（不会包含已取消的节点）。"""
-        active = [
-            nid for nid, node in self._nodes.items()
-            if node.status != NodeStatus.CANCELLED
-        ]
+        active = [nid for nid, node in self._nodes.items() if node.status != NodeStatus.CANCELLED]
         subgraph = self._graph.subgraph(active)
         return list(nx.topological_sort(subgraph))
 
@@ -500,9 +493,7 @@ class DAGEngine:
             node.error = str(exc)
             node.completed_at = datetime.now()
 
-            logger.error(
-                f"Node '{node.name}' (id={node.node_id}) failed: {exc}"
-            )
+            logger.error(f"Node '{node.name}' (id={node.node_id}) failed: {exc}")
 
             await self._emit_event(
                 EventType.AGENT_FAILED,
@@ -526,6 +517,7 @@ class DAGEngine:
             expected_version: 执行开始时读取的版本号。
             max_retries: 最大重试次数。
         """
+
         def _make_updater(obs: NodeObservation, nid: str) -> Callable:  # type: ignore[type-arg]
             def updater(state):  # type: ignore[no-untyped-def]
                 state.metadata[f"node_result:{nid}"] = {
@@ -534,6 +526,7 @@ class DAGEngine:
                     "node_meta": obs.metadata,
                 }
                 return state
+
             return updater
 
         updater_fn = _make_updater(observation, node.node_id)
@@ -617,7 +610,9 @@ class DAGEngine:
         """
         applied: list[str] = []  # 已应用的变更描述，用于回滚
         # 保存快照用于回滚
-        snapshot_nodes = {nid: node.model_dump(exclude={"callable_ref"}) for nid, node in self._nodes.items()}
+        snapshot_nodes = {
+            nid: node.model_dump(exclude={"callable_ref"}) for nid, node in self._nodes.items()
+        }
         snapshot_edges = list(self._graph.edges())
         snapshot_graph_nodes = list(self._graph.nodes())
 
@@ -732,8 +727,7 @@ class DAGEngine:
 
         stats = self.get_stats()
         logger.info(
-            f"Starting DAG execution: {stats.total_nodes} node(s) "
-            f"(pending={stats.pending})"
+            f"Starting DAG execution: {stats.total_nodes} node(s) (pending={stats.pending})"
         )
 
         await self._emit_event(
@@ -757,22 +751,17 @@ class DAGEngine:
                 continue
 
             logger.debug(
-                f"Iteration {iteration}: {len(ready)} ready node(s) — "
-                f"{[n.name for n in ready]}"
+                f"Iteration {iteration}: {len(ready)} ready node(s) — {[n.name for n in ready]}"
             )
 
             # 并行执行就绪节点
             if max_parallel > 0:
                 # 分批执行
                 for i in range(0, len(ready), max_parallel):
-                    batch = ready[i: i + max_parallel]
-                    await asyncio.gather(
-                        *(self._execute_node(n, context) for n in batch)
-                    )
+                    batch = ready[i : i + max_parallel]
+                    await asyncio.gather(*(self._execute_node(n, context) for n in batch))
             else:
-                await asyncio.gather(
-                    *(self._execute_node(n, context) for n in ready)
-                )
+                await asyncio.gather(*(self._execute_node(n, context) for n in ready))
 
         # 收集结果
         results: dict[str, NodeObservation] = {}
@@ -879,8 +868,7 @@ class DAGEngine:
         """导出 DAG 为可序列化字典（用于调试 / 序列化检查点）。"""
         return {
             "nodes": {
-                nid: node.model_dump(exclude={"callable_ref"})
-                for nid, node in self._nodes.items()
+                nid: node.model_dump(exclude={"callable_ref"}) for nid, node in self._nodes.items()
             },
             "edges": list(self._graph.edges()),
             "stats": self.get_stats().model_dump(),
@@ -902,8 +890,10 @@ class DAGEngine:
     async def _emit_event(self, event_type: EventType, data: dict[str, Any]) -> None:
         """向事件总线发送事件（如果已配置）。"""
         if self._event_bus:
-            await self._event_bus.emit(Event(
-                type=event_type,
-                data=data,
-                source="dag_engine",
-            ))
+            await self._event_bus.emit(
+                Event(
+                    type=event_type,
+                    data=data,
+                    source="dag_engine",
+                )
+            )

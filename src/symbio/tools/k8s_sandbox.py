@@ -26,7 +26,6 @@
 
 from __future__ import annotations
 
-import copy
 from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
@@ -177,16 +176,12 @@ class K8sSandboxGenerator:
                 }
             )
             for path in self._TMPFS_PATHS:
-                volume_mounts.append(
-                    {"name": "tmp-volumes", "mountPath": path}
-                )
+                volume_mounts.append({"name": "tmp-volumes", "mountPath": path})
 
         # 用户自定义卷
         for vol_name, mount_path in config.volumes.items():
             volumes.append({"name": vol_name, "emptyDir": {}})
-            volume_mounts.append(
-                {"name": vol_name, "mountPath": mount_path}
-            )
+            volume_mounts.append({"name": vol_name, "mountPath": mount_path})
 
         # 环境变量
         env_list = [{"name": k, "value": v} for k, v in config.env.items()]
@@ -247,9 +242,7 @@ class K8sSandboxGenerator:
         logger.info(f"Generated Pod spec for sandbox '{config.name}'")
         return pod
 
-    def generate_network_policy(
-        self, config: SandboxConfig
-    ) -> dict[str, Any]:
+    def generate_network_policy(self, config: SandboxConfig) -> dict[str, Any]:
         """生成 NetworkPolicy YAML 字典。
 
         默认行为：拒绝所有入站和出站流量。
@@ -269,9 +262,7 @@ class K8sSandboxGenerator:
                 "to": [
                     {
                         "namespaceSelector": {
-                            "matchLabels": {
-                                "kubernetes.io/metadata.name": "kube-system"
-                            }
+                            "matchLabels": {"kubernetes.io/metadata.name": "kube-system"}
                         }
                     }
                 ],
@@ -322,9 +313,7 @@ class K8sSandboxGenerator:
         logger.info(f"Generated NetworkPolicy for sandbox '{config.name}'")
         return policy
 
-    def generate_resource_quota(
-        self, config: SandboxConfig
-    ) -> dict[str, Any]:
+    def generate_resource_quota(self, config: SandboxConfig) -> dict[str, Any]:
         """生成 ResourceQuota YAML 字典。
 
         限制命名空间内的总资源用量，防止沙箱实例过度消耗。
@@ -490,10 +479,10 @@ class DockerSandboxGenerator:
             if config.network_policy == NetworkPolicyMode.DENY_ALL
             else "bridge",
             "security_opt": ["no-new-privileges"],
-                "tmpfs": [
-                    "/tmp:rw,noexec,nosuid,size=64m",
-                    "/var/tmp:rw,noexec,nosuid,size=64m",
-                ],
+            "tmpfs": [
+                "/tmp:rw,noexec,nosuid,size=64m",
+                "/var/tmp:rw,noexec,nosuid,size=64m",
+            ],
         }
 
         if config.command:
@@ -655,9 +644,7 @@ def get_template(name: str) -> SandboxConfig:
     """
     if name not in SANDBOX_TEMPLATES:
         available = ", ".join(SANDBOX_TEMPLATES.keys())
-        raise KeyError(
-            f"Unknown sandbox template '{name}'. Available: {available}"
-        )
+        raise KeyError(f"Unknown sandbox template '{name}'. Available: {available}")
     return SANDBOX_TEMPLATES[name].model_copy(deep=True)
 
 

@@ -18,7 +18,7 @@ from httpx import ASGITransport, AsyncClient
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from symbio.memory.manager import MemoryManager, MemoryManagerConfig, MemoryType
+from symbio.memory.manager import MemoryManager, MemoryManagerConfig
 from symbio.memory.multimodal import MultiModalMemory
 
 
@@ -95,9 +95,7 @@ async def test_missing_image_not_stored(tmp_path):
 @pytest.mark.asyncio
 async def test_code_ingest_stores_structure_without_network(tmp_path):
     mgr = _manager(tmp_path, lambda b64, mime: "不应被调用")
-    item = await mgr.add_multimodal_memory(
-        "def foo(x):\n    return x", "code", language="python"
-    )
+    item = await mgr.add_multimodal_memory("def foo(x):\n    return x", "code", language="python")
 
     assert item is not None
     assert "函数: foo" in item.content

@@ -36,8 +36,11 @@ async def test_run_session_captures_claude_session_id_then_resumes(tmp_path):
         workspace_root=tmp_path,
         providers=[
             ExternalAgentProvider(
-                provider_id="claude-code", display_name="Claude Code",
-                executable="claude", path="claude", installed=True,
+                provider_id="claude-code",
+                display_name="Claude Code",
+                executable="claude",
+                path="claude",
+                installed=True,
             )
         ],
     )
@@ -47,9 +50,13 @@ async def test_run_session_captures_claude_session_id_then_resumes(tmp_path):
 
     async def fake_execute(command, cwd, timeout):
         return ExternalAgentRunResult(
-            session_id="", provider="", success=True, exit_code=0,
+            session_id="",
+            provider="",
+            success=True,
+            exit_code=0,
             stdout='Active code page: 65001\n{"result":"done-1","session_id":"sess-xyz"}',
         )
+
     controller._execute = fake_execute
 
     r1 = await controller.run_session(session.session_id, ExternalAgentRunRequest(prompt="第一步"))
@@ -57,12 +64,17 @@ async def test_run_session_captures_claude_session_id_then_resumes(tmp_path):
     assert controller.get_session(session.session_id).external_session_id == "sess-xyz"  # 回填
 
     captured = {}
+
     async def fake_execute2(command, cwd, timeout):
         captured["cmd"] = command
         return ExternalAgentRunResult(
-            session_id="", provider="", success=True, exit_code=0,
+            session_id="",
+            provider="",
+            success=True,
+            exit_code=0,
             stdout='{"result":"done-2","session_id":"sess-xyz"}',
         )
+
     controller._execute = fake_execute2
 
     r2 = await controller.run_session(session.session_id, ExternalAgentRunRequest(prompt="第二步"))

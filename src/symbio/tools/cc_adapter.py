@@ -3,13 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import re
-from dataclasses import dataclass, field
-from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -23,8 +20,10 @@ logger = get_logger("tools.cc_adapter")
 # 数据模型
 # ---------------------------------------------------------------------------
 
+
 class CCOutputType(str, Enum):
     """Claude Code 输出类型"""
+
     TEXT = "text"
     CODE = "code"
     TOOL_USE = "tool_use"
@@ -33,17 +32,19 @@ class CCOutputType(str, Enum):
 
 class CodeBlock(BaseModel):
     """代码块"""
+
     language: str = ""
     code: str
-    file_path: str = ""              # 目标文件路径（如有）
+    file_path: str = ""  # 目标文件路径（如有）
     line_start: int = 0
     line_end: int = 0
 
 
 class CCResponse(BaseModel):
     """Claude Code 响应解析结果"""
+
     raw_output: str = ""
-    text_content: str = ""           # 文本内容
+    text_content: str = ""  # 文本内容
     code_blocks: list[CodeBlock] = Field(default_factory=list)
     tool_uses: list[dict[str, Any]] = Field(default_factory=list)
     exit_code: int = 0
@@ -66,18 +67,20 @@ class CCResponse(BaseModel):
 
 class CCAdapterConfig(BaseModel):
     """Claude Code 适配器配置"""
-    cli_path: str = "claude"         # CLI 路径
-    default_model: str = ""          # 默认模型（空则用 CLI 默认）
-    timeout: int = 300               # 超时秒数
+
+    cli_path: str = "claude"  # CLI 路径
+    default_model: str = ""  # 默认模型（空则用 CLI 默认）
+    timeout: int = 300  # 超时秒数
     max_output_size: int = 1024 * 1024  # 最大输出大小（字节）
     allowed_tools: list[str] = Field(default_factory=list)  # 允许的工具
     blocked_tools: list[str] = Field(default_factory=list)  # 禁用的工具
-    proxy: str = ""                  # 代理地址
+    proxy: str = ""  # 代理地址
 
 
 # ---------------------------------------------------------------------------
 # Claude Code 适配器
 # ---------------------------------------------------------------------------
+
 
 class ClaudeCodeAdapter:
     """Claude Code 适配器
@@ -108,8 +111,7 @@ class ClaudeCodeAdapter:
         self._config = config or CCAdapterConfig()
         self._sessions: dict[str, list[dict[str, str]]] = {}  # session_id -> history
         logger.info(
-            f"ClaudeCodeAdapter 创建: cli={self._config.cli_path}, "
-            f"timeout={self._config.timeout}"
+            f"ClaudeCodeAdapter 创建: cli={self._config.cli_path}, timeout={self._config.timeout}"
         )
 
     # ------------------------------------------------------------------
@@ -126,7 +128,7 @@ class ClaudeCodeAdapter:
         system_prompt: str = "",
         allowed_tools: list[str] | None = None,
         blocked_tools: list[str] | None = None,
-        output_format: str = "text",    # text / json / stream-json
+        output_format: str = "text",  # text / json / stream-json
         max_turns: int = 10,
         verbose: bool = False,
     ) -> CCResponse:
@@ -148,6 +150,7 @@ class ClaudeCodeAdapter:
             解析后的响应
         """
         import time
+
         start_time = time.monotonic()
 
         # 构建命令
@@ -171,14 +174,18 @@ class ClaudeCodeAdapter:
         if session_id:
             if session_id not in self._sessions:
                 self._sessions[session_id] = []
-            self._sessions[session_id].append({
-                "role": "user",
-                "content": prompt,
-            })
-            self._sessions[session_id].append({
-                "role": "assistant",
-                "content": response.text_content,
-            })
+            self._sessions[session_id].append(
+                {
+                    "role": "user",
+                    "content": prompt,
+                }
+            )
+            self._sessions[session_id].append(
+                {
+                    "role": "assistant",
+                    "content": response.text_content,
+                }
+            )
 
         duration_ms = int((time.monotonic() - start_time) * 1000)
         response.duration_ms = duration_ms
@@ -212,9 +219,7 @@ class ClaudeCodeAdapter:
             if path.exists():
                 try:
                     content = path.read_text(encoding="utf-8")
-                    context_parts.append(
-                        f"--- {path.name} ---\n{content}\n--- end {path.name} ---"
-                    )
+                    context_parts.append(f"--- {path.name} ---\n{content}\n--- end {path.name} ---")
                 except Exception as e:
                     logger.warning(f"读取文件失败 {path}: {e}")
 
@@ -278,13 +283,12 @@ class ClaudeCodeAdapter:
 
         return cmd
 
-    async def _execute(
-        self, cmd: list[str], workdir: str | Path
-    ) -> CCResponse:
+    async def _execute(self, cmd: list[str], workdir: str | Path) -> CCResponse:
         """执行命令并解析输出"""
         env = None
         if self._config.proxy:
             import os
+
             env = os.environ.copy()
             env["HTTP_PROXY"] = self._config.proxy
             env["HTTPS_PROXY"] = self._config.proxy
@@ -316,7 +320,7 @@ class ClaudeCodeAdapter:
 
             # 限制输出大小
             if len(stdout_str) > self._config.max_output_size:
-                stdout_str = stdout_str[:self._config.max_output_size] + "\n... (truncated)"
+                stdout_str = stdout_str[: self._config.max_output_size] + "\n... (truncated)"
 
             # 解析输出
             response = self._parse_output(stdout_str)
@@ -344,16 +348,16 @@ class ClaudeCodeAdapter:
         response = CCResponse(raw_output=output)
 
         # 提取代码块（```language ... ```）
-        code_pattern = re.compile(
-            r"```(\w*)\n(.*?)```", re.DOTALL
-        )
+        code_pattern = re.compile(r"```(\w*)\n(.*?)```", re.DOTALL)
         for match in code_pattern.finditer(output):
             language = match.group(1) or "text"
             code = match.group(2).strip()
-            response.code_blocks.append(CodeBlock(
-                language=language,
-                code=code,
-            ))
+            response.code_blocks.append(
+                CodeBlock(
+                    language=language,
+                    code=code,
+                )
+            )
 
         # 提取文本内容（排除代码块）
         text_content = code_pattern.sub("", output).strip()
@@ -376,6 +380,7 @@ class ClaudeCodeAdapter:
 # ---------------------------------------------------------------------------
 # Tool 注册
 # ---------------------------------------------------------------------------
+
 
 class ClaudeCodeTool(BaseTool):
     """Claude Code 工具（注册到 ToolRegistry）"""

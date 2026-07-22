@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import hashlib
 import math
-import os
 import random
 from datetime import datetime
 from enum import Enum
@@ -23,8 +21,10 @@ logger = get_logger("security.privacy")
 # 数据模型
 # ---------------------------------------------------------------------------
 
+
 class PrivacyMechanism(str, Enum):
     """隐私机制类型"""
+
     LAPLACE = "laplace"
     GAUSSIAN = "gaussian"
     EXPONENTIAL = "exponential"
@@ -32,6 +32,7 @@ class PrivacyMechanism(str, Enum):
 
 class AggregationStrategy(str, Enum):
     """联邦聚合策略"""
+
     FEDERATED_AVERAGING = "federated_averaging"
     WEIGHTED_AVERAGING = "weighted_averaging"
     FEDERATED_PROX = "federated_prox"
@@ -39,6 +40,7 @@ class AggregationStrategy(str, Enum):
 
 class ClientStatus(str, Enum):
     """联邦学习客户端状态"""
+
     IDLE = "idle"
     TRAINING = "training"
     UPLOADING = "uploading"
@@ -48,6 +50,7 @@ class ClientStatus(str, Enum):
 
 class RoundStatus(str, Enum):
     """训练轮次状态"""
+
     WAITING = "waiting"
     COLLECTING = "collecting"
     AGGREGATING = "aggregating"
@@ -57,6 +60,7 @@ class RoundStatus(str, Enum):
 
 class DifferentialPrivacyParams(BaseModel):
     """差分隐私参数"""
+
     epsilon: float = Field(default=1.0, gt=0, description="隐私预算 epsilon")
     delta: float = Field(default=1e-5, gt=0, description="松弛参数 delta")
     mechanism: PrivacyMechanism = PrivacyMechanism.GAUSSIAN
@@ -67,6 +71,7 @@ class DifferentialPrivacyParams(BaseModel):
 
 class ClientUpdate(BaseModel):
     """客户端模型更新"""
+
     client_id: str
     round_id: int
     parameters: list[list[float]] = Field(default_factory=list, description="模型参数 (各层)")
@@ -79,6 +84,7 @@ class ClientUpdate(BaseModel):
 
 class FederatedRound(BaseModel):
     """联邦训练轮次"""
+
     round_id: int
     status: RoundStatus = RoundStatus.WAITING
     selected_clients: list[str] = Field(default_factory=list)
@@ -91,6 +97,7 @@ class FederatedRound(BaseModel):
 
 class FederatedSession(BaseModel):
     """联邦学习会话"""
+
     session_id: str = Field(default_factory=lambda: str(uuid4()))
     description: str = ""
     num_clients: int = 0
@@ -107,6 +114,7 @@ class FederatedSession(BaseModel):
 
 class PrivacyAuditRecord(BaseModel):
     """隐私审计记录"""
+
     record_id: str = Field(default_factory=lambda: str(uuid4()))
     session_id: str
     round_id: int
@@ -122,6 +130,7 @@ class PrivacyAuditRecord(BaseModel):
 # ---------------------------------------------------------------------------
 # 差分隐私引擎
 # ---------------------------------------------------------------------------
+
 
 class DifferentialPrivacyEngine:
     """差分隐私引擎
@@ -200,7 +209,12 @@ class DifferentialPrivacyEngine:
         Returns:
             添加噪声后的值
         """
-        sigma = self.noise_multiplier * sensitivity * math.sqrt(2 * math.log(1.25 / self.delta)) / self.epsilon
+        sigma = (
+            self.noise_multiplier
+            * sensitivity
+            * math.sqrt(2 * math.log(1.25 / self.delta))
+            / self.epsilon
+        )
         if isinstance(value, np.ndarray):
             noise = np.random.normal(0, sigma, value.shape)
         else:
@@ -221,11 +235,8 @@ class DifferentialPrivacyEngine:
         Returns:
             添加噪声后的数据
         """
-        grad_norm_before = float(np.linalg.norm(data))
-
         # 梯度裁剪
         clipped = self.clip_gradients(data)
-        grad_norm_after = float(np.linalg.norm(clipped))
 
         # 添加噪声
         if self.mechanism == PrivacyMechanism.LAPLACE:
@@ -233,7 +244,12 @@ class DifferentialPrivacyEngine:
             noise = np.random.laplace(0, scale, data.shape)
             result = clipped + noise
         elif self.mechanism == PrivacyMechanism.GAUSSIAN:
-            sigma = self.noise_multiplier * sensitivity * math.sqrt(2 * math.log(1.25 / self.delta)) / self.epsilon
+            sigma = (
+                self.noise_multiplier
+                * sensitivity
+                * math.sqrt(2 * math.log(1.25 / self.delta))
+                / self.epsilon
+            )
             noise = np.random.normal(0, sigma, data.shape)
             result = clipped + noise
         elif self.mechanism == PrivacyMechanism.EXPONENTIAL:
@@ -311,6 +327,7 @@ class DifferentialPrivacyEngine:
 # ---------------------------------------------------------------------------
 # 联邦学习客户端
 # ---------------------------------------------------------------------------
+
 
 class FederatedClient:
     """联邦学习客户端
@@ -393,6 +410,7 @@ class FederatedClient:
 # 联邦聚合器
 # ---------------------------------------------------------------------------
 
+
 class FederatedAggregator:
     """联邦聚合器
 
@@ -467,6 +485,7 @@ class FederatedAggregator:
 # ---------------------------------------------------------------------------
 # 联邦学习引擎
 # ---------------------------------------------------------------------------
+
 
 class FederatedLearningEngine:
     """联邦学习引擎

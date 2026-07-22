@@ -193,7 +193,9 @@ class ConflictInfo(BaseModel):
             "conflict_type": self.conflict_type.value,
             "severity": self.severity,
             "description": self.description,
-            "contradiction_details_json": json.dumps(self.contradiction_details, ensure_ascii=False),
+            "contradiction_details_json": json.dumps(
+                self.contradiction_details, ensure_ascii=False
+            ),
             "status": self.status.value,
             "detected_at": self.detected_at.isoformat(),
         }
@@ -201,8 +203,16 @@ class ConflictInfo(BaseModel):
     @classmethod
     def from_row(cls, row: aiosqlite.Row) -> ConflictInfo:
         """从 SQLite 行构造 ConflictInfo。"""
-        old_ver_data = json.loads(row["old_version_json"]) if row["old_version_json"] and row["old_version_json"] != "null" else None
-        new_ver_data = json.loads(row["new_version_json"]) if row["new_version_json"] and row["new_version_json"] != "null" else None
+        old_ver_data = (
+            json.loads(row["old_version_json"])
+            if row["old_version_json"] and row["old_version_json"] != "null"
+            else None
+        )
+        new_ver_data = (
+            json.loads(row["new_version_json"])
+            if row["new_version_json"] and row["new_version_json"] != "null"
+            else None
+        )
         return cls(
             conflict_id=row["conflict_id"],
             memory_id=row["memory_id"],
@@ -251,7 +261,9 @@ class Resolution(BaseModel):
             "conflict_id": self.conflict_id,
             "memory_id": self.memory_id,
             "strategy": self.strategy.value,
-            "chosen_version_json": self.chosen_version.model_dump_json() if self.chosen_version else "null",
+            "chosen_version_json": self.chosen_version.model_dump_json()
+            if self.chosen_version
+            else "null",
             "merged_content": self.merged_content,
             "reasoning": self.reasoning,
             "needs_user_confirmation": 1 if self.needs_user_confirmation else 0,
@@ -262,7 +274,11 @@ class Resolution(BaseModel):
     @classmethod
     def from_row(cls, row: aiosqlite.Row) -> Resolution:
         """从 SQLite 行构造 Resolution。"""
-        chosen_data = json.loads(row["chosen_version_json"]) if row["chosen_version_json"] and row["chosen_version_json"] != "null" else None
+        chosen_data = (
+            json.loads(row["chosen_version_json"])
+            if row["chosen_version_json"] and row["chosen_version_json"] != "null"
+            else None
+        )
         return cls(
             resolution_id=row["resolution_id"],
             conflict_id=row["conflict_id"],
@@ -446,8 +462,7 @@ class VersionedMemory:
         await self._db.commit()
 
         logger.info(
-            f"保存版本: memory_id={memory.memory_id}, "
-            f"version={version_number}, by={created_by}"
+            f"保存版本: memory_id={memory.memory_id}, version={version_number}, by={created_by}"
         )
         return version
 
@@ -535,9 +550,7 @@ class VersionedMemory:
         )
         row = await cursor.fetchone()
         if not row:
-            raise ValueError(
-                f"版本不存在: memory_id={memory_id}, version={version}"
-            )
+            raise ValueError(f"版本不存在: memory_id={memory_id}, version={version}")
 
         target = MemoryVersion.from_row(row)
 
@@ -629,21 +642,25 @@ class VersionedMemory:
             old_val = getattr(ver1, field_name)
             new_val = getattr(ver2, field_name)
             if old_val != new_val:
-                field_changes.append({
-                    "field": field_name,
-                    "old": old_val,
-                    "new": new_val,
-                })
+                field_changes.append(
+                    {
+                        "field": field_name,
+                        "old": old_val,
+                        "new": new_val,
+                    }
+                )
 
         # 标签变更
         tags_added = set(ver2.tags) - set(ver1.tags)
         tags_removed = set(ver1.tags) - set(ver2.tags)
         if tags_added or tags_removed:
-            field_changes.append({
-                "field": "tags",
-                "added": sorted(tags_added),
-                "removed": sorted(tags_removed),
-            })
+            field_changes.append(
+                {
+                    "field": "tags",
+                    "added": sorted(tags_added),
+                    "removed": sorted(tags_removed),
+                }
+            )
 
         # 元数据变更
         metadata_changes: dict[str, Any] = {}
@@ -884,9 +901,7 @@ class ConflictResolver:
         # --- L3: 因果推理：检测内容中的逻辑矛盾 ---
         contradiction_severity = self._detect_contradictions(old_content, new_content)
         if contradiction_severity > 0:
-            contradictions.append(
-                f"内容存在逻辑矛盾（矛盾度: {contradiction_severity:.2f}）"
-            )
+            contradictions.append(f"内容存在逻辑矛盾（矛盾度: {contradiction_severity:.2f}）")
             severity = max(severity, contradiction_severity)
 
         # --- 检测语义漂移（内容变化过大）---
@@ -913,9 +928,7 @@ class ConflictResolver:
         # --- 检测优先级冲突 ---
         if abs(old_importance - new_importance) > 0.4:
             conflict_type = ConflictType.PRIORITY_MISMATCH
-            contradictions.append(
-                f"重要性差异过大: {old_importance:.2f} vs {new_importance:.2f}"
-            )
+            contradictions.append(f"重要性差异过大: {old_importance:.2f} vs {new_importance:.2f}")
             severity = max(severity, abs(old_importance - new_importance))
 
         # 无显著冲突
@@ -928,16 +941,12 @@ class ConflictResolver:
             new_version=new_version,
             conflict_type=conflict_type,
             severity=min(severity, 1.0),
-            description=(
-                f"检测到 {conflict_type.value} 类型冲突: "
-                f"严重程度 {severity:.2f}"
-            ),
+            description=(f"检测到 {conflict_type.value} 类型冲突: 严重程度 {severity:.2f}"),
             contradiction_details=contradictions,
         )
 
         logger.info(
-            f"冲突检测: memory_id={memory_id}, type={conflict_type.value}, "
-            f"severity={severity:.2f}"
+            f"冲突检测: memory_id={memory_id}, type={conflict_type.value}, severity={severity:.2f}"
         )
         return conflict
 
@@ -1008,9 +1017,7 @@ class ConflictResolver:
         )
         return resolution
 
-    async def get_pending_conflicts(
-        self, memory_id: Optional[str] = None
-    ) -> list[ConflictInfo]:
+    async def get_pending_conflicts(self, memory_id: Optional[str] = None) -> list[ConflictInfo]:
         """获取待解决的冲突列表。"""
         if not self._initialized:
             await self.initialize()
@@ -1066,7 +1073,9 @@ class ConflictResolver:
         # 如果用户提供了覆盖版本
         if override_version:
             resolution.chosen_version = override_version
-            resolution.reasoning += f"\n用户 {user_id} 手动选择了版本 {override_version.version_number}"
+            resolution.reasoning += (
+                f"\n用户 {user_id} 手动选择了版本 {override_version.version_number}"
+            )
 
         resolution.needs_user_confirmation = False
         resolution.resolved_by = user_id
@@ -1088,7 +1097,9 @@ class ConflictResolver:
             WHERE conflict_id = ?
             """,
             (
-                resolution.chosen_version.model_dump_json() if resolution.chosen_version else "null",
+                resolution.chosen_version.model_dump_json()
+                if resolution.chosen_version
+                else "null",
                 resolution.reasoning,
                 user_id,
                 conflict_id,
@@ -1151,8 +1162,7 @@ class ConflictResolver:
             # 可信度相同，回退到时间戳
             chosen = new_ver
             reasoning = (
-                f"L2 来源可信度策略: 两者可信度相同({old_cred.weight}), "
-                f"回退到时间戳优先选择新版本"
+                f"L2 来源可信度策略: 两者可信度相同({old_cred.weight}), 回退到时间戳优先选择新版本"
             )
 
         return Resolution(
@@ -1367,7 +1377,7 @@ class ConflictResolver:
 
         # 使用 2-gram 字符集
         def ngrams(text: str, n: int = 2) -> set[str]:
-            return {text[i:i + n] for i in range(len(text) - n + 1)}
+            return {text[i : i + n] for i in range(len(text) - n + 1)}
 
         set1 = ngrams(text1.lower())
         set2 = ngrams(text2.lower())

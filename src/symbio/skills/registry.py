@@ -19,8 +19,10 @@ logger = get_logger("skills.registry")
 # 数据模型
 # ---------------------------------------------------------------------------
 
+
 class SkillStatus(str, Enum):
     """Skill 状态"""
+
     REGISTERED = "registered"
     ACTIVE = "active"
     INACTIVE = "inactive"
@@ -30,15 +32,17 @@ class SkillStatus(str, Enum):
 
 class SkillType(str, Enum):
     """Skill 类型"""
-    TOOL = "tool"           # 工具型 Skill
-    AGENT = "agent"         # Agent 型 Skill
-    WORKFLOW = "workflow"   # 工作流型 Skill
+
+    TOOL = "tool"  # 工具型 Skill
+    AGENT = "agent"  # Agent 型 Skill
+    WORKFLOW = "workflow"  # 工作流型 Skill
     INTEGRATION = "integration"  # 集成型 Skill
     CUSTOM = "custom"
 
 
 class SkillDependency(BaseModel):
     """Skill 依赖"""
+
     name: str
     version: str = ""
     optional: bool = False
@@ -46,6 +50,7 @@ class SkillDependency(BaseModel):
 
 class SkillRegistration(BaseModel):
     """Skill 注册信息"""
+
     skill_id: str = Field(default_factory=lambda: str(uuid4()))
     name: str
     display_name: str = ""
@@ -69,6 +74,7 @@ class SkillRegistration(BaseModel):
 
 class SkillQuery(BaseModel):
     """Skill 查询条件"""
+
     name: Optional[str] = None
     skill_type: Optional[SkillType] = None
     tags: list[str] = Field(default_factory=list)
@@ -81,6 +87,7 @@ class SkillQuery(BaseModel):
 # ---------------------------------------------------------------------------
 # Skill 注册中心
 # ---------------------------------------------------------------------------
+
 
 class SkillRegistry:
     """Skill 注册中心
@@ -140,7 +147,9 @@ class SkillRegistry:
                 self._capability_index[cap].add(registration.skill_id)
 
         self._emit_event("registered", registration)
-        logger.info(f"Skill 注册: {registration.name} v{registration.version} (id={registration.skill_id})")
+        logger.info(
+            f"Skill 注册: {registration.name} v{registration.version} (id={registration.skill_id})"
+        )
         return registration
 
     def unregister(self, skill_id: str) -> bool:

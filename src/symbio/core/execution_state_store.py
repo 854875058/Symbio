@@ -61,9 +61,7 @@ class ExecutionStateStore:
             await self._connection.close()
             self._connection = None
 
-    async def create_execution(
-        self, plan: ExecutionPlan, intent_text: str
-    ) -> ExecutionRecord:
+    async def create_execution(self, plan: ExecutionPlan, intent_text: str) -> ExecutionRecord:
         record = ExecutionRecord(
             execution_id=plan.execution_id,
             task_id=plan.task_id,
@@ -297,9 +295,7 @@ class ExecutionStateStore:
             connection = await self.connect()
             await connection.execute("BEGIN IMMEDIATE")
             try:
-                await self._ensure_node_ref(
-                    connection, artifact.execution_id, artifact.node_id
-                )
+                await self._ensure_node_ref(connection, artifact.execution_id, artifact.node_id)
                 await connection.execute(
                     """
                     INSERT INTO execution_artifacts (
@@ -493,9 +489,7 @@ class ExecutionStateStore:
         ) as cursor:
             row = await cursor.fetchone()
         if row is None:
-            raise ValueError(
-                f"node_id '{node_id}' does not exist for execution '{execution_id}'"
-            )
+            raise ValueError(f"node_id '{node_id}' does not exist for execution '{execution_id}'")
 
     async def _upsert_node(
         self,
@@ -560,9 +554,7 @@ class ExecutionStateStore:
             ),
         )
 
-    async def _append_event(
-        self, connection: aiosqlite.Connection, event: ExecutionEvent
-    ) -> None:
+    async def _append_event(self, connection: aiosqlite.Connection, event: ExecutionEvent) -> None:
         await connection.execute(
             """
             INSERT INTO execution_events (

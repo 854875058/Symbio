@@ -27,12 +27,18 @@ def flywheel(tmp_path):
 # 阶段二：失效分析
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_record_failure_updates_summary(flywheel):
-    r = await flywheel.record_failure({
-        "task_id": "t1", "category": "timeout", "severity": "high",
-        "description": "tool timed out", "steps_to_failure": 3,
-    })
+    r = await flywheel.record_failure(
+        {
+            "task_id": "t1",
+            "category": "timeout",
+            "severity": "high",
+            "description": "tool timed out",
+            "steps_to_failure": 3,
+        }
+    )
     assert r["analysis_id"]
     summary = await flywheel.analysis_summary()
     assert summary["available"] is True
@@ -55,6 +61,7 @@ async def test_bad_category_falls_back_to_unknown(flywheel):
 # 阶段三：SOP 蒸馏
 # ---------------------------------------------------------------------------
 
+
 def test_list_sops_includes_seeds(flywheel):
     sops = flywheel.list_sops()
     assert sops["seed_count"] >= 1
@@ -66,10 +73,16 @@ def test_distill_persists_when_quality_met(flywheel):
         {"step_id": i, "thought": f"思考{i}", "action": f"action_{i}", "observation": "ok"}
         for i in range(5)
     ]
-    result = flywheel.distill_from_trajectory({
-        "trajectory_id": "traj-1", "task_type": "code_generation",
-        "steps": steps, "success": True, "token_count": 1200, "duration_ms": 5000,
-    })
+    result = flywheel.distill_from_trajectory(
+        {
+            "trajectory_id": "traj-1",
+            "task_type": "code_generation",
+            "steps": steps,
+            "success": True,
+            "token_count": 1200,
+            "duration_ms": 5000,
+        }
+    )
     # 蒸馏可能因质量门槛被拒，但无论如何不应抛错且返回结构正确
     assert "distilled" in result
     if result["distilled"]:
@@ -81,9 +94,12 @@ def test_distill_persists_when_quality_met(flywheel):
 # 阶段四：反馈
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_collect_feedback_updates_stats(flywheel):
-    fb = await flywheel.collect_feedback({"task_id": "t1", "rating": 4.5, "comment": "good", "tags": ["fast"]})
+    fb = await flywheel.collect_feedback(
+        {"task_id": "t1", "rating": 4.5, "comment": "good", "tags": ["fast"]}
+    )
     assert fb["feedback_id"]
     stats = await flywheel.feedback_stats()
     assert stats["available"] is True
@@ -96,6 +112,7 @@ async def test_collect_feedback_updates_stats(flywheel):
 # 总览
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_overview_has_four_stages(flywheel):
     overview = await flywheel.overview()
@@ -106,6 +123,7 @@ async def test_overview_has_four_stages(flywheel):
 # ---------------------------------------------------------------------------
 # API 端点
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_flywheel_api_endpoints(tmp_path):
@@ -121,9 +139,15 @@ async def test_flywheel_api_endpoints(tmp_path):
         assert resp.status_code == 200
         assert "stages" in resp.json()
 
-        resp = await client.post("/api/flywheel/failures", json={
-            "task_id": "t1", "category": "tool_error", "severity": "medium", "description": "boom",
-        })
+        resp = await client.post(
+            "/api/flywheel/failures",
+            json={
+                "task_id": "t1",
+                "category": "tool_error",
+                "severity": "medium",
+                "description": "boom",
+            },
+        )
         assert resp.status_code == 200
         assert resp.json()["analysis_id"]
 

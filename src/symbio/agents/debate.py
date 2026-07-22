@@ -22,8 +22,10 @@ logger = get_logger("agents.debate")
 # 数据模型
 # ---------------------------------------------------------------------------
 
+
 class DebateRole(str, Enum):
     """辩论角色"""
+
     PROPOSER = "proposer"
     CRITIC = "critic"
     REFINER = "refiner"
@@ -31,6 +33,7 @@ class DebateRole(str, Enum):
 
 class DebateRoundStatus(str, Enum):
     """单轮辩论状态"""
+
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
@@ -39,6 +42,7 @@ class DebateRoundStatus(str, Enum):
 
 class DebateStatus(str, Enum):
     """辩论整体状态"""
+
     CREATED = "created"
     RUNNING = "running"
     CONSENSUS = "consensus"
@@ -48,6 +52,7 @@ class DebateStatus(str, Enum):
 
 class Argument(BaseModel):
     """单次发言"""
+
     argument_id: str = Field(default_factory=lambda: str(uuid4()))
     role: DebateRole
     round_number: int
@@ -60,6 +65,7 @@ class Argument(BaseModel):
 
 class DebateRound(BaseModel):
     """一轮辩论"""
+
     round_id: str = Field(default_factory=lambda: str(uuid4()))
     round_number: int
     status: DebateRoundStatus = DebateRoundStatus.PENDING
@@ -73,6 +79,7 @@ class DebateRound(BaseModel):
 
 class ConsensusResult(BaseModel):
     """共识检测结果"""
+
     is_consensus: bool
     score: float = Field(ge=0.0, le=1.0)
     summary: str = ""
@@ -82,6 +89,7 @@ class ConsensusResult(BaseModel):
 
 class DebateSession(BaseModel):
     """辩论会话"""
+
     session_id: str = Field(default_factory=lambda: str(uuid4()))
     topic: str
     status: DebateStatus = DebateStatus.CREATED
@@ -98,6 +106,7 @@ class DebateSession(BaseModel):
 # ---------------------------------------------------------------------------
 # 角色策略接口
 # ---------------------------------------------------------------------------
+
 
 class RoleStrategy:
     """角色策略基类 - 定义各角色的推理行为"""
@@ -199,6 +208,7 @@ class RefinerStrategy(RoleStrategy):
 # ---------------------------------------------------------------------------
 # LLM 驱动策略
 # ---------------------------------------------------------------------------
+
 
 class _LLMRoleStrategy(RoleStrategy):
     """LLM 驱动角色策略基类 - 通过 Anthropic API 生成真实推理内容"""
@@ -463,6 +473,7 @@ class LLMRefinerStrategy(_LLMRoleStrategy):
 # 共识检测器
 # ---------------------------------------------------------------------------
 
+
 class ConsensusDetector:
     """共识检测器 - 通过文本相似度和置信度判断是否达成共识"""
 
@@ -539,6 +550,7 @@ class ConsensusDetector:
 # ---------------------------------------------------------------------------
 # 辩论引擎
 # ---------------------------------------------------------------------------
+
 
 class DebateEngine:
     """共识辩论引擎
@@ -617,7 +629,9 @@ class DebateEngine:
         self._sessions[session.session_id] = session
         session.status = DebateStatus.RUNNING
 
-        logger.info(f"辩论开始: session={session.session_id}, topic={topic}, max_rounds={self.max_rounds}")
+        logger.info(
+            f"辩论开始: session={session.session_id}, topic={topic}, max_rounds={self.max_rounds}"
+        )
 
         current_proposal = initial_proposal
         round_durations: list[float] = []
@@ -698,12 +712,12 @@ class DebateEngine:
         )
         session.completed_at = datetime.now()
         self._add_debate_summary(session, round_durations)
-        logger.warning(f"辩论未达成共识: session={session.session_id}, reached max rounds={self.max_rounds}")
+        logger.warning(
+            f"辩论未达成共识: session={session.session_id}, reached max rounds={self.max_rounds}"
+        )
         return session
 
-    def _add_debate_summary(
-        self, session: DebateSession, round_durations: list[float]
-    ) -> None:
+    def _add_debate_summary(self, session: DebateSession, round_durations: list[float]) -> None:
         """将辩论摘要（LLM 调用次数、token 用量、各轮耗时）写入 session.metadata"""
         total_llm_calls = 0
         total_tokens = 0
@@ -759,6 +773,7 @@ class DebateEngine:
             history.append(round_data)
 
         return history
+
 
 # 别名，保持向后兼容
 MultiAgentDebate = DebateEngine

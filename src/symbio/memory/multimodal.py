@@ -44,8 +44,10 @@ VisionDescribeFn = Callable[[str, str], Optional[str]]
 # 数据模型
 # ---------------------------------------------------------------------------
 
+
 class ContentModality(str, Enum):
     """内容模态类型"""
+
     TEXT = "text"
     IMAGE = "image"
     PDF = "pdf"
@@ -55,6 +57,7 @@ class ContentModality(str, Enum):
 @dataclass
 class CodeStructure:
     """代码结构信息（由 AST 解析提取）"""
+
     functions: list[dict[str, Any]] = field(default_factory=list)
     classes: list[dict[str, Any]] = field(default_factory=list)
     imports: list[str] = field(default_factory=list)
@@ -85,9 +88,10 @@ class CodeStructure:
 @dataclass
 class ProcessedContent:
     """经过处理的多模态内容"""
+
     modality: ContentModality = ContentModality.TEXT
     original_content: str = ""
-    text_representation: str = ""         # 用于嵌入/检索的文本表示
+    text_representation: str = ""  # 用于嵌入/检索的文本表示
     metadata: dict[str, Any] = field(default_factory=dict)
     code_structure: Optional[CodeStructure] = None
     error: Optional[str] = None
@@ -100,6 +104,7 @@ class ProcessedContent:
 # ---------------------------------------------------------------------------
 # 代码解析器
 # ---------------------------------------------------------------------------
+
 
 class CodeParser:
     """代码解析器 - AST 感知的代码结构提取
@@ -200,22 +205,28 @@ class CodeParser:
         structure.total_lines = code.count("\n") + 1
 
         # 函数定义
-        for match in re.finditer(
-            r"^(?:async\s+)?def\s+(\w+)\s*\(([^)]*)\)", code, re.MULTILINE
-        ):
-            structure.functions.append({
-                "name": match.group(1),
-                "line": code[:match.start()].count("\n") + 1,
-                "is_async": "async" in match.group(0),
-                "args": [a.strip().split(":")[0].strip() for a in match.group(2).split(",") if a.strip()],
-            })
+        for match in re.finditer(r"^(?:async\s+)?def\s+(\w+)\s*\(([^)]*)\)", code, re.MULTILINE):
+            structure.functions.append(
+                {
+                    "name": match.group(1),
+                    "line": code[: match.start()].count("\n") + 1,
+                    "is_async": "async" in match.group(0),
+                    "args": [
+                        a.strip().split(":")[0].strip()
+                        for a in match.group(2).split(",")
+                        if a.strip()
+                    ],
+                }
+            )
 
         # 类定义
         for match in re.finditer(r"^class\s+(\w+)", code, re.MULTILINE):
-            structure.classes.append({
-                "name": match.group(1),
-                "line": code[:match.start()].count("\n") + 1,
-            })
+            structure.classes.append(
+                {
+                    "name": match.group(1),
+                    "line": code[: match.start()].count("\n") + 1,
+                }
+            )
 
         # import 语句
         for match in re.finditer(r"^import\s+(.+)$", code, re.MULTILINE):
@@ -241,56 +252,68 @@ class CodeParser:
         # 函数声明: function name(...) { ... }
         for match in re.finditer(
             r"(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(([^)]*)\)",
-            code, re.MULTILINE,
+            code,
+            re.MULTILINE,
         ):
-            structure.functions.append({
-                "name": match.group(1),
-                "line": code[:match.start()].count("\n") + 1,
-                "is_async": "async" in match.group(0),
-                "args": [a.strip().split(":")[0].strip().split("=")[0].strip()
-                         for a in match.group(2).split(",") if a.strip()],
-            })
+            structure.functions.append(
+                {
+                    "name": match.group(1),
+                    "line": code[: match.start()].count("\n") + 1,
+                    "is_async": "async" in match.group(0),
+                    "args": [
+                        a.strip().split(":")[0].strip().split("=")[0].strip()
+                        for a in match.group(2).split(",")
+                        if a.strip()
+                    ],
+                }
+            )
 
         # 箭头函数: const name = (...) => { ... }
         for match in re.finditer(
             r"(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\(([^)]*)\)\s*=>",
-            code, re.MULTILINE,
+            code,
+            re.MULTILINE,
         ):
-            structure.functions.append({
-                "name": match.group(1),
-                "line": code[:match.start()].count("\n") + 1,
-                "is_async": "async" in match.group(0),
-                "args": [a.strip().split(":")[0].strip().split("=")[0].strip()
-                         for a in match.group(2).split(",") if a.strip()],
-            })
+            structure.functions.append(
+                {
+                    "name": match.group(1),
+                    "line": code[: match.start()].count("\n") + 1,
+                    "is_async": "async" in match.group(0),
+                    "args": [
+                        a.strip().split(":")[0].strip().split("=")[0].strip()
+                        for a in match.group(2).split(",")
+                        if a.strip()
+                    ],
+                }
+            )
 
         # 类声明
         for match in re.finditer(
             r"(?:export\s+)?class\s+(\w+)(?:\s+extends\s+(\w+))?",
-            code, re.MULTILINE,
+            code,
+            re.MULTILINE,
         ):
             class_info: dict[str, Any] = {
                 "name": match.group(1),
-                "line": code[:match.start()].count("\n") + 1,
+                "line": code[: match.start()].count("\n") + 1,
                 "bases": [match.group(2)] if match.group(2) else [],
             }
             structure.classes.append(class_info)
 
         # import 语句
-        for match in re.finditer(
-            r'import\s+.*?from\s+["\']([^"\']+)["\']', code, re.MULTILINE
-        ):
+        for match in re.finditer(r'import\s+.*?from\s+["\']([^"\']+)["\']', code, re.MULTILINE):
             structure.imports.append(match.group(1))
 
         for match in re.finditer(
-            r'(?:const|let|var)\s+(\w+)\s*=\s*require\s*\(', code, re.MULTILINE
+            r"(?:const|let|var)\s+(\w+)\s*=\s*require\s*\(", code, re.MULTILINE
         ):
             structure.imports.append(match.group(1))
 
         # export 语句
         for match in re.finditer(
             r"export\s+(?:default\s+)?(?:function|class|const|let|var)\s+(\w+)",
-            code, re.MULTILINE,
+            code,
+            re.MULTILINE,
         ):
             structure.exports.append(match.group(1))
 
@@ -311,6 +334,7 @@ class CodeParser:
 # ---------------------------------------------------------------------------
 # 多模态记忆
 # ---------------------------------------------------------------------------
+
 
 class MultiModalMemory:
     """多模态记忆处理器
@@ -385,7 +409,9 @@ class MultiModalMemory:
         Returns:
             ProcessedContent 包含文本表示和元数据
         """
-        type_name = content_type.value if isinstance(content_type, ContentModality) else str(content_type)
+        type_name = (
+            content_type.value if isinstance(content_type, ContentModality) else str(content_type)
+        )
         logger.info(f"处理内容: type={type_name}, length={len(content)}")
 
         try:
@@ -399,7 +425,11 @@ class MultiModalMemory:
                 language = kwargs.get("language", "python")
                 return self._process_code(content, language)
             else:
-                modality = content_type if isinstance(content_type, ContentModality) else ContentModality.TEXT
+                modality = (
+                    content_type
+                    if isinstance(content_type, ContentModality)
+                    else ContentModality.TEXT
+                )
                 return ProcessedContent(
                     modality=modality,
                     original_content=content,
@@ -407,7 +437,9 @@ class MultiModalMemory:
                 )
         except Exception as e:
             logger.error(f"内容处理失败: {e}")
-            modality = content_type if isinstance(content_type, ContentModality) else ContentModality.TEXT
+            modality = (
+                content_type if isinstance(content_type, ContentModality) else ContentModality.TEXT
+            )
             return ProcessedContent(
                 modality=modality,
                 original_content=content,
@@ -512,9 +544,7 @@ class MultiModalMemory:
             metadata=metadata,
         )
 
-    def _describe_image_with_vision(
-        self, path: Path, fmt: str, file_size: int
-    ) -> Optional[str]:
+    def _describe_image_with_vision(self, path: Path, fmt: str, file_size: int) -> Optional[str]:
         """调用视觉模型生成图片描述。
 
         映射格式 -> MIME，做大小校验，base64 编码后交给描述函数。
@@ -536,8 +566,8 @@ class MultiModalMemory:
 
         if file_size > _VISION_MAX_BYTES:
             logger.info(
-                f"图片过大（{file_size/1024/1024:.1f}MB > "
-                f"{_VISION_MAX_BYTES/1024/1024:.0f}MB），跳过视觉描述"
+                f"图片过大（{file_size / 1024 / 1024:.1f}MB > "
+                f"{_VISION_MAX_BYTES / 1024 / 1024:.0f}MB），跳过视觉描述"
             )
             return None
 
@@ -560,9 +590,7 @@ class MultiModalMemory:
         description = description.strip()
         return description or None
 
-    def _default_vision_describe(
-        self, image_b64: str, media_type: str
-    ) -> Optional[str]:
+    def _default_vision_describe(self, image_b64: str, media_type: str) -> Optional[str]:
         """基于 settings 的真实 Claude 视觉调用（官方 anthropic SDK）。
 
         无 API key、SDK 缺失或调用异常时返回 None。
@@ -613,7 +641,7 @@ class MultiModalMemory:
     def _detect_image_format(self, header: bytes) -> str:
         """通过文件魔数检测图片格式"""
         for sig, fmt in self._IMAGE_SIGNATURES.items():
-            if header[:len(sig)] == sig:
+            if header[: len(sig)] == sig:
                 # WEBP 需要额外验证
                 if fmt == "WEBP" and len(header) >= 12:
                     if header[8:12] != b"WEBP":
@@ -668,14 +696,14 @@ class MultiModalMemory:
                 # SOF0-SOF15 (0xC0-0xCF), 排除 0xC4(DHT) 和 0xCC(DAC)
                 if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xCC):
                     if idx + 9 < len(data):
-                        height = struct.unpack(">H", data[idx + 5:idx + 7])[0]
-                        width = struct.unpack(">H", data[idx + 7:idx + 9])[0]
+                        height = struct.unpack(">H", data[idx + 5 : idx + 7])[0]
+                        width = struct.unpack(">H", data[idx + 7 : idx + 9])[0]
                         return (width, height)
                     break
 
                 # 跳过当前段
                 if idx + 3 < len(data):
-                    seg_len = struct.unpack(">H", data[idx + 2:idx + 4])[0]
+                    seg_len = struct.unpack(">H", data[idx + 2 : idx + 4])[0]
                     idx += 2 + seg_len
                 else:
                     break
@@ -759,9 +787,7 @@ class MultiModalMemory:
                     stream_data = match.group(1)
                     # 查找可打印 ASCII 文本段
                     for text_match in re.finditer(rb"[\x20-\x7E]{10,}", stream_data):
-                        text_parts.append(
-                            text_match.group(0).decode("ascii", errors="ignore")
-                        )
+                        text_parts.append(text_match.group(0).decode("ascii", errors="ignore"))
 
             extracted_text = "\n".join(text_parts)
 
@@ -778,7 +804,9 @@ class MultiModalMemory:
             )
 
         if not extracted_text.strip():
-            extracted_text = f"[PDF] 文件: {path.name}, 大小: {file_size/1024:.1f}KB, 未能提取到文本内容"
+            extracted_text = (
+                f"[PDF] 文件: {path.name}, 大小: {file_size / 1024:.1f}KB, 未能提取到文本内容"
+            )
 
         metadata["char_count"] = len(extracted_text)
         metadata["line_count"] = extracted_text.count("\n") + 1

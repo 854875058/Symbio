@@ -60,20 +60,24 @@ class ExternalBackedAgent(BaseAgent):
     def _get_controller(self) -> Any:
         if self._controller is None:
             from symbio.tools.external_agents import ExternalAgentController
+
             self._controller = ExternalAgentController()
         return self._controller
 
     def _ensure_session(self) -> str:
         from symbio.tools.external_agents import ExternalAgentSessionCreate
+
         if self._session_id:
             return self._session_id
         controller = self._get_controller()
-        session = controller.create_session(ExternalAgentSessionCreate(
-            provider=self.provider,
-            workspace=self._workspace,
-            model=self._model,
-            label=f"{self.provider} agent",
-        ))
+        session = controller.create_session(
+            ExternalAgentSessionCreate(
+                provider=self.provider,
+                workspace=self._workspace,
+                model=self._model,
+                label=f"{self.provider} agent",
+            )
+        )
         self._session_id = session.session_id
         return self._session_id
 
@@ -93,13 +97,16 @@ class ExternalBackedAgent(BaseAgent):
 
             controller = self._get_controller()
             session_id = self._ensure_session()
-            run = await controller.run_session(session_id, ExternalAgentRunRequest(
-                prompt=self._build_prompt(task),
-                approved=True,
-                dry_run=bool(task.metadata.get("dry_run", False)),
-                model=self._model,
-                timeout=self._timeout,
-            ))
+            run = await controller.run_session(
+                session_id,
+                ExternalAgentRunRequest(
+                    prompt=self._build_prompt(task),
+                    approved=True,
+                    dry_run=bool(task.metadata.get("dry_run", False)),
+                    model=self._model,
+                    timeout=self._timeout,
+                ),
+            )
 
             content = run.stdout or run.error or ""
             result = Result(
@@ -135,6 +142,7 @@ class ExternalBackedAgent(BaseAgent):
 @register_agent("claude-code")
 class ClaudeCodeAgent(ExternalBackedAgent):
     """由 Claude Code CLI 驱动的 Agent。"""
+
     description = "由 Claude Code CLI 驱动的 Agent"
     provider = "claude-code"
 
@@ -142,5 +150,6 @@ class ClaudeCodeAgent(ExternalBackedAgent):
 @register_agent("codex")
 class CodexAgent(ExternalBackedAgent):
     """由 Codex CLI 驱动的 Agent。"""
+
     description = "由 Codex CLI 驱动的 Agent"
     provider = "codex"

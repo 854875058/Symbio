@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections import defaultdict
 from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
@@ -21,42 +20,45 @@ logger = get_logger("cache_aligner")
 # Pydantic 数据模型
 # ---------------------------------------------------------------------------
 
+
 class CacheProvider(str, Enum):
     """缓存提供商"""
-    ANTHROPIC = "anthropic"      # Anthropic Prompt Cache
-    OPENAI = "openai"            # OpenAI Prefix Caching
-    CUSTOM = "custom"            # 自定义缓存系统
+
+    ANTHROPIC = "anthropic"  # Anthropic Prompt Cache
+    OPENAI = "openai"  # OpenAI Prefix Caching
+    CUSTOM = "custom"  # 自定义缓存系统
 
 
 class AlignmentStrategy(str, Enum):
     """对齐策略"""
-    EXACT = "exact"              # 精确前缀匹配
-    PREFIX = "prefix"            # 前缀匹配（允许后缀不同）
-    HASH = "hash"                # 哈希指纹匹配
-    SEMANTIC = "semantic"        # 语义相似度匹配
+
+    EXACT = "exact"  # 精确前缀匹配
+    PREFIX = "prefix"  # 前缀匹配（允许后缀不同）
+    HASH = "hash"  # 哈希指纹匹配
+    SEMANTIC = "semantic"  # 语义相似度匹配
 
 
 class PrefixSegment(BaseModel):
     """前缀段 - 可缓存的内容片段"""
+
     segment_id: str = Field(default_factory=lambda: str(uuid4()))
     content: str
     content_hash: str = ""
     token_count: int = 0
-    segment_type: str = "text"   # system / tool / context / text
-    is_static: bool = True       # 是否为静态内容（不会变化）
-    cache_priority: int = 0      # 缓存优先级（越高越优先）
+    segment_type: str = "text"  # system / tool / context / text
+    is_static: bool = True  # 是否为静态内容（不会变化）
+    cache_priority: int = 0  # 缓存优先级（越高越优先）
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     def model_post_init(self, __context: Any) -> None:
         """初始化后计算 hash"""
         if not self.content_hash:
-            self.content_hash = hashlib.sha256(
-                self.content.encode("utf-8")
-            ).hexdigest()[:32]
+            self.content_hash = hashlib.sha256(self.content.encode("utf-8")).hexdigest()[:32]
 
 
 class CacheableRequest(BaseModel):
     """可缓存的请求"""
+
     request_id: str = Field(default_factory=lambda: str(uuid4()))
     model: str
     system_prompt: str = ""
@@ -70,6 +72,7 @@ class CacheableRequest(BaseModel):
 
 class AlignmentResult(BaseModel):
     """对齐结果"""
+
     result_id: str = Field(default_factory=lambda: str(uuid4()))
     request_id: str
     aligned_prefix_hash: str = ""
@@ -83,6 +86,7 @@ class AlignmentResult(BaseModel):
 
 class HitRateEstimate(BaseModel):
     """命中率估算"""
+
     estimate_id: str = Field(default_factory=lambda: str(uuid4()))
     prefix_hash: str
     total_requests: int = 0
@@ -97,6 +101,7 @@ class HitRateEstimate(BaseModel):
 
 class PrefixGroup(BaseModel):
     """前缀分组 - 共享同一前缀的请求组"""
+
     group_id: str = Field(default_factory=lambda: str(uuid4()))
     prefix_hash: str
     prefix_content: str = ""
@@ -109,19 +114,21 @@ class PrefixGroup(BaseModel):
 
 class CacheAlignerConfig(BaseModel):
     """对齐器配置"""
+
     provider: CacheProvider = CacheProvider.ANTHROPIC
     strategy: AlignmentStrategy = AlignmentStrategy.PREFIX
-    min_prefix_tokens: int = 1024          # 最小可缓存前缀 Token 数
-    max_prefix_tokens: int = 200000        # 最大前缀 Token 数
+    min_prefix_tokens: int = 1024  # 最小可缓存前缀 Token 数
+    max_prefix_tokens: int = 200000  # 最大前缀 Token 数
     enable_static_segmentation: bool = True  # 启用静态段分割
-    enable_hit_rate_tracking: bool = True    # 启用命中率追踪
-    hit_rate_window_size: int = 1000         # 命中率计算窗口大小
-    cost_per_input_token: float = 0.000003   # 每个输入 Token 的成本（美元）
+    enable_hit_rate_tracking: bool = True  # 启用命中率追踪
+    hit_rate_window_size: int = 1000  # 命中率计算窗口大小
+    cost_per_input_token: float = 0.000003  # 每个输入 Token 的成本（美元）
 
 
 # ---------------------------------------------------------------------------
 # Prompt Cache 对齐器
 # ---------------------------------------------------------------------------
+
 
 class CacheAligner:
     """Prompt Cache 对齐器
@@ -182,25 +189,29 @@ class CacheAligner:
         # 1. 系统提示词段
         if request.system_prompt:
             system_tokens = self._estimate_tokens(request.system_prompt)
-            segments.append(PrefixSegment(
-                content=request.system_prompt,
-                token_count=system_tokens,
-                segment_type="system",
-                is_static=True,
-                cache_priority=100,
-            ))
+            segments.append(
+                PrefixSegment(
+                    content=request.system_prompt,
+                    token_count=system_tokens,
+                    segment_type="system",
+                    is_static=True,
+                    cache_priority=100,
+                )
+            )
 
         # 2. 工具定义段
         if request.tools:
             tools_json = json.dumps(request.tools, ensure_ascii=False, sort_keys=True)
             tools_tokens = self._estimate_tokens(tools_json)
-            segments.append(PrefixSegment(
-                content=tools_json,
-                token_count=tools_tokens,
-                segment_type="tool",
-                is_static=True,
-                cache_priority=90,
-            ))
+            segments.append(
+                PrefixSegment(
+                    content=tools_json,
+                    token_count=tools_tokens,
+                    segment_type="tool",
+                    is_static=True,
+                    cache_priority=90,
+                )
+            )
 
         # 3. 历史消息段（分组）
         if request.messages:
@@ -216,22 +227,26 @@ class CacheAligner:
                 if i == len(request.messages) - 1:
                     # 先保存之前的累积段
                     if current_segment_content:
-                        segments.append(PrefixSegment(
-                            content=current_segment_content,
-                            token_count=current_segment_tokens,
-                            segment_type="context",
-                            is_static=False,
-                            cache_priority=50,
-                        ))
+                        segments.append(
+                            PrefixSegment(
+                                content=current_segment_content,
+                                token_count=current_segment_tokens,
+                                segment_type="context",
+                                is_static=False,
+                                cache_priority=50,
+                            )
+                        )
 
                     # 用户输入段（不缓存）
-                    segments.append(PrefixSegment(
-                        content=msg_json,
-                        token_count=msg_tokens,
-                        segment_type="text",
-                        is_static=False,
-                        cache_priority=0,
-                    ))
+                    segments.append(
+                        PrefixSegment(
+                            content=msg_json,
+                            token_count=msg_tokens,
+                            segment_type="text",
+                            is_static=False,
+                            cache_priority=0,
+                        )
+                    )
                 else:
                     # 累积历史消息
                     if current_segment_content:
@@ -242,33 +257,34 @@ class CacheAligner:
 
                     # 如果累积到一定大小，生成一个段
                     if current_segment_tokens >= self._config.min_prefix_tokens:
-                        segments.append(PrefixSegment(
-                            content=current_segment_content,
-                            token_count=current_segment_tokens,
-                            segment_type="context",
-                            is_static=False,
-                            cache_priority=50,
-                        ))
+                        segments.append(
+                            PrefixSegment(
+                                content=current_segment_content,
+                                token_count=current_segment_tokens,
+                                segment_type="context",
+                                is_static=False,
+                                cache_priority=50,
+                            )
+                        )
                         current_segment_content = ""
                         current_segment_tokens = 0
 
             # 保存剩余的累积段
             if current_segment_content:
-                segments.append(PrefixSegment(
-                    content=current_segment_content,
-                    token_count=current_segment_tokens,
-                    segment_type="context",
-                    is_static=False,
-                    cache_priority=50,
-                ))
+                segments.append(
+                    PrefixSegment(
+                        content=current_segment_content,
+                        token_count=current_segment_tokens,
+                        segment_type="context",
+                        is_static=False,
+                        cache_priority=50,
+                    )
+                )
 
         # 按缓存优先级降序排列
         segments.sort(key=lambda s: s.cache_priority, reverse=True)
 
-        logger.debug(
-            f"请求分段完成: {len(segments)} 个段, "
-            f"total_tokens={request.total_tokens}"
-        )
+        logger.debug(f"请求分段完成: {len(segments)} 个段, total_tokens={request.total_tokens}")
         return segments
 
     # ------------------------------------------------------------------
@@ -301,9 +317,7 @@ class CacheAligner:
 
         # 检查是否达到最小前缀要求
         if prefix_tokens < self._config.min_prefix_tokens:
-            logger.debug(
-                f"前缀 Token 不足: {prefix_tokens} < {self._config.min_prefix_tokens}"
-            )
+            logger.debug(f"前缀 Token 不足: {prefix_tokens} < {self._config.min_prefix_tokens}")
             return AlignmentResult(
                 request_id=request.request_id,
                 aligned_prefix_hash="",
@@ -315,9 +329,7 @@ class CacheAligner:
 
         # 计算前缀 hash
         prefix_content = "".join(s.content for s in cacheable_segments)
-        prefix_hash = hashlib.sha256(
-            prefix_content.encode("utf-8")
-        ).hexdigest()[:32]
+        prefix_hash = hashlib.sha256(prefix_content.encode("utf-8")).hexdigest()[:32]
 
         # 计算命中概率
         hit_probability = self._calculate_hit_probability(prefix_hash, prefix_tokens)
@@ -329,9 +341,7 @@ class CacheAligner:
         self._record_prefix_group(prefix_hash, prefix_content, prefix_tokens, request.request_id)
 
         # 生成缓存控制提示
-        cache_hints = self._generate_cache_control_hints(
-            cacheable_segments, self._config.provider
-        )
+        cache_hints = self._generate_cache_control_hints(cacheable_segments, self._config.provider)
         request.cache_control_hints = cache_hints
 
         result = AlignmentResult(
@@ -572,22 +582,18 @@ class CacheAligner:
             return 0
 
         cjk_chars = sum(
-            1 for c in text
-            if ('一' <= c <= '鿿')          # CJK 统一汉字
-            or ('ぁ' <= c <= 'ヿ')           # 日文假名
-            or ('가' <= c <= '힣')           # 韩文音节
+            1
+            for c in text
+            if ("一" <= c <= "鿿")  # CJK 统一汉字
+            or ("ぁ" <= c <= "ヿ")  # 日文假名
+            or ("가" <= c <= "힣")  # 韩文音节
         )
         digit_chars = sum(1 for c in text if c.isdigit())
         space_chars = sum(1 for c in text if c.isspace())
         other_chars = len(text) - cjk_chars - digit_chars - space_chars
 
         # 加权估算
-        tokens = (
-            cjk_chars / 1.5
-            + digit_chars / 3.0
-            + space_chars / 10.0
-            + other_chars / 3.5
-        )
+        tokens = cjk_chars / 1.5 + digit_chars / 3.0 + space_chars / 10.0 + other_chars / 3.5
         return max(int(tokens), 1)
 
     # ------------------------------------------------------------------
@@ -662,15 +668,19 @@ class CacheAligner:
     @classmethod
     def create_for_anthropic(cls) -> CacheAligner:
         """创建适配 Anthropic 的对齐器"""
-        return cls(CacheAlignerConfig(
-            provider=CacheProvider.ANTHROPIC,
-            min_prefix_tokens=1024,
-        ))
+        return cls(
+            CacheAlignerConfig(
+                provider=CacheProvider.ANTHROPIC,
+                min_prefix_tokens=1024,
+            )
+        )
 
     @classmethod
     def create_for_openai(cls) -> CacheAligner:
         """创建适配 OpenAI 的对齐器"""
-        return cls(CacheAlignerConfig(
-            provider=CacheProvider.OPENAI,
-            min_prefix_tokens=512,
-        ))
+        return cls(
+            CacheAlignerConfig(
+                provider=CacheProvider.OPENAI,
+                min_prefix_tokens=512,
+            )
+        )

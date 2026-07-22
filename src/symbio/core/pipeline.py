@@ -6,8 +6,8 @@ Pipeline 是 Orchestrator 和各执行引擎之间的胶水层，不重写现有
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Optional
+from dataclasses import dataclass
+from typing import Any
 
 from symbio.utils.logger import get_logger
 from symbio.utils.types import Result, Task
@@ -18,6 +18,7 @@ logger = get_logger("pipeline")
 # ---------------------------------------------------------------------------
 # Pipeline context - 在各阶段之间传递状态
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class PipelineContext:
@@ -34,6 +35,7 @@ class PipelineContext:
 # ---------------------------------------------------------------------------
 # Stage result - 控制管道流向
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class StageResult:
@@ -57,6 +59,7 @@ class StageResult:
 # Stage interface
 # ---------------------------------------------------------------------------
 
+
 class PipelineStage:
     """管道阶段基类。"""
 
@@ -67,6 +70,7 @@ class PipelineStage:
 # ---------------------------------------------------------------------------
 # Concrete stages (forward declarations - implemented in subsequent commits)
 # ---------------------------------------------------------------------------
+
 
 class ModelResolutionStage(PipelineStage):
     """阶段 1：解析最终模型 ID。"""
@@ -194,7 +198,8 @@ class VerificationStage(PipelineStage):
 
             artifacts = await store.list_artifacts(execution_id)
             pending_verifications = [
-                a for a in artifacts
+                a
+                for a in artifacts
                 if a.artifact_type == "verification"
                 and a.content.get("verification_status") == "pending"
             ]
@@ -263,6 +268,7 @@ class VerificationStage(PipelineStage):
         try:
             # 从全局 app.state 获取（API 模式）
             import importlib
+
             mod = importlib.import_module("symbio.interfaces.api")
             app = getattr(mod, "app", None)
             if app is not None:
@@ -275,6 +281,7 @@ class VerificationStage(PipelineStage):
 # ---------------------------------------------------------------------------
 # Pipeline 主类
 # ---------------------------------------------------------------------------
+
 
 class ExecutionPipeline:
     """执行管道：串联各阶段，替代 Orchestrator 中的直接调用。"""
@@ -318,9 +325,6 @@ class ExecutionPipeline:
 
 def build_pipeline(orchestrator: Any) -> ExecutionPipeline:
     """从 Orchestrator 实例构建默认管道。"""
-    from symbio.config.settings import get_settings
-
-    settings = get_settings()
     budget_manager = getattr(orchestrator, "budget_manager", None)
 
     return ExecutionPipeline(

@@ -134,7 +134,9 @@ def parse_external_transcript(
             except json.JSONDecodeError:
                 continue
 
-            external_session_id = external_session_id or _extract_session_id(record, normalized_provider)
+            external_session_id = external_session_id or _extract_session_id(
+                record, normalized_provider
+            )
             timestamp = _extract_timestamp(record)
             if timestamp:
                 created_at = created_at or timestamp

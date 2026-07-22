@@ -15,7 +15,7 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 from symbio.utils.logger import get_logger
-from symbio.skills.registry import SkillRegistry, SkillRegistration, SkillStatus, SkillType
+from symbio.skills.registry import SkillRegistry, SkillRegistration, SkillType
 from symbio.skills.schema import SkillManifest
 
 logger = get_logger("skills.marketplace")
@@ -25,8 +25,10 @@ logger = get_logger("skills.marketplace")
 # 数据模型
 # ---------------------------------------------------------------------------
 
+
 class PackageStatus(str, Enum):
     """包状态"""
+
     DRAFT = "draft"
     PUBLISHED = "published"
     DEPRECATED = "deprecated"
@@ -35,6 +37,7 @@ class PackageStatus(str, Enum):
 
 class InstallStatus(str, Enum):
     """安装状态"""
+
     PENDING = "pending"
     DOWNLOADING = "downloading"
     INSTALLING = "installing"
@@ -45,6 +48,7 @@ class InstallStatus(str, Enum):
 
 class SkillPackage(BaseModel):
     """Skill 包 (市场中的发布单元)"""
+
     package_id: str = Field(default_factory=lambda: str(uuid4()))
     name: str
     display_name: str = ""
@@ -71,6 +75,7 @@ class SkillPackage(BaseModel):
 
 class PackageVersion(BaseModel):
     """包版本信息"""
+
     version: str
     changelog: str = ""
     published_at: datetime = Field(default_factory=datetime.now)
@@ -80,6 +85,7 @@ class PackageVersion(BaseModel):
 
 class InstallRecord(BaseModel):
     """安装记录"""
+
     record_id: str = Field(default_factory=lambda: str(uuid4()))
     package_id: str
     package_name: str
@@ -92,6 +98,7 @@ class InstallRecord(BaseModel):
 
 class Review(BaseModel):
     """用户评价"""
+
     review_id: str = Field(default_factory=lambda: str(uuid4()))
     package_id: str
     user_id: str
@@ -103,6 +110,7 @@ class Review(BaseModel):
 
 class SearchResult(BaseModel):
     """搜索结果"""
+
     packages: list[SkillPackage] = Field(default_factory=list)
     total: int = 0
     page: int = 1
@@ -112,6 +120,7 @@ class SearchResult(BaseModel):
 
 class MarketplaceStats(BaseModel):
     """市场统计"""
+
     total_packages: int = 0
     total_downloads: int = 0
     total_reviews: int = 0
@@ -122,6 +131,7 @@ class MarketplaceStats(BaseModel):
 # ---------------------------------------------------------------------------
 # Skill 市场
 # ---------------------------------------------------------------------------
+
 
 class SkillMarketplace:
     """Skills 市场
@@ -144,7 +154,7 @@ class SkillMarketplace:
         self._storage_dir = Path(storage_dir)
         self._storage_dir.mkdir(parents=True, exist_ok=True)
 
-        self._packages_dir = self._storage_dir / "packages"   # 已发布包的源码存放处
+        self._packages_dir = self._storage_dir / "packages"  # 已发布包的源码存放处
         self._installed_file = self._storage_dir / "installed.json"
 
         self._packages: dict[str, SkillPackage] = {}
@@ -236,9 +246,7 @@ class SkillMarketplace:
             self._packages[package.package_id] = package
             if package.package_id not in self._versions:
                 self._versions[package.package_id] = []
-            self._versions[package.package_id].append(
-                PackageVersion(version=manifest.version)
-            )
+            self._versions[package.package_id].append(PackageVersion(version=manifest.version))
 
         self._save_index()
         logger.info(f"发布 Skill 包: {package.name} v{package.version}")
@@ -269,16 +277,14 @@ class SkillMarketplace:
             搜索结果
         """
         with self._lock:
-            packages = [
-                p for p in self._packages.values()
-                if p.status == PackageStatus.PUBLISHED
-            ]
+            packages = [p for p in self._packages.values() if p.status == PackageStatus.PUBLISHED]
 
         # 关键词搜索
         if query:
             query_lower = query.lower()
             packages = [
-                p for p in packages
+                p
+                for p in packages
                 if query_lower in p.name.lower()
                 or query_lower in p.description.lower()
                 or query_lower in p.display_name.lower()
@@ -349,7 +355,9 @@ class SkillMarketplace:
 
         try:
             # 确定安装路径并把技能内容真正写到磁盘（不再是空目录）
-            target_dir = Path(install_dir) if install_dir else self._storage_dir / "installed" / package.name
+            target_dir = (
+                Path(install_dir) if install_dir else self._storage_dir / "installed" / package.name
+            )
             file_count = self._materialize_skill(package, target_dir)
             record.install_path = str(target_dir)
 
@@ -372,7 +380,9 @@ class SkillMarketplace:
             package.downloads += 1
             self._save_index()
 
-            logger.info(f"安装 Skill: {package.name} v{package.version} -> {target_dir}（{file_count} 个文件）")
+            logger.info(
+                f"安装 Skill: {package.name} v{package.version} -> {target_dir}（{file_count} 个文件）"
+            )
 
         except Exception as exc:
             record.status = InstallStatus.FAILED
@@ -419,8 +429,12 @@ class SkillMarketplace:
     def _save_install_records(self) -> None:
         try:
             self._installed_file.write_text(
-                json.dumps([r.model_dump() for r in self._install_records],
-                           ensure_ascii=False, indent=2, default=str),
+                json.dumps(
+                    [r.model_dump() for r in self._install_records],
+                    ensure_ascii=False,
+                    indent=2,
+                    default=str,
+                ),
                 encoding="utf-8",
             )
         except Exception as exc:  # pragma: no cover

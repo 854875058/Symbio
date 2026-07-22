@@ -22,6 +22,7 @@ from symbio.tools.registry import ToolRegistry
 # 异步上下文管理器（此前缺失，导致 probe 端点其实跑不通）
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_client_async_context_manager():
     async with MCPStdioClient(mcp_test_server_command(), name="t") as client:
@@ -44,6 +45,7 @@ async def test_initialize_captures_capabilities():
 # ---------------------------------------------------------------------------
 # resources / prompts 协议
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_list_resources_and_read():
@@ -68,6 +70,7 @@ async def test_list_prompts_and_get():
 # ---------------------------------------------------------------------------
 # 连接池复用
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_connection_pool_reuses_client():
@@ -110,9 +113,11 @@ async def test_pool_singleton_reset():
 # 挂载进全局注册中心
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_mount_tools_into_registry():
     from symbio.tools.mcp import MCPTool
+
     registry = ToolRegistry()
     async with MCPStdioClient(mcp_test_server_command(), name="srv") as client:
         specs = await client.list_tools()

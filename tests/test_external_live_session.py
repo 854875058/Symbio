@@ -67,6 +67,7 @@ class StubController:
 # parse_transcript_lines
 # --------------------------------------------------------------------------
 
+
 def test_parse_transcript_lines_extracts_chat():
     lines = [
         _claude_line("user", "你好"),
@@ -82,6 +83,7 @@ def test_parse_transcript_lines_extracts_chat():
 # --------------------------------------------------------------------------
 # _read_new_lines (tail cursor)
 # --------------------------------------------------------------------------
+
 
 def test_read_new_lines_only_returns_new(tmp_path: Path):
     f = tmp_path / "t.jsonl"
@@ -124,6 +126,7 @@ def test_read_new_lines_resets_on_truncation(tmp_path: Path):
 # manager: attach + poll (inbound)
 # --------------------------------------------------------------------------
 
+
 def test_attach_from_start_then_poll_incremental(tmp_path: Path):
     transcript = tmp_path / "ext-123.jsonl"
     _write_lines(transcript, [_claude_line("user", "first")])
@@ -164,6 +167,7 @@ def test_attach_from_end_skips_history(tmp_path: Path):
 # manager: send (outbound resume + capture reply)
 # --------------------------------------------------------------------------
 
+
 async def test_send_resumes_and_captures_reply(tmp_path: Path):
     transcript = tmp_path / "ext-123.jsonl"
     _write_lines(transcript, [_claude_line("user", "hi")])
@@ -203,6 +207,7 @@ async def test_send_dry_run_does_not_tail(tmp_path: Path):
 # --------------------------------------------------------------------------
 # manager: validation + persistence
 # --------------------------------------------------------------------------
+
 
 def test_attach_requires_path_or_id(tmp_path: Path):
     mgr = ExternalLiveSessionManager(

@@ -44,6 +44,7 @@ def main(
         ctx.obj = {"config": config}
         # Ensure get_settings() picks up the explicit config file
         import os
+
         os.environ["SYMBIO_CONFIG_FILE"] = config
 
     if ctx.invoked_subcommand is None:
@@ -141,14 +142,16 @@ def init(
     (project_path / "data" / "trajectories").mkdir(parents=True, exist_ok=True)
     (project_path / "logs").mkdir(parents=True, exist_ok=True)
 
-    console.print(Panel(
-        f"[bold green]Project initialized[/bold green]\n\n"
-        f"Name: {name}\n"
-        f"Path: {project_path.absolute()}\n"
-        f"Config: {config_path.absolute()}\n\n"
-        "Next: edit symbio.yaml, then run `symbio chat \"hello\"`.",
-        title="Symbio Init",
-    ))
+    console.print(
+        Panel(
+            f"[bold green]Project initialized[/bold green]\n\n"
+            f"Name: {name}\n"
+            f"Path: {project_path.absolute()}\n"
+            f"Config: {config_path.absolute()}\n\n"
+            'Next: edit symbio.yaml, then run `symbio chat "hello"`.',
+            title="Symbio Init",
+        )
+    )
 
 
 @app.command()
@@ -206,7 +209,9 @@ def chat(
             error = str(exc)
             await db.update_task_step_status(step["id"], "failed")
             await db.update_task_status(task["id"], "failed", error)
-            await db.create_message(f"msg-{uuid.uuid4().hex[:12]}", session_id, "assistant", error, _now(), 0)
+            await db.create_message(
+                f"msg-{uuid.uuid4().hex[:12]}", session_id, "assistant", error, _now(), 0
+            )
             console.print(f"[bold red]Error:[/bold red] {error}")
             return 1
 
@@ -245,7 +250,9 @@ def task(
                 steps.add_column("Name")
                 steps.add_column("Duration", no_wrap=True)
                 for step in item["steps"]:
-                    steps.add_row(str(step["id"]), step["status"], step["name"], step.get("duration") or "")
+                    steps.add_row(
+                        str(step["id"]), step["status"], step["name"], step.get("duration") or ""
+                    )
                 console.print(steps)
             if item.get("result"):
                 console.print(Panel(_clip(item["result"], 1200), title="Result"))
@@ -313,7 +320,11 @@ def model(
                 return 1
             item = await _find_model(db, name)
             ok = await db.delete_model(item["id"]) if item else False
-            console.print(f"[bold green]Removed:[/bold green] {name}" if ok else f"[bold red]Not found:[/bold red] {name}")
+            console.print(
+                f"[bold green]Removed:[/bold green] {name}"
+                if ok
+                else f"[bold red]Not found:[/bold red] {name}"
+            )
             return 0 if ok else 1
 
         if action == "test":
@@ -324,7 +335,9 @@ def model(
             if not item:
                 console.print(f"[bold red]Model not found:[/bold red] {name}")
                 return 1
-            console.print(Panel(json.dumps(item, ensure_ascii=False, indent=2), title="Model Config"))
+            console.print(
+                Panel(json.dumps(item, ensure_ascii=False, indent=2), title="Model Config")
+            )
             return 0
 
         console.print("[bold red]Unknown action. Use list/add/remove/test.[/bold red]")
@@ -358,7 +371,11 @@ def memory(
 
         if action == "stats":
             memories = await db.list_memories()
-            avg = sum(float(m.get("importance", 0.0)) for m in memories) / len(memories) if memories else 0.0
+            avg = (
+                sum(float(m.get("importance", 0.0)) for m in memories) / len(memories)
+                if memories
+                else 0.0
+            )
             table = Table(title="Memory Stats")
             table.add_column("Metric")
             table.add_column("Value", justify="right")
@@ -429,11 +446,13 @@ def eval(
     if not suite_path.exists():
         console.print(f"[bold red]Suite not found:[/bold red] {suite}")
         raise typer.Exit(1)
-    console.print(Panel(
-        f"Suite: {suite_path}\nAgent: {agent or 'default'}\n"
-        "Use the Python EvalPipeline API for custom executors.",
-        title="Eval",
-    ))
+    console.print(
+        Panel(
+            f"Suite: {suite_path}\nAgent: {agent or 'default'}\n"
+            "Use the Python EvalPipeline API for custom executors.",
+            title="Eval",
+        )
+    )
 
 
 @app.command()
@@ -483,7 +502,9 @@ def _format_export_sample(format_name: str, session_id: str, messages: list[dict
         }
     if fmt == "alpaca":
         first_user = next((m["content"] for m in normalized if m["role"] == "user"), "")
-        last_assistant = next((m["content"] for m in reversed(normalized) if m["role"] == "assistant"), "")
+        last_assistant = next(
+            (m["content"] for m in reversed(normalized) if m["role"] == "assistant"), ""
+        )
         return {"id": session_id, "instruction": first_user, "input": "", "output": last_assistant}
     if fmt == "openai":
         return {"id": session_id, "messages": normalized}

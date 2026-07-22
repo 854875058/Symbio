@@ -208,12 +208,14 @@ class DataFlywheel:
         steps = []
         for i, s in enumerate(payload.get("steps", [])):
             if isinstance(s, dict):
-                steps.append(TrajectoryStep(
-                    step_id=str(s.get("step_id", i)),
-                    thought=s.get("thought", ""),
-                    action=s.get("action", ""),
-                    observation=s.get("observation", s.get("result", "")),
-                ))
+                steps.append(
+                    TrajectoryStep(
+                        step_id=str(s.get("step_id", i)),
+                        thought=s.get("thought", ""),
+                        action=s.get("action", ""),
+                        observation=s.get("observation", s.get("result", "")),
+                    )
+                )
         trajectory = TrajectoryData(
             trajectory_id=payload.get("trajectory_id", ""),
             task_type=payload.get("task_type", "general"),
@@ -317,3 +319,11 @@ def get_flywheel() -> DataFlywheel:
 def reset_flywheel() -> None:
     global _flywheel
     _flywheel = None
+
+
+async def shutdown_flywheel() -> None:
+    """关闭数据飞轮的持久化连接并重置进程级单例。"""
+    global _flywheel
+    if _flywheel is not None:
+        await _flywheel.close()
+        _flywheel = None

@@ -139,34 +139,28 @@ DANGEROUS_COMMAND_PATTERNS: list[re.Pattern] = [
     re.compile(r"\bmkfs\b", re.IGNORECASE),  # 格式化文件系统
     re.compile(r"\bdd\s+.*of=/dev/", re.IGNORECASE),  # dd 写设备
     re.compile(r"\bformat\s+[a-zA-Z]:", re.IGNORECASE),  # Windows 格式化
-
     # 磁盘操作
     re.compile(r"\bfdisk\b", re.IGNORECASE),
     re.compile(r"\bparted\b", re.IGNORECASE),
     re.compile(r"\bsfdisk\b", re.IGNORECASE),
-
     # 系统控制
     re.compile(r"\bshutdown\b", re.IGNORECASE),
     re.compile(r"\breboot\b", re.IGNORECASE),
     re.compile(r"\bhalt\b", re.IGNORECASE),
     re.compile(r"\binit\s+0\b", re.IGNORECASE),
     re.compile(r"\binit\s+6\b", re.IGNORECASE),
-
     # 网络危险操作
     re.compile(r"\biptables\s+-F\b", re.IGNORECASE),  # 清空防火墙
     re.compile(r"\bnc\s+.*-e\b", re.IGNORECASE),  # netcat 反弹 shell
     re.compile(r"\bncat\s+.*-e\b", re.IGNORECASE),
-
     # 权限提升
     re.compile(r"\bsudo\s+su\b", re.IGNORECASE),
     re.compile(r"\bchmod\s+777\s+/", re.IGNORECASE),
     re.compile(r"\bchown\s+.*\s+/", re.IGNORECASE),
-
     # 反弹 shell / 后门
     re.compile(r"\bbash\s+-i\s+.*>/dev/tcp/", re.IGNORECASE),
     re.compile(r"\bpython.*socket.*connect", re.IGNORECASE),
     re.compile(r"\bperl.*socket.*connect", re.IGNORECASE),
-
     # Windows 高危命令
     re.compile(r"\bdel\s+/[sfq]\s+[a-zA-Z]:\\", re.IGNORECASE),
     re.compile(r"\brd\s+/[sq]\s+[a-zA-Z]:\\", re.IGNORECASE),
@@ -178,28 +172,105 @@ DANGEROUS_COMMAND_PATTERNS: list[re.Pattern] = [
 
 # Read-Only 模式下允许的命令白名单
 READ_ONLY_ALLOWED_COMMANDS: set[str] = {
-    "ls", "dir", "cat", "type", "head", "tail", "more", "less",
-    "grep", "find", "which", "where", "whereis", "file", "stat",
-    "wc", "diff", "tree", "du", "df", "free", "uptime", "date",
-    "whoami", "id", "hostname", "uname", "env", "printenv",
-    "echo", "printf", "pwd", "cd", "pushd", "popd",
-    "git", "python", "python3", "node", "npm", "pip",
-    "pytest", "jest", "mocha", "cargo", "go",
+    "ls",
+    "dir",
+    "cat",
+    "type",
+    "head",
+    "tail",
+    "more",
+    "less",
+    "grep",
+    "find",
+    "which",
+    "where",
+    "whereis",
+    "file",
+    "stat",
+    "wc",
+    "diff",
+    "tree",
+    "du",
+    "df",
+    "free",
+    "uptime",
+    "date",
+    "whoami",
+    "id",
+    "hostname",
+    "uname",
+    "env",
+    "printenv",
+    "echo",
+    "printf",
+    "pwd",
+    "cd",
+    "pushd",
+    "popd",
+    "git",
+    "python",
+    "python3",
+    "node",
+    "npm",
+    "pip",
+    "pytest",
+    "jest",
+    "mocha",
+    "cargo",
+    "go",
 }
 
 # Write 模式下额外允许的命令
 WRITE_ALLOWED_COMMANDS: set[str] = {
-    "cp", "mv", "mkdir", "touch", "ln", "tee",
-    "sed", "awk", "tr", "cut", "sort", "uniq",
-    "tar", "zip", "unzip", "gzip", "gunzip",
-    "chmod", "chown", "chgrp",
-    "git", "docker", "pip", "npm", "yarn",
-    "apt", "apt-get", "yum", "dnf", "brew", "choco",
+    "cp",
+    "mv",
+    "mkdir",
+    "touch",
+    "ln",
+    "tee",
+    "sed",
+    "awk",
+    "tr",
+    "cut",
+    "sort",
+    "uniq",
+    "tar",
+    "zip",
+    "unzip",
+    "gzip",
+    "gunzip",
+    "chmod",
+    "chown",
+    "chgrp",
+    "git",
+    "docker",
+    "pip",
+    "npm",
+    "yarn",
+    "apt",
+    "apt-get",
+    "yum",
+    "dnf",
+    "brew",
+    "choco",
 }
 
 NETWORK_COMMANDS: set[str] = {
-    "curl", "wget", "http", "httpie", "ping", "tracert", "traceroute",
-    "ssh", "scp", "sftp", "ftp", "telnet", "nc", "ncat", "netcat",
+    "curl",
+    "wget",
+    "http",
+    "httpie",
+    "ping",
+    "tracert",
+    "traceroute",
+    "ssh",
+    "scp",
+    "sftp",
+    "ftp",
+    "telnet",
+    "nc",
+    "ncat",
+    "netcat",
 }
 
 NETWORK_ARGUMENT_PATTERNS: list[re.Pattern] = [
@@ -490,7 +561,10 @@ async def check_docker_available(timeout: int = 10) -> tuple[bool, str]:
     """
     try:
         process = await asyncio.create_subprocess_exec(
-            "docker", "info", "--format", "{{.ServerVersion}}",
+            "docker",
+            "info",
+            "--format",
+            "{{.ServerVersion}}",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -531,15 +605,22 @@ def build_docker_run_command(
     - 卷挂载一律只读
     """
     docker_cmd = [
-        "docker", "run",
+        "docker",
+        "run",
         "--rm",
-        "--name", container_name,
-        "--network", network,
-        "--memory", memory_limit,
-        "--cpus", cpus,
+        "--name",
+        container_name,
+        "--network",
+        network,
+        "--memory",
+        memory_limit,
+        "--cpus",
+        cpus,
         "--read-only",
-        "--tmpfs", "/tmp:rw,noexec,nosuid",
-        "-w", working_dir,
+        "--tmpfs",
+        "/tmp:rw,noexec,nosuid",
+        "-w",
+        working_dir,
     ]
 
     for host_path, container_path in (volumes or {}).items():
@@ -826,15 +907,17 @@ class SandboxExecutor:
             # kill 掉 docker CLI 客户端并不会停掉容器本体，必须按名清理
             await self._kill_container(container_name)
 
-        result.metadata.update({
-            "mode": "docker",
-            "image": image,
-            "container_name": container_name,
-            "network": network,
-            "memory_limit": memory_limit,
-            "cpus": cpus,
-            "docker_available": True,
-        })
+        result.metadata.update(
+            {
+                "mode": "docker",
+                "image": image,
+                "container_name": container_name,
+                "network": network,
+                "memory_limit": memory_limit,
+                "cpus": cpus,
+                "docker_available": True,
+            }
+        )
 
         return result
 
@@ -842,7 +925,10 @@ class SandboxExecutor:
         """按名强制移除容器（超时后兜底清理，容器已退出则静默）。"""
         try:
             process = await asyncio.create_subprocess_exec(
-                "docker", "rm", "-f", container_name,
+                "docker",
+                "rm",
+                "-f",
+                container_name,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -908,7 +994,9 @@ class SandboxExecutor:
 
         approval_required = self._requires_approval(policy, perm_level)
         if approval_required and not approved:
-            reason = f"{perm_level.value} command requires approval under {policy.approval_policy.value}"
+            reason = (
+                f"{perm_level.value} command requires approval under {policy.approval_policy.value}"
+            )
             result = SandboxResult(
                 command=command,
                 exit_code=-1,
@@ -971,19 +1059,22 @@ class SandboxExecutor:
             resource_limits=resource_limits,
             shell=shell,
         )
-        result.metadata.update({
-            "policy": policy_meta,
-            "approval_required": approval_required,
-            "approved": approved,
-            "escalated": approved and (approval_required or not allowed),
-        })
+        result.metadata.update(
+            {
+                "policy": policy_meta,
+                "approval_required": approval_required,
+                "approved": approved,
+                "escalated": approved and (approval_required or not allowed),
+            }
+        )
         self._record_audit(
             command=command,
             result=result,
             policy=policy,
             approved=approved,
             approval_required=approval_required,
-            allowed=result.exit_code != -1 or not result.error_message.startswith(("BLOCKED", "PERMISSION_DENIED")),
+            allowed=result.exit_code != -1
+            or not result.error_message.startswith(("BLOCKED", "PERMISSION_DENIED")),
             reason=result.error_message,
         )
         return result
@@ -1048,13 +1139,20 @@ class SandboxExecutor:
         if not any(self._is_relative_to(work_path, root) for root in workspace_roots):
             return False, f"working_dir {work_path} is outside workspace roots"
 
-        if policy.access_mode == SandboxAccessMode.READ_ONLY and permission_level != PermissionLevel.READ_ONLY:
+        if (
+            policy.access_mode == SandboxAccessMode.READ_ONLY
+            and permission_level != PermissionLevel.READ_ONLY
+        ):
             return False, "read_only sandbox only allows READ_ONLY commands"
 
         if permission_level in {PermissionLevel.WRITE, PermissionLevel.EXECUTE}:
             writable_roots = [Path(path).resolve() for path in policy.writable_roots]
             if not writable_roots:
-                writable_roots = workspace_roots if policy.access_mode == SandboxAccessMode.WORKSPACE_WRITE else []
+                writable_roots = (
+                    workspace_roots
+                    if policy.access_mode == SandboxAccessMode.WORKSPACE_WRITE
+                    else []
+                )
             if not any(self._is_relative_to(work_path, root) for root in writable_roots):
                 return False, f"working_dir {work_path} is outside writable roots"
 

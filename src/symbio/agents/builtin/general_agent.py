@@ -85,7 +85,9 @@ class GeneralAgent(BaseAgent):
             包含 content 和 token_usage 的字典
         """
         # 从 task 获取路由选择的模型，优先级：task.model > metadata.selected_model > 默认
-        model_id = task.model or task.metadata.get("selected_model") or self.settings.model.model_medium
+        model_id = (
+            task.model or task.metadata.get("selected_model") or self.settings.model.model_medium
+        )
 
         # 获取可用工具 schemas
         tool_schemas = self._get_tool_schemas(task)
@@ -108,6 +110,7 @@ class GeneralAgent(BaseAgent):
 
         try:
             from symbio.tools.registry import get_tool_registry
+
             registry = get_tool_registry()
             schemas = []
             for name in available_names:
@@ -125,13 +128,12 @@ class GeneralAgent(BaseAgent):
         openai_prefixes = ("gpt-", "o1-", "o3-", "o4-", "deepseek", "qwen", "glm")
         return any(model_id.startswith(p) for p in openai_prefixes)
 
-    async def _call_anthropic(
-        self, task: Task, model_id: str, tool_schemas: list[dict]
-    ) -> dict:
+    async def _call_anthropic(self, task: Task, model_id: str, tool_schemas: list[dict]) -> dict:
         """调用 Anthropic API（含工具调用循环）"""
         import anthropic
 
         from symbio.config.settings import get_settings
+
         settings = get_settings()
 
         client = anthropic.AsyncAnthropic(
@@ -175,7 +177,8 @@ class GeneralAgent(BaseAgent):
 
             # Check if model wants to call tools
             tool_use_blocks = [
-                block for block in response.content
+                block
+                for block in response.content
                 if hasattr(block, "type") and block.type == "tool_use"
             ]
 
@@ -200,10 +203,12 @@ class GeneralAgent(BaseAgent):
                 if hasattr(block, "model_dump"):
                     assistant_content.append(block.model_dump())
                 elif hasattr(block, "type"):
-                    assistant_content.append({
-                        "type": block.type,
-                        "text": getattr(block, "text", ""),
-                    })
+                    assistant_content.append(
+                        {
+                            "type": block.type,
+                            "text": getattr(block, "text", ""),
+                        }
+                    )
             messages.append({"role": "assistant", "content": assistant_content})
 
             # Execute each tool and collect results
@@ -212,11 +217,13 @@ class GeneralAgent(BaseAgent):
                 tool_name = tool_block.name
                 tool_input = tool_block.input
                 tool_result = await self._execute_tool(tool_name, tool_input)
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": tool_block.id,
-                    "content": tool_result,
-                })
+                tool_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tool_block.id,
+                        "content": tool_result,
+                    }
+                )
 
             # Add tool results as user message
             messages.append({"role": "user", "content": tool_results})
@@ -232,12 +239,11 @@ class GeneralAgent(BaseAgent):
         )
         return {"content": final_content, "token_usage": token_usage}
 
-    async def _call_openai(
-        self, task: Task, model_id: str, tool_schemas: list[dict]
-    ) -> dict:
+    async def _call_openai(self, task: Task, model_id: str, tool_schemas: list[dict]) -> dict:
         """调用 OpenAI 兼容 API（含工具调用循环）"""
         from openai import AsyncOpenAI
         from symbio.config.settings import get_settings
+
         settings = get_settings()
 
         client = AsyncOpenAI(
@@ -295,13 +301,16 @@ class GeneralAgent(BaseAgent):
             # Execute tools
             for tc in tool_calls:
                 import json
+
                 args = json.loads(tc.function.arguments) if tc.function.arguments else {}
                 result_text = await self._execute_tool(tc.function.name, args)
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc.id,
-                    "content": result_text,
-                })
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": result_text,
+                    }
+                )
 
             if choice.message.content:
                 final_content += choice.message.content
@@ -318,6 +327,7 @@ class GeneralAgent(BaseAgent):
         """通过 ToolRegistry 执行工具并返回结果文本"""
         try:
             from symbio.tools.registry import get_tool_registry
+
             registry = get_tool_registry()
             tool = registry.get(tool_name)
             if tool is None:
@@ -349,5 +359,7 @@ class GeneralAgent(BaseAgent):
         if task.metadata.get("workflow_guidance"):
             user_content = f"{task.metadata['workflow_guidance']}\n\nUser task:\n{user_content}"
         if task.metadata.get("memory_context"):
-            user_content = f"相关背景知识:\n{task.metadata['memory_context']}\n\n用户问题:\n{user_content}"
+            user_content = (
+                f"相关背景知识:\n{task.metadata['memory_context']}\n\n用户问题:\n{user_content}"
+            )
         return user_content

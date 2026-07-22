@@ -30,7 +30,7 @@ from httpx import ASGITransport, AsyncClient
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from symbio.interfaces.a2a import A2ASessionManager, A2ATaskState
+from symbio.interfaces.a2a import A2ASessionManager
 
 
 def _set_manager(api_mod):
@@ -61,6 +61,7 @@ def test_executor_resolution_prefers_injected_then_orchestrator_then_llm():
     prev_exec = getattr(api_mod.app.state, "a2a_task_executor", None)
     prev_orch = getattr(api_mod.app.state, "orchestrator", None)
     try:
+
         async def injected(prompt: str) -> str:
             return "x"
 
@@ -186,16 +187,20 @@ async def test_session_poll_pulls_remote_reply_and_completes(monkeypatch):
     async def fake_fetch_card(remote_url, timeout=10):
         return {"name": "RemoteBot"}
 
-    remote_states = iter([
-        {"state": "working"},
-        {
-            "state": "completed",
-            "result": {"message": {
-                "messageId": "msg-remote-reply",
-                "parts": [{"type": "text", "text": "远端算完了"}],
-            }},
-        },
-    ])
+    remote_states = iter(
+        [
+            {"state": "working"},
+            {
+                "state": "completed",
+                "result": {
+                    "message": {
+                        "messageId": "msg-remote-reply",
+                        "parts": [{"type": "text", "text": "远端算完了"}],
+                    }
+                },
+            },
+        ]
+    )
 
     async def fake_fetch_task(remote_url, task_id, timeout=10):
         try:
@@ -203,10 +208,12 @@ async def test_session_poll_pulls_remote_reply_and_completes(monkeypatch):
         except StopIteration:
             return {
                 "state": "completed",
-                "result": {"message": {
-                    "messageId": "msg-remote-reply",
-                    "parts": [{"type": "text", "text": "远端算完了"}],
-                }},
+                "result": {
+                    "message": {
+                        "messageId": "msg-remote-reply",
+                        "parts": [{"type": "text", "text": "远端算完了"}],
+                    }
+                },
             }
 
     monkeypatch.setattr(api_mod, "send_task_to_agent", fake_send)
@@ -357,9 +364,7 @@ async def test_cross_instance_roundtrip_over_real_http(remote_symbio_instance):
                 p = await client.post(f"/api/a2a/sessions/{sess_id}/poll")
                 d = p.json()
                 if d["all_completed"]:
-                    agent_msgs = [
-                        m for m in d["session"]["messages"] if m["role"] == "agent"
-                    ]
+                    agent_msgs = [m for m in d["session"]["messages"] if m["role"] == "agent"]
                     assert agent_msgs, "completed but no agent reply pulled back"
                     reply = agent_msgs[0]["parts"][0]["text"]
                     break
@@ -377,9 +382,7 @@ async def test_cross_instance_remote_card_reflects_capabilities(remote_symbio_in
 
     transport = ASGITransport(app=api_mod.app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.get(
-            "/api/a2a/probe", params={"url": remote_symbio_instance}
-        )
+        resp = await client.get("/api/a2a/probe", params={"url": remote_symbio_instance})
     assert resp.status_code == 200
     card = resp.json()
     assert card["name"] == "Symbio"

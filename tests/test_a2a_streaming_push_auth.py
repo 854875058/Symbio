@@ -70,7 +70,7 @@ async def test_sse_stream_emits_states_until_completed():
                 assert stream.headers["content-type"].startswith("text/event-stream")
                 async for line in stream.aiter_lines():
                     if line.startswith("data: ") and line != "data: {}":
-                        events.append(json.loads(line[len("data: "):]))
+                        events.append(json.loads(line[len("data: ") :]))
                         if events[-1].get("state") == "completed":
                             break
 
@@ -113,7 +113,7 @@ async def test_sse_stream_on_already_completed_task_sends_snapshot_and_closes():
             async with client.stream("GET", f"/api/a2a/tasks/{task_id}/stream") as stream:
                 async for line in stream.aiter_lines():
                     if line.startswith("data: ") and line != "data: {}":
-                        events.append(json.loads(line[len("data: "):]))
+                        events.append(json.loads(line[len("data: ") :]))
 
         # 已终态：一条快照后立即关闭
         assert len(events) == 1
@@ -248,13 +248,15 @@ async def test_inbound_requires_bearer_when_token_configured():
             assert no_auth.status_code == 401
 
             bad = await client.post(
-                "/api/a2a/tasks", json=body,
+                "/api/a2a/tasks",
+                json=body,
                 headers={"Authorization": "Bearer wrong"},
             )
             assert bad.status_code == 401
 
             ok = await client.post(
-                "/api/a2a/tasks", json=body,
+                "/api/a2a/tasks",
+                json=body,
                 headers={"Authorization": "Bearer sekrit-token"},
             )
             assert ok.status_code == 200
@@ -321,6 +323,7 @@ async def test_send_task_to_agent_includes_auth_and_push(monkeypatch):
             return False
 
     import aiohttp
+
     monkeypatch.setattr(aiohttp, "ClientSession", lambda: _FakeSession())
 
     result = await a2a_mod.send_task_to_agent(

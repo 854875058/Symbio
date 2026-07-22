@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 from datetime import datetime
 from enum import Enum
@@ -21,26 +20,30 @@ logger = get_logger("context_pruner")
 # Pydantic 数据模型
 # ---------------------------------------------------------------------------
 
+
 class PruneStrategy(str, Enum):
     """剪枝策略类型"""
-    SEMANTIC = "semantic"          # 语义级压缩
-    KEYPOINT = "keypoint"          # 决策关键点提取
-    TOOL_OUTPUT = "tool_output"    # 工具输出裁剪
-    DELTA = "delta"                # 状态增量提取
-    FULL = "full"                  # 全策略组合
+
+    SEMANTIC = "semantic"  # 语义级压缩
+    KEYPOINT = "keypoint"  # 决策关键点提取
+    TOOL_OUTPUT = "tool_output"  # 工具输出裁剪
+    DELTA = "delta"  # 状态增量提取
+    FULL = "full"  # 全策略组合
 
 
 class ImportanceLevel(str, Enum):
     """内容重要性等级"""
-    CRITICAL = "critical"    # 关键信息，不可裁剪
-    HIGH = "high"            # 高重要性，尽量保留
-    MEDIUM = "medium"        # 中等重要性，可压缩
-    LOW = "low"              # 低重要性，可裁剪
+
+    CRITICAL = "critical"  # 关键信息，不可裁剪
+    HIGH = "high"  # 高重要性，尽量保留
+    MEDIUM = "medium"  # 中等重要性，可压缩
+    LOW = "low"  # 低重要性，可裁剪
     DISCARDABLE = "discardable"  # 可丢弃
 
 
 class MessageRole(str, Enum):
     """消息角色"""
+
     SYSTEM = "system"
     USER = "user"
     ASSISTANT = "assistant"
@@ -49,6 +52,7 @@ class MessageRole(str, Enum):
 
 class ContextMessage(BaseModel):
     """上下文消息"""
+
     message_id: str = Field(default_factory=lambda: str(uuid4()))
     role: MessageRole
     content: str
@@ -62,10 +66,11 @@ class ContextMessage(BaseModel):
 
 class DecisionKeyPoint(BaseModel):
     """决策关键点"""
+
     keypoint_id: str = Field(default_factory=lambda: str(uuid4()))
     source_message_id: str
     summary: str
-    decision_type: str = ""          # plan / action / conclusion / error
+    decision_type: str = ""  # plan / action / conclusion / error
     confidence: float = 0.8
     related_entities: list[str] = Field(default_factory=list)
     timestamp: datetime = Field(default_factory=datetime.now)
@@ -73,17 +78,19 @@ class DecisionKeyPoint(BaseModel):
 
 class StateDelta(BaseModel):
     """状态增量"""
+
     delta_id: str = Field(default_factory=lambda: str(uuid4()))
     source_message_id: str
     variable_name: str
     old_value: Any = None
     new_value: Any = None
-    change_type: str = "update"      # create / update / delete
+    change_type: str = "update"  # create / update / delete
     timestamp: datetime = Field(default_factory=datetime.now)
 
 
 class PruneResult(BaseModel):
     """剪枝结果"""
+
     result_id: str = Field(default_factory=lambda: str(uuid4()))
     original_token_count: int = 0
     pruned_token_count: int = 0
@@ -98,18 +105,20 @@ class PruneResult(BaseModel):
 
 class PrunerConfig(BaseModel):
     """剪枝器配置"""
-    max_context_tokens: int = 8000       # 目标最大 Token 数
-    min_important_messages: int = 5       # 至少保留的重要消息数
-    tool_output_max_tokens: int = 500     # 工具输出最大保留 Token 数
+
+    max_context_tokens: int = 8000  # 目标最大 Token 数
+    min_important_messages: int = 5  # 至少保留的重要消息数
+    tool_output_max_tokens: int = 500  # 工具输出最大保留 Token 数
     keypoint_confidence_threshold: float = 0.6  # 关键点置信度阈值
     preserve_system_message: bool = True  # 始终保留系统消息
-    preserve_recent_n: int = 3            # 保留最近 N 条消息
-    enable_delta_tracking: bool = True    # 启用状态增量追踪
+    preserve_recent_n: int = 3  # 保留最近 N 条消息
+    enable_delta_tracking: bool = True  # 启用状态增量追踪
 
 
 # ---------------------------------------------------------------------------
 # 上下文剪枝器
 # ---------------------------------------------------------------------------
+
 
 class ContextPruner:
     """上下文剪枝器
@@ -136,10 +145,28 @@ class ContextPruner:
 
     # 决策关键词
     DECISION_KEYWORDS = [
-        "决定", "选择", "确认", "判断", "结论", "方案", "计划",
-        "decide", "choose", "confirm", "determine", "conclude", "plan",
-        "因此", "所以", "基于以上", "综上", "总结",
-        "therefore", "thus", "based on", "in summary",
+        "决定",
+        "选择",
+        "确认",
+        "判断",
+        "结论",
+        "方案",
+        "计划",
+        "decide",
+        "choose",
+        "confirm",
+        "determine",
+        "conclude",
+        "plan",
+        "因此",
+        "所以",
+        "基于以上",
+        "综上",
+        "总结",
+        "therefore",
+        "thus",
+        "based on",
+        "in summary",
     ]
 
     # 状态变更模式
@@ -189,7 +216,7 @@ class ContextPruner:
 
         # 如果已经在目标范围内，直接返回
         if original_tokens <= target:
-            logger.info(f"上下文已在目标范围内，无需剪枝")
+            logger.info("上下文已在目标范围内，无需剪枝")
             return PruneResult(
                 original_token_count=original_tokens,
                 pruned_token_count=original_tokens,
@@ -317,8 +344,11 @@ class ContextPruner:
 
         # 提取关键点
         keypoints = self.extract_keypoints(messages)
-        keypoint_source_ids = {kp.source_message_id for kp in keypoints
-                               if kp.confidence >= self._config.keypoint_confidence_threshold}
+        keypoint_source_ids = {
+            kp.source_message_id
+            for kp in keypoints
+            if kp.confidence >= self._config.keypoint_confidence_threshold
+        }
 
         # 分离保护消息和可裁剪消息
         protected, flexible = self._separate_by_importance(messages)
@@ -515,9 +545,7 @@ class ContextPruner:
         # 阶段2：语义级压缩
         current_tokens = sum(m.token_count for m in current_messages)
         if current_tokens > target:
-            current_messages, removed, compressed = self._prune_semantic(
-                current_messages, target
-            )
+            current_messages, removed, compressed = self._prune_semantic(current_messages, target)
             all_removed_ids.extend(removed)
             all_compressed_ids.extend(compressed)
             logger.debug(
@@ -528,9 +556,7 @@ class ContextPruner:
         # 阶段3：决策关键点提取
         current_tokens = sum(m.token_count for m in current_messages)
         if current_tokens > target:
-            current_messages, removed, compressed = self._prune_keypoint(
-                current_messages, target
-            )
+            current_messages, removed, compressed = self._prune_keypoint(current_messages, target)
             all_removed_ids.extend(removed)
             all_compressed_ids.extend(compressed)
             logger.debug(
@@ -541,9 +567,7 @@ class ContextPruner:
         # 阶段4：状态增量提取
         current_tokens = sum(m.token_count for m in current_messages)
         if current_tokens > target:
-            current_messages, removed, compressed = self._prune_delta(
-                current_messages, target
-            )
+            current_messages, removed, compressed = self._prune_delta(current_messages, target)
             all_removed_ids.extend(removed)
             all_compressed_ids.extend(compressed)
             logger.debug(
@@ -575,9 +599,7 @@ class ContextPruner:
             content = msg.content.lower()
 
             # 检测决策关键词
-            matched_keywords = [
-                kw for kw in self.DECISION_KEYWORDS if kw in content
-            ]
+            matched_keywords = [kw for kw in self.DECISION_KEYWORDS if kw in content]
 
             if not matched_keywords:
                 continue
@@ -622,7 +644,7 @@ class ContextPruner:
         优先取第一个完整句子，若过长则在词边界截断。
         """
         # 按中英文句子终止符分割
-        sentences = re.split(r'(?<=[。！？\n.!?])\s*', content.strip())
+        sentences = re.split(r"(?<=[。！？\n.!?])\s*", content.strip())
         # 取第一个非空句子
         summary = ""
         for s in sentences:
@@ -848,18 +870,13 @@ class ContextPruner:
         if not text:
             return 0
 
-        chinese_chars = sum(1 for c in text if '一' <= c <= '鿿')
+        chinese_chars = sum(1 for c in text if "一" <= c <= "鿿")
         digit_chars = sum(1 for c in text if c.isdigit())
         space_chars = sum(1 for c in text if c.isspace())
         other_chars = len(text) - chinese_chars - digit_chars - space_chars
 
         # 加权估算
-        tokens = (
-            chinese_chars / 1.5
-            + digit_chars / 3.0
-            + space_chars / 10.0
-            + other_chars / 3.5
-        )
+        tokens = chinese_chars / 1.5 + digit_chars / 3.0 + space_chars / 10.0 + other_chars / 3.5
         return max(int(tokens), 1)
 
     def estimate_messages_tokens(self, messages: list[ContextMessage]) -> int:

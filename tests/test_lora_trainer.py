@@ -7,7 +7,6 @@ transformers+peft+torch 且能下载/加载极小模型，不满足时跳过，�
 from __future__ import annotations
 
 import json
-import os
 
 import pytest
 
@@ -32,11 +31,14 @@ requires_training = pytest.mark.skipif(
 
 # ---------- 数据转换（纯逻辑，无条件跑）----------
 
+
 def test_sample_to_text_sharegpt():
-    sample = {"conversations": [
-        {"role": "user", "content": "你好"},
-        {"role": "assistant", "content": "你好，有什么可以帮你"},
-    ]}
+    sample = {
+        "conversations": [
+            {"role": "user", "content": "你好"},
+            {"role": "assistant", "content": "你好，有什么可以帮你"},
+        ]
+    }
     text = _sample_to_text(sample)
     assert "user: 你好" in text
     assert "assistant: 你好，有什么可以帮你" in text
@@ -44,19 +46,23 @@ def test_sample_to_text_sharegpt():
 
 def test_sample_to_text_sharegpt_from_value_keys():
     # sharegpt 也可能用 from/value 键
-    sample = {"conversations": [
-        {"from": "human", "value": "问题"},
-        {"from": "gpt", "value": "回答"},
-    ]}
+    sample = {
+        "conversations": [
+            {"from": "human", "value": "问题"},
+            {"from": "gpt", "value": "回答"},
+        ]
+    }
     text = _sample_to_text(sample)
     assert "human: 问题" in text and "gpt: 回答" in text
 
 
 def test_sample_to_text_openai():
-    sample = {"messages": [
-        {"role": "system", "content": "你是助手"},
-        {"role": "user", "content": "hi"},
-    ]}
+    sample = {
+        "messages": [
+            {"role": "system", "content": "你是助手"},
+            {"role": "user", "content": "hi"},
+        ]
+    }
     text = _sample_to_text(sample)
     assert "system: 你是助手" in text and "user: hi" in text
 
@@ -70,10 +76,12 @@ def test_sample_to_text_alpaca():
 def test_load_texts_skips_blank_and_invalid(tmp_path):
     ds = tmp_path / "d.jsonl"
     ds.write_text(
-        json.dumps({"conversations": [{"role": "user", "content": "a"}]}) + "\n"
-        + "\n"                       # 空行
-        + "not json\n"              # 非法 JSON
-        + json.dumps({"messages": [{"role": "user", "content": "b"}]}) + "\n",
+        json.dumps({"conversations": [{"role": "user", "content": "a"}]})
+        + "\n"
+        + "\n"  # 空行
+        + "not json\n"  # 非法 JSON
+        + json.dumps({"messages": [{"role": "user", "content": "b"}]})
+        + "\n",
         encoding="utf-8",
     )
     texts = load_texts_from_jsonl(str(ds))
@@ -87,18 +95,33 @@ def test_load_texts_missing_file_raises():
 
 # ---------- stub 回退（无条件跑）----------
 
+
 def test_stub_fallback_when_env_set(tmp_path, monkeypatch):
     """SYMBIO_FT_STUB=1 时应走 stub，不碰真训练。"""
     from symbio.evolution.fine_tuner import OfflineFineTuner, FineTuneConfig, JobStatus
 
     monkeypatch.setenv("SYMBIO_FT_STUB", "1")
     ds = tmp_path / "train.jsonl"
-    ds.write_text(json.dumps({"conversations": [
-        {"role": "user", "content": "q"}, {"role": "assistant", "content": "a"}]}) + "\n", encoding="utf-8")
+    ds.write_text(
+        json.dumps(
+            {
+                "conversations": [
+                    {"role": "user", "content": "q"},
+                    {"role": "assistant", "content": "a"},
+                ]
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
     tuner = OfflineFineTuner(base_output_dir=str(tmp_path / "ft"))
-    cfg = FineTuneConfig(model_name="sshleifer/tiny-gpt2", dataset_path=str(ds),
-                         output_dir=str(tmp_path / "out"), epochs=1)
+    cfg = FineTuneConfig(
+        model_name="sshleifer/tiny-gpt2",
+        dataset_path=str(ds),
+        output_dir=str(tmp_path / "out"),
+        epochs=1,
+    )
     job = tuner.start_job(cfg)
     assert job.status == JobStatus.COMPLETED
     # stub 造的指标（模拟 loss），且不应标 backend=lora
@@ -107,6 +130,7 @@ def test_stub_fallback_when_env_set(tmp_path, monkeypatch):
 
 
 # ---------- 真训练（需依赖 + 能加载极小模型）----------
+
 
 @pytest.mark.slow
 @requires_training
@@ -117,10 +141,18 @@ def test_real_lora_training_produces_adapter_and_real_loss(tmp_path):
     ds = tmp_path / "train.jsonl"
     with ds.open("w", encoding="utf-8") as f:
         for i in range(4):
-            f.write(json.dumps({"conversations": [
-                {"role": "user", "content": f"问题{i}"},
-                {"role": "assistant", "content": "这是一个回答。"},
-            ]}, ensure_ascii=False) + "\n")
+            f.write(
+                json.dumps(
+                    {
+                        "conversations": [
+                            {"role": "user", "content": f"问题{i}"},
+                            {"role": "assistant", "content": "这是一个回答。"},
+                        ]
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
 
     seen: list[dict] = []
     try:
@@ -128,13 +160,18 @@ def test_real_lora_training_produces_adapter_and_real_loss(tmp_path):
             base_model="sshleifer/tiny-gpt2",
             dataset_path=str(ds),
             output_dir=str(tmp_path / "out"),
-            epochs=2, batch_size=2, max_seq_length=32, lora_rank=4,
+            epochs=2,
+            batch_size=2,
+            max_seq_length=32,
+            lora_rank=4,
             on_step=lambda r: seen.append(r),
         )
     except Exception as exc:
         # 极小模型需联网下载；网络不可用则跳过（非逻辑错误）
         msg = str(exc).lower()
-        if any(k in msg for k in ("connection", "download", "http", "offline", "resolve", "timeout")):
+        if any(
+            k in msg for k in ("connection", "download", "http", "offline", "resolve", "timeout")
+        ):
             pytest.skip(f"tiny model unavailable offline: {exc}")
         raise
 
@@ -157,5 +194,6 @@ def test_real_training_empty_dataset_raises(tmp_path):
     ds = tmp_path / "empty.jsonl"
     ds.write_text("\n\n", encoding="utf-8")  # 全空行
     with pytest.raises(ValueError):
-        train_lora(base_model="sshleifer/tiny-gpt2", dataset_path=str(ds),
-                   output_dir=str(tmp_path / "out"))
+        train_lora(
+            base_model="sshleifer/tiny-gpt2", dataset_path=str(ds), output_dir=str(tmp_path / "out")
+        )

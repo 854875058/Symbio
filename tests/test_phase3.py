@@ -13,12 +13,10 @@ Mock 策略：
 - 遵循 test_phase2.py 的 pytest 类组织模式
 """
 
-import asyncio
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 
 # 确保 src 在 Python 路径中
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -29,7 +27,6 @@ from symbio.memory.auto_populator import (
     Entity,
     EntityExtractor,
     PopulateResult,
-    Relation,
     RelationExtractor,
 )
 from symbio.memory.manager import (
@@ -40,12 +37,7 @@ from symbio.memory.manager import (
     SearchResult,
 )
 from symbio.memory.ontology import (
-    Concept,
-    Individual,
     OntologyEngine,
-    RelationDefinition,
-    RelationInstance,
-    RelationType,
 )
 from symbio.core.memory_bridge import MemoryBridge
 
@@ -60,19 +52,25 @@ def _make_mock_memory_manager():
     manager = MagicMock(spec=MemoryManager)
     manager.initialize = AsyncMock()
     manager.close = AsyncMock()
-    manager.add_memory = AsyncMock(return_value=MemoryItem(
-        content="test",
-        memory_type=MemoryType.LONG_TERM,
-    ))
+    manager.add_memory = AsyncMock(
+        return_value=MemoryItem(
+            content="test",
+            memory_type=MemoryType.LONG_TERM,
+        )
+    )
     manager.add_conversation_turn = AsyncMock()
     manager.search = AsyncMock(return_value=[])
-    manager.get_stats = MagicMock(return_value=MagicMock(
-        model_dump=MagicMock(return_value={
-            "total_memories": 0,
-            "short_term_count": 0,
-            "long_term_count": 0,
-        }),
-    ))
+    manager.get_stats = MagicMock(
+        return_value=MagicMock(
+            model_dump=MagicMock(
+                return_value={
+                    "total_memories": 0,
+                    "short_term_count": 0,
+                    "long_term_count": 0,
+                }
+            ),
+        )
+    )
     return manager
 
 
@@ -184,9 +182,7 @@ class TestEntityExtractor:
 
         names = {e.name for e in entities}
         stop_words_in_results = names & extractor._STOP_WORDS
-        assert len(stop_words_in_results) == 0, (
-            f"停用词不应出现在实体中: {stop_words_in_results}"
-        )
+        assert len(stop_words_in_results) == 0, f"停用词不应出现在实体中: {stop_words_in_results}"
 
     def test_entity_deduplication(self):
         """同一实体不应重复出现"""
@@ -627,12 +623,9 @@ class TestOrchestratorMemoryIntegration:
         from symbio.core.orchestrator import Orchestrator
         from symbio.utils.types import (
             AgentState,
-            Intent,
             Message,
             MessageSource,
             Result,
-            Task,
-            TokenUsage,
         )
 
         orchestrator = Orchestrator()
@@ -652,9 +645,7 @@ class TestOrchestratorMemoryIntegration:
         mock_agent.name = "general"
         mock_agent.state = AgentState.IDLE
         mock_agent.execute = AsyncMock(
-            return_value=Result(
-                task_id="test", success=True, content="执行完成"
-            )
+            return_value=Result(task_id="test", success=True, content="执行完成")
         )
         mock_agent.can_handle = MagicMock(return_value=True)
 
@@ -680,7 +671,7 @@ class TestOrchestratorMemoryIntegration:
                 content="测试消息",
                 session_id="test-session",
             )
-            result = await orchestrator.process(message)
+            await orchestrator.process(message)
 
         # 验证 store_execution_result 被调用
         mock_bridge.store_execution_result.assert_called_once()
@@ -714,9 +705,7 @@ class TestOrchestratorMemoryIntegration:
         mock_agent.name = "general"
         mock_agent.state = AgentState.IDLE
         mock_agent.execute = AsyncMock(
-            return_value=Result(
-                task_id="test", success=True, content="完成"
-            )
+            return_value=Result(task_id="test", success=True, content="完成")
         )
         mock_agent.can_handle = MagicMock(return_value=True)
 
@@ -754,7 +743,7 @@ class TestOrchestratorMemoryIntegration:
                 content="Python 优化",
                 session_id="test-session",
             )
-            result = await orchestrator.process(message)
+            await orchestrator.process(message)
 
         # 验证任务 metadata 包含记忆上下文
         assert captured_task is not None
@@ -805,7 +794,7 @@ class TestOrchestratorMemoryIntegration:
             patch("symbio.agents.builtin.general_agent.get_settings", return_value=mock_settings),
             patch("anthropic.AsyncAnthropic", return_value=mock_anthropic_client),
         ):
-            result = await agent.execute(task)
+            await agent.execute(task)
 
         # 验证发送给 LLM 的消息包含记忆上下文
         assert captured_messages is not None
@@ -819,7 +808,9 @@ class TestOrchestratorMemoryIntegration:
         from symbio.utils.types import Intent, Task
 
         task = Task(intent=Intent(raw_text="Implement a bug fix", action="write_code"))
-        task.metadata["workflow_guidance"] = "Workflow policy:\n- Use TDD.\n- Verify before completion."
+        task.metadata["workflow_guidance"] = (
+            "Workflow policy:\n- Use TDD.\n- Verify before completion."
+        )
 
         agent = GeneralAgent()
         mock_settings = MagicMock()
@@ -861,11 +852,13 @@ class TestOrchestratorMemoryIntegration:
         orchestrator = Orchestrator()
 
         mock_bridge = MagicMock(spec=MemoryBridge)
-        mock_bridge.get_stats = MagicMock(return_value={
-            "initialized": True,
-            "memory": {"total_memories": 5},
-            "ontology": {"tbox": {"concepts": 3}},
-        })
+        mock_bridge.get_stats = MagicMock(
+            return_value={
+                "initialized": True,
+                "memory": {"total_memories": 5},
+                "ontology": {"tbox": {"concepts": 3}},
+            }
+        )
         orchestrator.memory_bridge = mock_bridge
 
         stats = orchestrator.get_memory_stats()
@@ -900,9 +893,7 @@ class TestOrchestratorMemoryIntegration:
         mock_agent.name = "general"
         mock_agent.state = AgentState.IDLE
         mock_agent.execute = AsyncMock(
-            return_value=Result(
-                task_id="test", success=True, content="成功"
-            )
+            return_value=Result(task_id="test", success=True, content="成功")
         )
         mock_agent.can_handle = MagicMock(return_value=True)
 

@@ -14,6 +14,7 @@ logger = get_logger("guardrail")
 
 class ResourceTicket(BaseModel):
     """资源支票：任务启动时签发的总预算"""
+
     task_id: str
     max_cost_usd: float = 10.0
     max_steps: int = 50
@@ -35,9 +36,9 @@ class ResourceTicket(BaseModel):
     def is_exhausted(self) -> bool:
         """检查是否耗尽"""
         return (
-            self.consumed_cost >= self.max_cost_usd or
-            self.consumed_steps >= self.max_steps or
-            self.consumed_tokens >= self.max_tokens
+            self.consumed_cost >= self.max_cost_usd
+            or self.consumed_steps >= self.max_steps
+            or self.consumed_tokens >= self.max_tokens
         )
 
     def is_expired(self) -> bool:
@@ -56,6 +57,7 @@ class ResourceTicket(BaseModel):
 
 class BudgetExceededError(Exception):
     """预算超限错误"""
+
     def __init__(self, task_id: str, reason: str, remaining: dict):
         self.task_id = task_id
         self.reason = reason

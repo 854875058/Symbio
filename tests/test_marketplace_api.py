@@ -53,7 +53,10 @@ async def test_skill_marketplace_search_filters_seed_packages():
     assert resp.status_code == 200
     data = resp.json()
     assert data["total"] >= 1
-    assert all("dataset" in package["name"] or "dataset" in package["description"].lower() for package in data["packages"])
+    assert all(
+        "dataset" in package["name"] or "dataset" in package["description"].lower()
+        for package in data["packages"]
+    )
 
 
 @pytest.mark.asyncio
@@ -87,9 +90,16 @@ from symbio.skills.schema import SkillManifest
 
 def _manifest(name: str) -> SkillManifest:
     return SkillManifest(
-        name=name, display_name=name.replace("_", " ").title(), version="1.0.0",
-        description="demo skill", skill_type="tool", author="t", license="MIT",
-        tags=["x"], capabilities=["c"], entry_point="pkg.mod:Cls",
+        name=name,
+        display_name=name.replace("_", " ").title(),
+        version="1.0.0",
+        description="demo skill",
+        skill_type="tool",
+        author="t",
+        license="MIT",
+        tags=["x"],
+        capabilities=["c"],
+        entry_point="pkg.mod:Cls",
     )
 
 
@@ -149,10 +159,12 @@ _REMOTE_SKILL_MD = (
 class _FakeGhSession:
     def __init__(self):
         self._json = {
-            "git/trees": {"tree": [
-                {"path": "skills/algorithmic-art/SKILL.md", "type": "blob"},
-                {"path": "skills/docx/SKILL.md", "type": "blob"},
-            ]},
+            "git/trees": {
+                "tree": [
+                    {"path": "skills/algorithmic-art/SKILL.md", "type": "blob"},
+                    {"path": "skills/docx/SKILL.md", "type": "blob"},
+                ]
+            },
             "contents/skills/algorithmic-art": [
                 {"name": "SKILL.md", "type": "file", "download_url": "https://raw/skillmd"},
                 {"name": "LICENSE.txt", "type": "file", "download_url": "https://raw/license"},
@@ -202,7 +214,11 @@ async def test_remote_install_materializes_skill(fake_remote_source):
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.post(
             "/api/skills/marketplace/remote/install",
-            json={"repo": "anthropics/skills", "path": "skills/algorithmic-art", "name": "algorithmic-art"},
+            json={
+                "repo": "anthropics/skills",
+                "path": "skills/algorithmic-art",
+                "name": "algorithmic-art",
+            },
         )
     assert resp.status_code == 200, resp.text
     data = resp.json()

@@ -47,14 +47,77 @@ _FILE_PATH = re.compile(r"(?:[A-Za-z]:\\[\w\\./]+|/[\w./]+(?:\.\w+)?)")
 
 # 排除的常见停用词（句首大写、代词等）
 _STOP_WORDS: set[str] = {
-    "The", "This", "That", "These", "Those", "What", "When", "Where",
-    "Which", "Who", "How", "Why", "Can", "Could", "Would", "Should",
-    "Will", "Shall", "May", "Might", "Must", "Have", "Has", "Had",
-    "Does", "Did", "Are", "Was", "Were", "Been", "Being", "Please",
-    "Yes", "No", "Ok", "Well", "Also", "Just", "Now", "Here", "There",
-    "Then", "So", "But", "And", "Or", "Not", "For", "If", "In", "On",
-    "At", "To", "Of", "By", "As", "It", "Its", "I", "My", "Me", "We",
-    "Our", "You", "Your", "He", "She", "His", "Her", "They", "Their",
+    "The",
+    "This",
+    "That",
+    "These",
+    "Those",
+    "What",
+    "When",
+    "Where",
+    "Which",
+    "Who",
+    "How",
+    "Why",
+    "Can",
+    "Could",
+    "Would",
+    "Should",
+    "Will",
+    "Shall",
+    "May",
+    "Might",
+    "Must",
+    "Have",
+    "Has",
+    "Had",
+    "Does",
+    "Did",
+    "Are",
+    "Was",
+    "Were",
+    "Been",
+    "Being",
+    "Please",
+    "Yes",
+    "No",
+    "Ok",
+    "Well",
+    "Also",
+    "Just",
+    "Now",
+    "Here",
+    "There",
+    "Then",
+    "So",
+    "But",
+    "And",
+    "Or",
+    "Not",
+    "For",
+    "If",
+    "In",
+    "On",
+    "At",
+    "To",
+    "Of",
+    "By",
+    "As",
+    "It",
+    "Its",
+    "I",
+    "My",
+    "Me",
+    "We",
+    "Our",
+    "You",
+    "Your",
+    "He",
+    "She",
+    "His",
+    "Her",
+    "They",
+    "Their",
 }
 
 
@@ -163,8 +226,7 @@ class MemoryBridge:
                         if len(result.memory.content) > 80:
                             content_preview += "..."
                         lines.append(
-                            f"{idx}. [{title}] (相关度: {result.score:.2f}): "
-                            f"{content_preview}"
+                            f"{idx}. [{title}] (相关度: {result.score:.2f}): {content_preview}"
                         )
                     sections.append("\n".join(lines))
             except Exception as e:
@@ -189,9 +251,7 @@ class MemoryBridge:
                             if concepts:
                                 parts.append(f" (类型: {', '.join(concepts)})")
                             if props:
-                                prop_str = ", ".join(
-                                    f"{k}={v}" for k, v in props.items()
-                                )
+                                prop_str = ", ".join(f"{k}={v}" for k, v in props.items())
                                 parts.append(f" | 属性: {prop_str}")
                             lines.append("".join(parts))
                         elif item_type == "relation":
@@ -284,8 +344,7 @@ class MemoryBridge:
                 metadata={"task_id": task_id, **meta},
             )
             logger.info(
-                f"执行结果已存储: task={task_id}, importance={importance}, "
-                f"success={success}"
+                f"执行结果已存储: task={task_id}, importance={importance}, success={success}"
             )
         except Exception as e:
             logger.warning(f"执行结果存储失败: {e}")

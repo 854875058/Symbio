@@ -19,7 +19,7 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 from symbio.utils.logger import get_logger
-from symbio.utils.types import Trajectory, TrajectoryStep
+from symbio.utils.types import Trajectory
 
 logger = get_logger("dataset_exporter")
 
@@ -65,16 +65,10 @@ class QualityFilterConfig(BaseModel):
     min_turns: int = Field(default=1, description="最少对话轮次")
     max_turns: int = Field(default=100, description="最多对话轮次")
     min_quality_score: float = Field(default=0.3, description="最低质量评分 (0-1)")
-    max_duplicate_similarity: float = Field(
-        default=0.95, description="去重相似度阈值 (0-1)"
-    )
+    max_duplicate_similarity: float = Field(default=0.95, description="去重相似度阈值 (0-1)")
     remove_empty_messages: bool = Field(default=True, description="移除空消息")
-    remove_code_only_messages: bool = Field(
-        default=False, description="移除纯代码消息"
-    )
-    min_instruction_length: int = Field(
-        default=5, description="指令最小长度（仅 Alpaca 格式）"
-    )
+    remove_code_only_messages: bool = Field(default=False, description="移除纯代码消息")
+    min_instruction_length: int = Field(default=5, description="指令最小长度（仅 Alpaca 格式）")
 
 
 class ExportConfig(BaseModel):
@@ -233,9 +227,7 @@ class PIIDetector:
                     pattern_str, re.IGNORECASE
                 )
             except re.error as exc:
-                logger.warning(
-                    f"Invalid custom PII pattern '{pattern_name}': {exc}, skipped"
-                )
+                logger.warning(f"Invalid custom PII pattern '{pattern_name}': {exc}, skipped")
 
     def detect(self, text: str) -> dict[str, list[str]]:
         """检测文本中的 PII 信息。
@@ -265,15 +257,11 @@ class PIIDetector:
         result = text
         for category, pattern in self._active_patterns.items():
             display_name = category.replace("_", " ").title()
-            replacement = self._config.replacement_template.format(
-                category=display_name
-            )
+            replacement = self._config.replacement_template.format(category=display_name)
             result = pattern.sub(replacement, result)
         return result
 
-    def mask_messages(
-        self, messages: list[dict[str, str]]
-    ) -> list[dict[str, str]]:
+    def mask_messages(self, messages: list[dict[str, str]]) -> list[dict[str, str]]:
         """对消息列表批量脱敏。
 
         Args:
@@ -282,10 +270,7 @@ class PIIDetector:
         Returns:
             脱敏后的消息列表
         """
-        return [
-            {"role": m["role"], "content": self.mask(m["content"])}
-            for m in messages
-        ]
+        return [{"role": m["role"], "content": self.mask(m["content"])} for m in messages]
 
 
 # =============================================================================
@@ -536,9 +521,7 @@ class DataCleaner:
                 with open(hash_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     self._seen_hashes = set(data.get("hashes", []))
-                logger.info(
-                    f"Loaded {len(self._seen_hashes)} existing content hashes for dedup"
-                )
+                logger.info(f"Loaded {len(self._seen_hashes)} existing content hashes for dedup")
             except (json.JSONDecodeError, OSError) as exc:
                 logger.warning(f"Failed to load content hashes: {exc}")
 
@@ -784,9 +767,7 @@ class FormatConverter:
 
         # 角色标准化
         for msg in messages:
-            msg["role"] = self._cleaner.normalize_role(
-                msg["role"], self._config.format
-            )
+            msg["role"] = self._cleaner.normalize_role(msg["role"], self._config.format)
 
         # 按目标格式转换
         fmt = self._config.format
@@ -800,9 +781,7 @@ class FormatConverter:
         logger.error(f"Unsupported export format: {fmt}")
         return None
 
-    def _trajectory_to_messages(
-        self, trajectory: Trajectory
-    ) -> list[dict[str, str]]:
+    def _trajectory_to_messages(self, trajectory: Trajectory) -> list[dict[str, str]]:
         """将轨迹转换为消息列表。"""
         messages: list[dict[str, str]] = []
 
@@ -811,7 +790,7 @@ class FormatConverter:
             first_step = trajectory.steps[0]
             if first_step.thought and first_step.thought.startswith("System:"):
                 messages.append(
-                    {"role": "system", "content": first_step.thought[len("System:"):].strip()}
+                    {"role": "system", "content": first_step.thought[len("System:") :].strip()}
                 )
 
         for step in trajectory.steps:
@@ -844,9 +823,7 @@ class FormatConverter:
 
         # 附加最终结果
         if trajectory.final_result and trajectory.final_result.content:
-            messages.append(
-                {"role": "assistant", "content": trajectory.final_result.content}
-            )
+            messages.append({"role": "assistant", "content": trajectory.final_result.content})
 
         return messages
 
@@ -856,9 +833,7 @@ class FormatConverter:
         """转换为 ShareGPT 格式。"""
         # 合并连续同角色消息
         merged = self._merge_consecutive(messages)
-        conversations = [
-            ShareGPTMessage(role=m["role"], content=m["content"]) for m in merged
-        ]
+        conversations = [ShareGPTMessage(role=m["role"], content=m["content"]) for m in merged]
         sample = ShareGPTSample(
             id=trajectory.trajectory_id,
             conversations=conversations,
@@ -897,14 +872,10 @@ class FormatConverter:
         )
         return sample.model_dump()
 
-    def _to_openai(
-        self, trajectory: Trajectory, messages: list[dict[str, str]]
-    ) -> dict[str, Any]:
+    def _to_openai(self, trajectory: Trajectory, messages: list[dict[str, str]]) -> dict[str, Any]:
         """转换为 OpenAI Chat 格式。"""
         merged = self._merge_consecutive(messages)
-        openai_messages = [
-            OpenAIMessage(role=m["role"], content=m["content"]) for m in merged
-        ]
+        openai_messages = [OpenAIMessage(role=m["role"], content=m["content"]) for m in merged]
         sample = OpenAISample(
             id=trajectory.trajectory_id,
             messages=openai_messages,
@@ -961,9 +932,7 @@ class DatasetExporter:
         self._quality_filter = QualityFilter(self._config.quality_filter)
         self._cleaner = DataCleaner(self._config)
         self._tracker = ExportTracker(self._config.output_dir)
-        self._converter = FormatConverter(
-            self._config, self._cleaner, self._pii_detector
-        )
+        self._converter = FormatConverter(self._config, self._cleaner, self._pii_detector)
 
     @property
     def config(self) -> ExportConfig:
@@ -996,10 +965,7 @@ class DatasetExporter:
         # 增量过滤
         candidates = trajectories
         if self._config.incremental:
-            candidates = [
-                t for t in trajectories
-                if not self._tracker.is_exported(t.trajectory_id)
-            ]
+            candidates = [t for t in trajectories if not self._tracker.is_exported(t.trajectory_id)]
             report.skipped_incremental = len(trajectories) - len(candidates)
             logger.info(
                 f"Incremental filter: {len(candidates)} new trajectories "
@@ -1020,9 +986,7 @@ class DatasetExporter:
                     report.rejection_reasons[category] = (
                         report.rejection_reasons.get(category, 0) + 1
                     )
-                logger.debug(
-                    f"Trajectory {trajectory.trajectory_id} rejected: {reasons}"
-                )
+                logger.debug(f"Trajectory {trajectory.trajectory_id} rejected: {reasons}")
                 continue
 
             report.quality_scores.append(score)
@@ -1035,9 +999,7 @@ class DatasetExporter:
             # 去重检查
             if messages and self._cleaner.is_duplicate(messages):
                 report.duplicates += 1
-                logger.debug(
-                    f"Trajectory {trajectory.trajectory_id} is duplicate, skipped"
-                )
+                logger.debug(f"Trajectory {trajectory.trajectory_id} is duplicate, skipped")
                 continue
 
             # 格式转换
@@ -1067,9 +1029,7 @@ class DatasetExporter:
         self._cleaner.save_hashes()
 
         report.completed_at = datetime.now()
-        report.duration_seconds = (
-            report.completed_at - report.started_at
-        ).total_seconds()
+        report.duration_seconds = (report.completed_at - report.started_at).total_seconds()
 
         logger.info(
             f"Export completed: {report.exported} exported, "
@@ -1105,10 +1065,7 @@ class DatasetExporter:
         # 增量过滤
         candidates = trajectories
         if self._config.incremental:
-            candidates = [
-                t for t in trajectories
-                if not self._tracker.is_exported(t.trajectory_id)
-            ]
+            candidates = [t for t in trajectories if not self._tracker.is_exported(t.trajectory_id)]
             report.skipped_incremental = len(trajectories) - len(candidates)
 
         logger.info(
@@ -1125,9 +1082,7 @@ class DatasetExporter:
             trajectory: Trajectory,
         ) -> dict[str, Any] | None:
             async with semaphore:
-                return await asyncio.to_thread(
-                    self._process_single, trajectory, report
-                )
+                return await asyncio.to_thread(self._process_single, trajectory, report)
 
         for batch_start in range(0, len(candidates), batch_size):
             batch = candidates[batch_start : batch_start + batch_size]
@@ -1152,9 +1107,7 @@ class DatasetExporter:
         self._cleaner.save_hashes()
 
         report.completed_at = datetime.now()
-        report.duration_seconds = (
-            report.completed_at - report.started_at
-        ).total_seconds()
+        report.duration_seconds = (report.completed_at - report.started_at).total_seconds()
 
         logger.info(
             f"Async export completed: {report.exported} exported, "
@@ -1176,9 +1129,7 @@ class DatasetExporter:
             report.rejected += 1
             for reason in reasons:
                 category = reason.split(":")[0]
-                report.rejection_reasons[category] = (
-                    report.rejection_reasons.get(category, 0) + 1
-                )
+                report.rejection_reasons[category] = report.rejection_reasons.get(category, 0) + 1
             return None
 
         report.quality_scores.append(score)
@@ -1208,9 +1159,7 @@ class DatasetExporter:
 
         return sample
 
-    def _write_samples(
-        self, samples: list[dict[str, Any]], report: ExportReport
-    ) -> Path:
+    def _write_samples(self, samples: list[dict[str, Any]], report: ExportReport) -> Path:
         """将样本写入 JSONL 文件。"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         format_name = self._config.format.value
@@ -1224,8 +1173,7 @@ class DatasetExporter:
 
         report.file_size_bytes = output_file.stat().st_size
         logger.info(
-            f"Wrote {len(samples)} samples to {output_file} "
-            f"({report.file_size_bytes} bytes)"
+            f"Wrote {len(samples)} samples to {output_file} ({report.file_size_bytes} bytes)"
         )
 
         # 同时写入元数据文件
@@ -1271,13 +1219,9 @@ class DatasetExporter:
                     trajectory = Trajectory(**data)
                     trajectories.append(trajectory)
                 except (json.JSONDecodeError, Exception) as exc:
-                    logger.warning(
-                        f"Failed to parse line {line_num} in {input_path}: {exc}"
-                    )
+                    logger.warning(f"Failed to parse line {line_num} in {input_path}: {exc}")
 
-        logger.info(
-            f"Loaded {len(trajectories)} trajectories from {input_path}"
-        )
+        logger.info(f"Loaded {len(trajectories)} trajectories from {input_path}")
 
         report = self.export(trajectories)
 
@@ -1312,12 +1256,8 @@ class ExportReport(BaseModel):
     duplicates: int = Field(default=0, description="重复数")
     skipped_incremental: int = Field(default=0, description="增量跳过数")
 
-    quality_scores: list[float] = Field(
-        default_factory=list, description="通过的质量评分列表"
-    )
-    rejection_reasons: dict[str, int] = Field(
-        default_factory=dict, description="拒绝原因统计"
-    )
+    quality_scores: list[float] = Field(default_factory=list, description="通过的质量评分列表")
+    rejection_reasons: dict[str, int] = Field(default_factory=dict, description="拒绝原因统计")
 
     output_file: Optional[str] = Field(default=None, description="输出文件路径")
     file_size_bytes: int = Field(default=0, description="输出文件大小（字节）")
@@ -1354,9 +1294,7 @@ class ExportReport(BaseModel):
 
         if self.rejection_reasons:
             lines.append("Rejection reasons:")
-            for reason, count in sorted(
-                self.rejection_reasons.items(), key=lambda x: -x[1]
-            ):
+            for reason, count in sorted(self.rejection_reasons.items(), key=lambda x: -x[1]):
                 lines.append(f"  - {reason}: {count}")
 
         if self.output_file:

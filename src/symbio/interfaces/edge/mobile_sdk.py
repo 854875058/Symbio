@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import time
 from datetime import datetime
 from enum import Enum
 from typing import Any, Callable, Optional
@@ -20,8 +18,10 @@ logger = get_logger("interfaces.edge.mobile_sdk")
 # 数据模型
 # ---------------------------------------------------------------------------
 
+
 class Platform(str, Enum):
     """移动平台"""
+
     IOS = "ios"
     ANDROID = "android"
     UNKNOWN = "unknown"
@@ -29,6 +29,7 @@ class Platform(str, Enum):
 
 class ConnectionState(str, Enum):
     """连接状态"""
+
     DISCONNECTED = "disconnected"
     CONNECTING = "connecting"
     CONNECTED = "connected"
@@ -38,6 +39,7 @@ class ConnectionState(str, Enum):
 
 class MessageType(str, Enum):
     """消息类型"""
+
     REQUEST = "request"
     RESPONSE = "response"
     EVENT = "event"
@@ -47,6 +49,7 @@ class MessageType(str, Enum):
 
 class SDKConfig(BaseModel):
     """SDK 配置"""
+
     platform: Platform = Platform.UNKNOWN
     api_base_url: str = "https://api.symbio.ai"
     api_key: str = ""
@@ -64,6 +67,7 @@ class SDKConfig(BaseModel):
 
 class SDKMessage(BaseModel):
     """SDK 消息"""
+
     message_id: str = Field(default_factory=lambda: str(uuid4()))
     type: MessageType
     method: str = ""
@@ -76,6 +80,7 @@ class SDKMessage(BaseModel):
 
 class DeviceInfo(BaseModel):
     """设备信息"""
+
     device_id: str
     platform: Platform
     os_version: str = ""
@@ -90,6 +95,7 @@ class DeviceInfo(BaseModel):
 
 class OfflineCacheEntry(BaseModel):
     """离线缓存条目"""
+
     cache_id: str = Field(default_factory=lambda: str(uuid4()))
     key: str
     data: dict[str, Any] = Field(default_factory=dict)
@@ -100,6 +106,7 @@ class OfflineCacheEntry(BaseModel):
 
 class TelemetryEvent(BaseModel):
     """遥测事件"""
+
     event_id: str = Field(default_factory=lambda: str(uuid4()))
     event_type: str
     properties: dict[str, Any] = Field(default_factory=dict)
@@ -109,6 +116,7 @@ class TelemetryEvent(BaseModel):
 # ---------------------------------------------------------------------------
 # 平台接口定义
 # ---------------------------------------------------------------------------
+
 
 class iOSInterface:
     """iOS 平台接口定义
@@ -279,6 +287,7 @@ class AndroidInterface:
 # 离线缓存管理
 # ---------------------------------------------------------------------------
 
+
 class OfflineCacheManager:
     """离线缓存管理器"""
 
@@ -347,6 +356,7 @@ class OfflineCacheManager:
 # 移动端 SDK
 # ---------------------------------------------------------------------------
 
+
 class MobileSDK:
     """移动端 SDK
 
@@ -377,7 +387,9 @@ class MobileSDK:
     def connect(self) -> bool:
         """建立连接"""
         self._connection_state = ConnectionState.CONNECTING
-        logger.info(f"SDK 连接中: platform={self._config.platform.value}, url={self._config.api_base_url}")
+        logger.info(
+            f"SDK 连接中: platform={self._config.platform.value}, url={self._config.api_base_url}"
+        )
 
         # 模拟连接
         self._connection_state = ConnectionState.CONNECTED

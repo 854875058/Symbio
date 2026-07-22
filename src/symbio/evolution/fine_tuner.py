@@ -58,15 +58,9 @@ class TrainingMetrics(BaseModel):
     eval_loss: Optional[float] = Field(default=None, description="验证损失")
     accuracy: Optional[float] = Field(default=None, description="训练准确率")
     learning_rate: float = Field(default=0.0, description="当前学习率")
-    tokens_per_second: Optional[float] = Field(
-        default=None, description="每秒处理 token 数"
-    )
-    gpu_memory_mb: Optional[float] = Field(
-        default=None, description="GPU 显存占用 (MB)"
-    )
-    logged_at: datetime = Field(
-        default_factory=datetime.now, description="记录时间"
-    )
+    tokens_per_second: Optional[float] = Field(default=None, description="每秒处理 token 数")
+    gpu_memory_mb: Optional[float] = Field(default=None, description="GPU 显存占用 (MB)")
+    logged_at: datetime = Field(default_factory=datetime.now, description="记录时间")
 
 
 class FineTuneConfig(BaseModel):
@@ -76,42 +70,22 @@ class FineTuneConfig(BaseModel):
         default="meta-llama/Llama-3-8B-Instruct",
         description="基础模型名称或路径",
     )
-    dataset_path: str = Field(
-        default="", description="微调数据集路径（JSONL 格式）"
-    )
-    output_dir: str = Field(
-        default="./data/fine_tuned", description="模型输出目录"
-    )
+    dataset_path: str = Field(default="", description="微调数据集路径（JSONL 格式）")
+    output_dir: str = Field(default="./data/fine_tuned", description="模型输出目录")
     epochs: int = Field(default=3, ge=1, le=100, description="训练轮数")
-    learning_rate: float = Field(
-        default=2e-5, gt=0, le=1.0, description="学习率"
-    )
-    batch_size: int = Field(
-        default=4, ge=1, le=1024, description="每批样本数"
-    )
-    gradient_accumulation_steps: int = Field(
-        default=1, ge=1, description="梯度累积步数"
-    )
-    max_seq_length: int = Field(
-        default=4096, ge=64, le=131072, description="最大序列长度"
-    )
-    warmup_ratio: float = Field(
-        default=0.05, ge=0.0, le=0.5, description="预热比例"
-    )
-    weight_decay: float = Field(
-        default=0.01, ge=0.0, le=1.0, description="权重衰减"
-    )
-    use_ray: bool = Field(
-        default=False, description="是否使用 Ray Train 分布式训练"
-    )
+    learning_rate: float = Field(default=2e-5, gt=0, le=1.0, description="学习率")
+    batch_size: int = Field(default=4, ge=1, le=1024, description="每批样本数")
+    gradient_accumulation_steps: int = Field(default=1, ge=1, description="梯度累积步数")
+    max_seq_length: int = Field(default=4096, ge=64, le=131072, description="最大序列长度")
+    warmup_ratio: float = Field(default=0.05, ge=0.0, le=0.5, description="预热比例")
+    weight_decay: float = Field(default=0.01, ge=0.0, le=1.0, description="权重衰减")
+    use_ray: bool = Field(default=False, description="是否使用 Ray Train 分布式训练")
     ray_address: Optional[str] = Field(
         default=None, description="Ray 集群地址，None 表示本地自动启动"
     )
     lora_rank: int = Field(default=8, ge=1, description="LoRA 秩")
     lora_alpha: int = Field(default=16, ge=1, description="LoRA alpha")
-    lora_dropout: float = Field(
-        default=0.05, ge=0.0, le=1.0, description="LoRA dropout"
-    )
+    lora_dropout: float = Field(default=0.05, ge=0.0, le=1.0, description="LoRA dropout")
     use_lora: bool = Field(default=True, description="是否使用 LoRA 微调")
 
 
@@ -120,21 +94,11 @@ class ValidationReport(BaseModel):
 
     is_valid: bool = Field(description="是否通过校验")
     sample_count: int = Field(default=0, description="样本总数")
-    format_detected: Optional[str] = Field(
-        default=None, description="检测到的数据格式"
-    )
-    errors: list[str] = Field(
-        default_factory=list, description="致命错误（阻止训练）"
-    )
-    warnings: list[str] = Field(
-        default_factory=list, description="警告（不影响训练但需关注）"
-    )
-    avg_conversation_turns: float = Field(
-        default=0.0, description="平均对话轮次"
-    )
-    avg_content_length: float = Field(
-        default=0.0, description="平均内容长度（字符）"
-    )
+    format_detected: Optional[str] = Field(default=None, description="检测到的数据格式")
+    errors: list[str] = Field(default_factory=list, description="致命错误（阻止训练）")
+    warnings: list[str] = Field(default_factory=list, description="警告（不影响训练但需关注）")
+    avg_conversation_turns: float = Field(default=0.0, description="平均对话轮次")
+    avg_content_length: float = Field(default=0.0, description="平均内容长度（字符）")
     empty_samples: int = Field(default=0, description="空样本数")
     short_samples: int = Field(default=0, description="过短样本数（<10 字符）")
 
@@ -147,36 +111,16 @@ class ValidationReport(BaseModel):
 class FineTuneJob(BaseModel):
     """微调作业实例。"""
 
-    job_id: str = Field(
-        default_factory=lambda: str(uuid.uuid4()), description="作业唯一 ID"
-    )
-    status: JobStatus = Field(
-        default=JobStatus.PENDING, description="当前作业状态"
-    )
-    config: FineTuneConfig = Field(
-        default_factory=FineTuneConfig, description="作业配置"
-    )
-    metrics: list[TrainingMetrics] = Field(
-        default_factory=list, description="训练指标历史"
-    )
-    best_metrics: Optional[TrainingMetrics] = Field(
-        default=None, description="最佳指标"
-    )
-    error_message: Optional[str] = Field(
-        default=None, description="失败原因"
-    )
-    started_at: Optional[datetime] = Field(
-        default=None, description="训练开始时间"
-    )
-    completed_at: Optional[datetime] = Field(
-        default=None, description="训练结束时间"
-    )
-    created_at: datetime = Field(
-        default_factory=datetime.now, description="作业创建时间"
-    )
-    output_path: Optional[str] = Field(
-        default=None, description="产出模型路径"
-    )
+    job_id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="作业唯一 ID")
+    status: JobStatus = Field(default=JobStatus.PENDING, description="当前作业状态")
+    config: FineTuneConfig = Field(default_factory=FineTuneConfig, description="作业配置")
+    metrics: list[TrainingMetrics] = Field(default_factory=list, description="训练指标历史")
+    best_metrics: Optional[TrainingMetrics] = Field(default=None, description="最佳指标")
+    error_message: Optional[str] = Field(default=None, description="失败原因")
+    started_at: Optional[datetime] = Field(default=None, description="训练开始时间")
+    completed_at: Optional[datetime] = Field(default=None, description="训练结束时间")
+    created_at: datetime = Field(default_factory=datetime.now, description="作业创建时间")
+    output_path: Optional[str] = Field(default=None, description="产出模型路径")
     metadata: dict[str, Any] = Field(
         default_factory=dict, description="后端/adapter/参数量等附加信息"
     )
@@ -276,9 +220,7 @@ class OfflineFineTuner:
         }
         export_format = fmt_map.get(format.lower())
         if export_format is None:
-            raise ValueError(
-                f"不支持的格式: {format}，可选: {list(fmt_map.keys())}"
-            )
+            raise ValueError(f"不支持的格式: {format}，可选: {list(fmt_map.keys())}")
 
         out_dir = output_dir or str(self._base_output_dir / "datasets")
         config = ExportConfig(
@@ -289,9 +231,7 @@ class OfflineFineTuner:
         )
         exporter = DatasetExporter(config)
 
-        logger.info(
-            f"准备数据集: {traj_path} -> {format} 格式, 输出目录: {out_dir}"
-        )
+        logger.info(f"准备数据集: {traj_path} -> {format} 格式, 输出目录: {out_dir}")
         report = exporter.export_from_jsonl(str(traj_path))
 
         if report.output_file is None:
@@ -401,20 +341,16 @@ class OfflineFineTuner:
 
         if sample_count > 0 and empty_count / sample_count > 0.1:
             warnings.append(
-                f"空样本比例过高: {empty_count}/{sample_count} "
-                f"({empty_count / sample_count:.1%})"
+                f"空样本比例过高: {empty_count}/{sample_count} ({empty_count / sample_count:.1%})"
             )
 
         if sample_count > 0 and short_count / sample_count > 0.3:
             warnings.append(
-                f"过短样本比例过高: {short_count}/{sample_count} "
-                f"({short_count / sample_count:.1%})"
+                f"过短样本比例过高: {short_count}/{sample_count} ({short_count / sample_count:.1%})"
             )
 
         if sample_count < 100:
-            warnings.append(
-                f"样本数量较少 ({sample_count})，建议至少 100 条以获得较好效果"
-            )
+            warnings.append(f"样本数量较少 ({sample_count})，建议至少 100 条以获得较好效果")
 
         if detected_format is None:
             warnings.append("未能识别数据集格式")
@@ -529,9 +465,7 @@ class OfflineFineTuner:
             raise KeyError(f"作业不存在: {job_id}")
         return self._jobs[job_id]
 
-    def list_jobs(
-        self, status: Optional[JobStatus] = None
-    ) -> list[FineTuneJob]:
+    def list_jobs(self, status: Optional[JobStatus] = None) -> list[FineTuneJob]:
         """列出所有微调作业。
 
         Args:
@@ -565,9 +499,7 @@ class OfflineFineTuner:
             JobStatus.CANCELLED,
         }
         if job.status in terminal_states:
-            raise ValueError(
-                f"作业 {job_id} 已处于终态 {job.status.value}，无法取消"
-            )
+            raise ValueError(f"作业 {job_id} 已处于终态 {job.status.value}，无法取消")
         job.status = JobStatus.CANCELLED
         job.completed_at = datetime.now()
         logger.info(f"作业 {job_id} 已取消")
@@ -584,28 +516,20 @@ class OfflineFineTuner:
         """
         try:
             import ray  # type: ignore[import-untyped]
-            from ray import train  # type: ignore[import-untyped]
-            from ray.train.torch import TorchTrainer  # type: ignore[import-untyped]
 
             ray_address = job.config.ray_address or "auto"
             if not ray.is_initialized():
                 ray.init(address=ray_address, ignore_reinit_error=True)
 
             job.status = JobStatus.TRAINING
-            logger.info(
-                f"Ray Train 训练已启动: job_id={job.job_id}, "
-                f"address={ray_address}"
-            )
+            logger.info(f"Ray Train 训练已启动: job_id={job.job_id}, address={ray_address}")
 
             # Ray Train stub — 真实训练循环待实现
             # 实际使用时应构建 TorchTrainer + ScalingConfig
             self._run_training_stub(job)
 
         except ImportError:
-            logger.warning(
-                "Ray 未安装，回退到本地训练桩。"
-                "安装: pip install 'ray[train]'"
-            )
+            logger.warning("Ray 未安装，回退到本地训练桩。安装: pip install 'ray[train]'")
             self._start_local_training(job)
 
     def _start_local_training(self, job: FineTuneJob) -> None:
@@ -643,12 +567,14 @@ class OfflineFineTuner:
         logger.info(f"真 LoRA 训练启动: job_id={job.job_id}, model={cfg.model_name}")
 
         def _on_step(record: dict) -> None:
-            job.metrics.append(TrainingMetrics(
-                step=record["step"],
-                epoch=record["epoch"],
-                loss=record["loss"],
-                learning_rate=record.get("learning_rate", cfg.learning_rate),
-            ))
+            job.metrics.append(
+                TrainingMetrics(
+                    step=record["step"],
+                    epoch=record["epoch"],
+                    loss=record["loss"],
+                    learning_rate=record.get("learning_rate", cfg.learning_rate),
+                )
+            )
 
         result = train_lora(
             base_model=cfg.model_name,
@@ -722,9 +648,7 @@ class OfflineFineTuner:
         # 训练桩完成
         job.status = JobStatus.COMPLETED
         job.completed_at = datetime.now()
-        job.output_path = str(
-            Path(cfg.output_dir) / f"stub_model_{job.job_id[:8]}"
-        )
+        job.output_path = str(Path(cfg.output_dir) / f"stub_model_{job.job_id[:8]}")
 
         # 记录最佳指标
         if job.metrics:

@@ -35,6 +35,7 @@ VALID_ACTIONS = {"navigate", "screenshot", "click", "type", "scroll", "extract_t
 def _playwright_available() -> bool:
     try:
         import playwright.async_api  # noqa: F401
+
         return True
     except Exception:
         return False
@@ -97,6 +98,7 @@ class ComputerUseSession:
         if self._page is not None:
             return self._page
         from playwright.async_api import async_playwright
+
         self._pw = await async_playwright().start()
         self._browser = await self._pw.chromium.launch(headless=self.headless)
         self._page = await self._browser.new_page(viewport={"width": 1280, "height": 800})
@@ -128,8 +130,9 @@ class ComputerUseSession:
         started = time.time()
 
         if action not in VALID_ACTIONS:
-            step = self._record(step_index, action, params, success=False,
-                                 error=f"未知动作: {action}", elapsed_ms=0)
+            step = self._record(
+                step_index, action, params, success=False, error=f"未知动作: {action}", elapsed_ms=0
+            )
             return step
 
         try:
@@ -138,13 +141,15 @@ class ComputerUseSession:
             else:
                 result = await self._real_act(action, params)
             elapsed = int((time.time() - started) * 1000)
-            step = self._record(step_index, action, params, success=True,
-                                 result=result, elapsed_ms=elapsed)
+            step = self._record(
+                step_index, action, params, success=True, result=result, elapsed_ms=elapsed
+            )
         except Exception as e:
             elapsed = int((time.time() - started) * 1000)
             logger.warning(f"动作执行失败 {action}: {e}")
-            step = self._record(step_index, action, params, success=False,
-                                 error=str(e), elapsed_ms=elapsed)
+            step = self._record(
+                step_index, action, params, success=False, error=str(e), elapsed_ms=elapsed
+            )
         return step
 
     def _dry_run_result(self, action: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -153,8 +158,7 @@ class ComputerUseSession:
             self.current_url = params.get("url", self.current_url)
             return {"mode": "dry_run", "navigated_to": self.current_url}
         if action == "screenshot":
-            return {"mode": "dry_run", "screenshot": None,
-                    "note": "Playwright 未安装，未真正截图"}
+            return {"mode": "dry_run", "screenshot": None, "note": "Playwright 未安装，未真正截图"}
         if action == "extract_text":
             return {"mode": "dry_run", "text": "", "note": "Playwright 未安装"}
         return {"mode": "dry_run", "action": action, "params": params}
@@ -195,7 +199,9 @@ class ComputerUseSession:
             return {"waited_ms": int(params.get("ms", 500))}
         return {"action": action}
 
-    def _record(self, index, action, params, success, result=None, error="", elapsed_ms=0) -> dict[str, Any]:
+    def _record(
+        self, index, action, params, success, result=None, error="", elapsed_ms=0
+    ) -> dict[str, Any]:
         step = {
             "index": index,
             "action": action,
@@ -268,21 +274,29 @@ class ActionPlanner:
 
         # 目标里包含 URL 且尚未导航 -> 先导航
         import re
+
         url_match = re.search(r"https?://[^\s]+", goal)
         if url_match and "navigate" not in steps_done:
-            return {"action": "navigate", "params": {"url": url_match.group()},
-                    "reason": "目标中包含 URL，先导航到目标页面"}
+            return {
+                "action": "navigate",
+                "params": {"url": url_match.group()},
+                "reason": "目标中包含 URL，先导航到目标页面",
+            }
         if not session.current_url and "navigate" not in steps_done:
-            return {"action": "wait", "params": {"ms": 100},
-                    "reason": "无目标 URL，等待进一步指令"}
+            return {"action": "wait", "params": {"ms": 100}, "reason": "无目标 URL，等待进一步指令"}
         if "screenshot" not in steps_done:
-            return {"action": "screenshot", "params": {},
-                    "reason": "导航完成，截图以理解当前页面"}
+            return {"action": "screenshot", "params": {}, "reason": "导航完成，截图以理解当前页面"}
         if "extract_text" not in steps_done:
-            return {"action": "extract_text", "params": {"selector": "body"},
-                    "reason": "提取页面文本用于后续决策"}
-        return {"action": "wait", "params": {"ms": 100},
-                "reason": "标准侦察序列已完成，等待目标判定"}
+            return {
+                "action": "extract_text",
+                "params": {"selector": "body"},
+                "reason": "提取页面文本用于后续决策",
+            }
+        return {
+            "action": "wait",
+            "params": {"ms": 100},
+            "reason": "标准侦察序列已完成，等待目标判定",
+        }
 
 
 _LLM_PLANNER_SYSTEM = (
@@ -303,9 +317,9 @@ _LLM_PLANNER_SYSTEM = (
 
 _LLM_PLANNER_VISION_HINT = (
     "\n\n【视觉模式】随本消息附带了当前页面的截图。请**看图**判断下一步：\n"
-    "- 需要点击时，用像素坐标定位：params 填 {\"x\": <横向像素>, \"y\": <纵向像素>}，"
+    '- 需要点击时，用像素坐标定位：params 填 {"x": <横向像素>, "y": <纵向像素>}，'
     "截图左上角为原点 (0,0)，向右 x 增大、向下 y 增大。\n"
-    "- 需要输入时，先 click 定位输入框，再 type({\"text\": ...})。\n"
+    '- 需要输入时，先 click 定位输入框，再 type({"text": ...})。\n'
     "- 依据截图中实际可见的元素决策，不要臆测不可见的内容。"
 )
 
@@ -412,20 +426,23 @@ class LLMActionPlanner:
         if start == -1 or end == -1 or end < start:
             return None
         try:
-            obj = json.loads(text[start:end + 1])
+            obj = json.loads(text[start : end + 1])
         except Exception:
             return None
         action = str(obj.get("action", "")).lower().strip()
         if action == "done":
-            return {"action": "wait", "params": {"ms": 0},
-                    "reason": obj.get("reason", "目标已达成"), "done": True}
+            return {
+                "action": "wait",
+                "params": {"ms": 0},
+                "reason": obj.get("reason", "目标已达成"),
+                "done": True,
+            }
         if action not in VALID_ACTIONS:
             return None
         params = obj.get("params", {})
         if not isinstance(params, dict):
             params = {}
-        return {"action": action, "params": params,
-                "reason": str(obj.get("reason", ""))}
+        return {"action": action, "params": params, "reason": str(obj.get("reason", ""))}
 
     def _default_complete(self):
         """从 settings 构建 Anthropic 补全函数；无 key 返回 None。
@@ -435,6 +452,7 @@ class LLMActionPlanner:
         """
         try:
             from symbio.config.settings import get_settings
+
             settings = get_settings()
             api_key = settings.model.anthropic_api_key
             if not api_key:
@@ -446,6 +464,7 @@ class LLMActionPlanner:
 
         async def _complete(system: str, user: str, image_path: Optional[str] = None) -> str:
             import anthropic
+
             client = anthropic.AsyncAnthropic(api_key=api_key, base_url=base_url)
             if image_path is not None:
                 block = _image_to_block(image_path)
@@ -456,7 +475,9 @@ class LLMActionPlanner:
             else:
                 content = user
             resp = await client.messages.create(
-                model=model, max_tokens=512, system=system,
+                model=model,
+                max_tokens=512,
+                system=system,
                 messages=[{"role": "user", "content": content}],
             )
             return "".join(getattr(b, "text", "") for b in resp.content)
@@ -499,7 +520,9 @@ class ComputerUseManager:
         try:
             self._audit_dir.mkdir(parents=True, exist_ok=True)
             path = self._audit_dir / f"{session.session_id}_audit.json"
-            path.write_text(json.dumps(session.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+            path.write_text(
+                json.dumps(session.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
+            )
         except Exception as e:
             logger.warning(f"持久化审计失败: {e}")
 

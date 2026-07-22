@@ -4,13 +4,10 @@
 每个测试使用独立的测试数据库，测试完成后自动清理。
 """
 
-import json
-import os
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
@@ -169,8 +166,14 @@ class TestHITLAPI:
         assert request_payload["latest_notification"]["callback_url"] == (
             "https://symbio.example/api/hitl/im-callback"
         )
-        assert "approve " + request_payload["code"] in request_payload["latest_notification"]["approve_command"]
-        assert "reject " + request_payload["code"] in request_payload["latest_notification"]["reject_command"]
+        assert (
+            "approve " + request_payload["code"]
+            in request_payload["latest_notification"]["approve_command"]
+        )
+        assert (
+            "reject " + request_payload["code"]
+            in request_payload["latest_notification"]["reject_command"]
+        )
         assert submitted["notifications"][0]["payload"]["request_id"] == request_id
 
         detail_resp = await client.get(f"/api/hitl/{request_id}")
@@ -209,7 +212,10 @@ class TestHITLAPI:
         all_resp = await client.get("/api/hitl")
         assert all_resp.status_code == 200
         all_items = all_resp.json()["requests"]
-        assert any(item["id"] == request_id and item["title"] == "Delete generated files" for item in all_items)
+        assert any(
+            item["id"] == request_id and item["title"] == "Delete generated files"
+            for item in all_items
+        )
 
         approve_resp = await client.post(f"/api/hitl/{request_id}/approve")
         assert approve_resp.status_code == 200
@@ -241,8 +247,6 @@ class TestHITLAPI:
         assert submit_resp.status_code == 200
         submitted = submit_resp.json()
         request_id = submitted["request_id"]
-        code = submitted["request"]["code"]
-
         callback_resp = await client.post(
             "/api/hitl/im-callback",
             json={
@@ -341,6 +345,7 @@ class TestSessionAPI:
 def _make_mock_settings(api_key="test-api-key"):
     """创建一个 mock Settings 对象，避免读取 symbio.yaml 文件。"""
     from symbio.config.settings import Settings
+
     mock_settings = MagicMock(spec=Settings)
     mock_settings.model = MagicMock()
     mock_settings.model.anthropic_api_key = api_key
@@ -632,11 +637,9 @@ class TestModelAPI:
         assert resp.status_code == 404
         assert "不存在" in resp.json()["detail"]
 
-
-# ================================================================
-# 6. 记忆 API 测试
-# ================================================================
-
+    # ================================================================
+    # 6. 记忆 API 测试
+    # ================================================================
 
     async def test_test_model_uses_current_config_credentials(self, client, test_database):
         """POST /api/models/{id}/test should prefer current config credentials over stale stored model keys."""
@@ -915,9 +918,9 @@ class TestConfigAPI:
         assert resp.status_code == 200
         data = resp.json()
         expected_keys = [
-            "anthropic_api_key",
+            "has_anthropic_key",
             "anthropic_base_url",
-            "openai_api_key",
+            "has_openai_key",
             "openai_base_url",
             "model_low",
             "model_medium",
@@ -925,27 +928,31 @@ class TestConfigAPI:
         ]
         for key in expected_keys:
             assert key in data, f"Missing config key: {key}"
+        assert "anthropic_api_key" not in data
+        assert "openai_api_key" not in data
 
-    async def test_update_config(self, client, tmp_path):
+    async def test_update_config(self, client, tmp_path, monkeypatch):
         """POST /api/config 更新配置"""
         # 使用临时目录避免污染项目目录
-        config_file = tmp_path / "symbio.yaml"
+        monkeypatch.chdir(tmp_path)
         mock_settings = _make_mock_settings(api_key="")
         mock_settings.model.openai_api_key = ""
         mock_settings.model.openai_base_url = "https://api.openai.com/v1"
         mock_settings.model.model_low = "claude-3-5-haiku-20241022"
         mock_settings.model.model_high = "claude-opus-4-20250514"
-        mock_settings.model_dump = MagicMock(return_value={
-            "model": {
-                "anthropic_api_key": "",
-                "anthropic_base_url": "https://api.anthropic.com",
-                "openai_api_key": "",
-                "openai_base_url": "https://api.openai.com/v1",
-                "model_low": "claude-3-5-haiku-20241022",
-                "model_medium": "claude-sonnet-4-20250514",
-                "model_high": "claude-opus-4-20250514",
+        mock_settings.model_dump = MagicMock(
+            return_value={
+                "model": {
+                    "anthropic_api_key": "",
+                    "anthropic_base_url": "https://api.anthropic.com",
+                    "openai_api_key": "",
+                    "openai_base_url": "https://api.openai.com/v1",
+                    "model_low": "claude-3-5-haiku-20241022",
+                    "model_medium": "claude-sonnet-4-20250514",
+                    "model_high": "claude-opus-4-20250514",
+                }
             }
-        })
+        )
 
         with (
             patch("symbio.interfaces.api._load_llm_settings", return_value=mock_settings),

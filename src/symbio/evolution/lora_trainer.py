@@ -40,7 +40,8 @@ def ensure_training_deps() -> None:
             missing.append(mod)
     if missing:
         raise TrainingDependencyError(
-            "真 LoRA 训练缺少依赖: " + ", ".join(missing)
+            "真 LoRA 训练缺少依赖: "
+            + ", ".join(missing)
             + "。安装: pip install torch transformers peft datasets"
         )
 
@@ -62,6 +63,7 @@ class LoraTrainResult:
 # 数据集：把 DatasetExporter 的 sharegpt/alpaca/openai JSONL 转成纯文本样本
 # ---------------------------------------------------------------------------
 
+
 def _sample_to_text(sample: dict[str, Any]) -> str:
     """把一条样本拍平成一段训练文本（role: content 逐行拼接）。
 
@@ -78,7 +80,7 @@ def _sample_to_text(sample: dict[str, Any]) -> str:
             parts.append(f"{role}: {content}")
     elif "messages" in sample and isinstance(sample["messages"], list):
         for turn in sample["messages"]:
-            parts.append(f"{turn.get('role','user')}: {turn.get('content','')}")
+            parts.append(f"{turn.get('role', 'user')}: {turn.get('content', '')}")
     elif "instruction" in sample:
         instr = sample.get("instruction", "")
         inp = sample.get("input", "")
@@ -116,6 +118,7 @@ def load_texts_from_jsonl(dataset_path: str) -> list[str]:
 # ---------------------------------------------------------------------------
 # 真 LoRA 训练
 # ---------------------------------------------------------------------------
+
 
 def train_lora(
     *,
@@ -176,7 +179,9 @@ def train_lora(
 
     def _tokenize(batch):
         enc = tokenizer(
-            batch["text"], truncation=True, max_length=max_seq_length,
+            batch["text"],
+            truncation=True,
+            max_length=max_seq_length,
             padding="max_length",
         )
         enc["labels"] = [ids[:] for ids in enc["input_ids"]]
@@ -212,7 +217,9 @@ def train_lora(
         use_cpu=not torch.cuda.is_available(),
     )
     trainer = Trainer(model=model, args=args, train_dataset=ds, callbacks=[_StepCallback()])
-    logger.info(f"[LoRA] 开始训练 epochs={epochs} device={'cuda' if torch.cuda.is_available() else 'cpu'}")
+    logger.info(
+        f"[LoRA] 开始训练 epochs={epochs} device={'cuda' if torch.cuda.is_available() else 'cpu'}"
+    )
     trainer.train()
 
     # 落盘 adapter（真实 LoRA 权重）

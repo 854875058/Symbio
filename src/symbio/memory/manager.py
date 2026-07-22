@@ -34,17 +34,20 @@ OPTIONAL_VECTOR_BACKEND_ERROR_HINTS = (
 # Pydantic 数据模型
 # ---------------------------------------------------------------------------
 
+
 class MemoryType(str, Enum):
     """记忆类型"""
-    SHORT_TERM = "short_term"    # 短期记忆（对话上下文）
-    LONG_TERM = "long_term"      # 长期记忆（持久化知识）
-    EPISODIC = "episodic"        # 情景记忆（事件记录）
-    SEMANTIC = "semantic"        # 语义记忆（概念知识）
-    PROCEDURAL = "procedural"    # 程序记忆（操作步骤）
+
+    SHORT_TERM = "short_term"  # 短期记忆（对话上下文）
+    LONG_TERM = "long_term"  # 长期记忆（持久化知识）
+    EPISODIC = "episodic"  # 情景记忆（事件记录）
+    SEMANTIC = "semantic"  # 语义记忆（概念知识）
+    PROCEDURAL = "procedural"  # 程序记忆（操作步骤）
 
 
 class MemoryPriority(str, Enum):
     """记忆优先级"""
+
     LOW = "low"
     NORMAL = "normal"
     HIGH = "high"
@@ -53,16 +56,18 @@ class MemoryPriority(str, Enum):
 
 class MemoryStatus(str, Enum):
     """记忆状态"""
-    ACTIVE = "active"            # 活跃
+
+    ACTIVE = "active"  # 活跃
     CONSOLIDATED = "consolidated"  # 已巩固（从短期转为长期）
-    ARCHIVED = "archived"        # 已归档
-    FORGOTTEN = "forgotten"      # 已遗忘
+    ARCHIVED = "archived"  # 已归档
+    FORGOTTEN = "forgotten"  # 已遗忘
 
 
 class MemoryItem(BaseModel):
     """记忆条目"""
+
     memory_id: str = Field(default_factory=lambda: str(uuid4()))
-    content: str                                  # 记忆内容
+    content: str  # 记忆内容
     memory_type: MemoryType = MemoryType.SHORT_TERM
     priority: MemoryPriority = MemoryPriority.NORMAL
     status: MemoryStatus = MemoryStatus.ACTIVE
@@ -73,19 +78,19 @@ class MemoryItem(BaseModel):
     # 关联信息
     session_id: str = ""
     user_id: str = ""
-    source: str = ""                              # 来源标识
+    source: str = ""  # 来源标识
     tags: list[str] = Field(default_factory=list)
     context: dict[str, Any] = Field(default_factory=dict)
 
     # 统计信息
-    importance: float = 0.5                       # 重要性评分 (0-1)
-    access_count: int = 0                         # 访问次数
-    decay_rate: float = 0.01                      # 衰减速率
+    importance: float = 0.5  # 重要性评分 (0-1)
+    access_count: int = 0  # 访问次数
+    decay_rate: float = 0.01  # 衰减速率
 
     # 时间信息
     created_at: datetime = Field(default_factory=datetime.now)
     last_accessed: datetime = Field(default_factory=datetime.now)
-    expires_at: Optional[datetime] = None         # 过期时间（短期记忆）
+    expires_at: Optional[datetime] = None  # 过期时间（短期记忆）
 
     # 元数据
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -109,15 +114,16 @@ class MemoryItem(BaseModel):
 
         # 综合评分：重要性 * 时间衰减 * 访问频率
         access_boost = min(self.access_count / 10.0, 0.5)
-        relevance = (self.importance * 0.5 + time_decay * 0.3 + access_boost * 0.2)
+        relevance = self.importance * 0.5 + time_decay * 0.3 + access_boost * 0.2
 
         return min(max(relevance, 0.0), 1.0)
 
 
 class ConversationTurn(BaseModel):
     """对话轮次"""
+
     turn_id: str = Field(default_factory=lambda: str(uuid4()))
-    role: str                                     # user / assistant / system
+    role: str  # user / assistant / system
     content: str
     timestamp: datetime = Field(default_factory=datetime.now)
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -125,10 +131,11 @@ class ConversationTurn(BaseModel):
 
 class ConversationSession(BaseModel):
     """对话会话"""
+
     session_id: str = Field(default_factory=lambda: str(uuid4()))
     user_id: str = ""
     turns: list[ConversationTurn] = Field(default_factory=list)
-    summary: str = ""                             # 会话摘要
+    summary: str = ""  # 会话摘要
     created_at: datetime = Field(default_factory=datetime.now)
     last_active: datetime = Field(default_factory=datetime.now)
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -140,15 +147,17 @@ class ConversationSession(BaseModel):
 
 class SearchResult(BaseModel):
     """检索结果"""
+
     result_id: str = Field(default_factory=lambda: str(uuid4()))
     memory: MemoryItem
-    score: float = 0.0                            # 相似度评分
-    match_type: str = "semantic"                  # semantic / keyword / exact
-    highlight: str = ""                           # 高亮片段
+    score: float = 0.0  # 相似度评分
+    match_type: str = "semantic"  # semantic / keyword / exact
+    highlight: str = ""  # 高亮片段
 
 
 class MemoryStats(BaseModel):
     """记忆统计"""
+
     total_memories: int = 0
     short_term_count: int = 0
     long_term_count: int = 0
@@ -163,33 +172,35 @@ class MemoryStats(BaseModel):
 
 class MemoryManagerConfig(BaseModel):
     """记忆管理器配置"""
+
     # 短期记忆
-    short_term_window: int = 20                   # 短期记忆窗口大小
-    short_term_ttl_hours: int = 24                # 短期记忆 TTL（小时）
-    auto_summarize_threshold: int = 50            # 自动摘要阈值（消息数）
+    short_term_window: int = 20  # 短期记忆窗口大小
+    short_term_ttl_hours: int = 24  # 短期记忆 TTL（小时）
+    auto_summarize_threshold: int = 50  # 自动摘要阈值（消息数）
 
     # 长期记忆
-    max_long_term_memories: int = 10000           # 最大长期记忆数
-    consolidation_threshold: float = 0.7          # 巩固阈值（重要性）
+    max_long_term_memories: int = 10000  # 最大长期记忆数
+    consolidation_threshold: float = 0.7  # 巩固阈值（重要性）
 
     # 语义检索
-    embedding_model: str = ""                     # 为空则使用全局配置
-    embedding_dim: int = 0                        # 为空则使用全局配置
-    similarity_threshold: float = 0.7             # 相似度阈值
-    max_search_results: int = 10                  # 最大检索结果数
+    embedding_model: str = ""  # 为空则使用全局配置
+    embedding_dim: int = 0  # 为空则使用全局配置
+    similarity_threshold: float = 0.7  # 相似度阈值
+    max_search_results: int = 10  # 最大检索结果数
 
     # 衰减
-    enable_decay: bool = True                     # 启用记忆衰减
-    decay_check_interval_hours: int = 6           # 衰减检查间隔
+    enable_decay: bool = True  # 启用记忆衰减
+    decay_check_interval_hours: int = 6  # 衰减检查间隔
 
     # 持久化
-    lancedb_path: str = ""                        # LanceDB 存储路径
+    lancedb_path: str = ""  # LanceDB 存储路径
     table_name: str = "memories"
 
 
 # ---------------------------------------------------------------------------
 # 记忆管理器
 # ---------------------------------------------------------------------------
+
 
 class MemoryManager:
     """记忆管理器
@@ -246,7 +257,7 @@ class MemoryManager:
                 self._config.lancedb_path = str(Path("data/lancedb") / "memory_manager")
 
         # 内存存储
-        self._short_term: dict[str, MemoryItem] = {}    # memory_id -> item
+        self._short_term: dict[str, MemoryItem] = {}  # memory_id -> item
         self._long_term: dict[str, MemoryItem] = {}
         self._sessions: dict[str, ConversationSession] = {}
 
@@ -293,29 +304,29 @@ class MemoryManager:
             # 检查或创建表
             table_names = await asyncio.to_thread(self._db.table_names)
             if self._config.table_name in table_names:
-                self._table = await asyncio.to_thread(
-                    self._db.open_table, self._config.table_name
-                )
+                self._table = await asyncio.to_thread(self._db.open_table, self._config.table_name)
                 logger.info(f"打开已有记忆表: {self._config.table_name}")
             else:
-                schema = pa.schema([
-                    pa.field("memory_id", pa.string()),
-                    pa.field("content", pa.string()),
-                    pa.field("memory_type", pa.string()),
-                    pa.field("priority", pa.string()),
-                    pa.field("status", pa.string()),
-                    pa.field("vector", pa.list_(pa.float32())),
-                    pa.field("session_id", pa.string()),
-                    pa.field("user_id", pa.string()),
-                    pa.field("source", pa.string()),
-                    pa.field("tags_json", pa.string()),
-                    pa.field("importance", pa.float64()),
-                    pa.field("access_count", pa.int64()),
-                    pa.field("created_at", pa.string()),
-                    pa.field("last_accessed", pa.string()),
-                    pa.field("expires_at", pa.string()),
-                    pa.field("metadata_json", pa.string()),
-                ])
+                schema = pa.schema(
+                    [
+                        pa.field("memory_id", pa.string()),
+                        pa.field("content", pa.string()),
+                        pa.field("memory_type", pa.string()),
+                        pa.field("priority", pa.string()),
+                        pa.field("status", pa.string()),
+                        pa.field("vector", pa.list_(pa.float32())),
+                        pa.field("session_id", pa.string()),
+                        pa.field("user_id", pa.string()),
+                        pa.field("source", pa.string()),
+                        pa.field("tags_json", pa.string()),
+                        pa.field("importance", pa.float64()),
+                        pa.field("access_count", pa.int64()),
+                        pa.field("created_at", pa.string()),
+                        pa.field("last_accessed", pa.string()),
+                        pa.field("expires_at", pa.string()),
+                        pa.field("metadata_json", pa.string()),
+                    ]
+                )
                 self._table = await asyncio.to_thread(
                     self._db.create_table,
                     self._config.table_name,
@@ -336,8 +347,7 @@ class MemoryManager:
             if not self._is_optional_vector_backend_error(exc):
                 raise
             logger.warning(
-                f"Optional vector backend unavailable; "
-                f"MemoryManager will use in-memory mode: {exc}"
+                f"Optional vector backend unavailable; MemoryManager will use in-memory mode: {exc}"
             )
             self._initialized = True
         except Exception as e:
@@ -411,6 +421,7 @@ class MemoryManager:
 
     def _start_decay_task(self) -> None:
         """启动后台衰减检查任务"""
+
         async def _decay_loop():
             while True:
                 try:
@@ -515,6 +526,7 @@ class MemoryManager:
         """惰性创建多模态处理器（图片描述走真实视觉模型，无 key 时优雅降级占位）。"""
         if self._multimodal is None:
             from symbio.memory.multimodal import MultiModalMemory
+
             self._multimodal = MultiModalMemory()
         return self._multimodal
 
@@ -588,16 +600,13 @@ class MemoryManager:
             if modality == ContentModality.CODE:
                 kwargs["language"] = language
             # process_content 含文件 I/O 与可能的网络调用，放到线程避免阻塞事件循环
-            processed = await asyncio.to_thread(
-                mm.process_content, content, modality, **kwargs
-            )
+            processed = await asyncio.to_thread(mm.process_content, content, modality, **kwargs)
             if cache_key and processed.is_valid:
                 self._mm_cache[cache_key] = processed
 
         if not processed.is_valid:
             logger.warning(
-                f"多模态内容处理失败，未入库: modality={modality.value}, "
-                f"error={processed.error}"
+                f"多模态内容处理失败，未入库: modality={modality.value}, error={processed.error}"
             )
             return None
 
@@ -659,8 +668,7 @@ class MemoryManager:
             await self._auto_summarize_session(session)
 
         logger.debug(
-            f"添加对话轮次: session={session.session_id}, role={role}, "
-            f"turns={len(session.turns)}"
+            f"添加对话轮次: session={session.session_id}, role={role}, turns={len(session.turns)}"
         )
         return turn
 
@@ -712,7 +720,8 @@ class MemoryManager:
                     vector_column_name="vector",
                 )
                 search_results = await asyncio.to_thread(
-                    search_results.limit, max_results * 2  # 多检索一些用于过滤
+                    search_results.limit,
+                    max_results * 2,  # 多检索一些用于过滤
                 )
                 rows = await asyncio.to_thread(search_results.to_list)
 
@@ -734,11 +743,13 @@ class MemoryManager:
                         continue
 
                     memory = self._row_to_memory(row)
-                    results.append(SearchResult(
-                        memory=memory,
-                        score=similarity,
-                        match_type="semantic",
-                    ))
+                    results.append(
+                        SearchResult(
+                            memory=memory,
+                            score=similarity,
+                            match_type="semantic",
+                        )
+                    )
 
                     if len(results) >= max_results:
                         break
@@ -749,8 +760,7 @@ class MemoryManager:
         # 从内存中检索（补充）
         if len(results) < max_results:
             memory_results = self._search_in_memory(
-                query_embedding, threshold, memory_types, session_id,
-                max_results - len(results)
+                query_embedding, threshold, memory_types, session_id, max_results - len(results)
             )
             results.extend(memory_results)
 
@@ -763,8 +773,7 @@ class MemoryManager:
 
         top_score = results[0].score if results else 0.0
         logger.info(
-            f"语义检索: query={query[:50]}, results={len(results)}, "
-            f"top_score={top_score:.4f}"
+            f"语义检索: query={query[:50]}, results={len(results)}, top_score={top_score:.4f}"
         )
         return results[:max_results]
 
@@ -794,11 +803,13 @@ class MemoryManager:
             # 计算相似度
             similarity = self._cosine_similarity(query_embedding, memory.embedding)
             if similarity >= threshold:
-                results.append(SearchResult(
-                    memory=memory,
-                    score=similarity,
-                    match_type="semantic",
-                ))
+                results.append(
+                    SearchResult(
+                        memory=memory,
+                        score=similarity,
+                        match_type="semantic",
+                    )
+                )
 
         results.sort(key=lambda r: r.score, reverse=True)
         return results[:max_results]
@@ -815,11 +826,13 @@ class MemoryManager:
             if query_lower in content_lower:
                 # 计算简单匹配分数
                 match_ratio = len(query_lower) / len(content_lower)
-                results.append(SearchResult(
-                    memory=memory,
-                    score=match_ratio,
-                    match_type="keyword",
-                ))
+                results.append(
+                    SearchResult(
+                        memory=memory,
+                        score=match_ratio,
+                        match_type="keyword",
+                    )
+                )
 
         results.sort(key=lambda r: r.score, reverse=True)
         return results[:max_results]
@@ -1103,10 +1116,7 @@ class MemoryManager:
 
         try:
             # 删除旧记录
-            await asyncio.to_thread(
-                self._table.delete,
-                f"memory_id = '{memory.memory_id}'"
-            )
+            await asyncio.to_thread(self._table.delete, f"memory_id = '{memory.memory_id}'")
             # 插入新记录
             await self._persist_memory(memory)
         except Exception as e:
@@ -1130,15 +1140,16 @@ class MemoryManager:
             access_count=int(row.get("access_count", 0)),
             created_at=(
                 datetime.fromisoformat(row["created_at"])
-                if row.get("created_at") else datetime.now()
+                if row.get("created_at")
+                else datetime.now()
             ),
             last_accessed=(
                 datetime.fromisoformat(row["last_accessed"])
-                if row.get("last_accessed") else datetime.now()
+                if row.get("last_accessed")
+                else datetime.now()
             ),
             expires_at=(
-                datetime.fromisoformat(row["expires_at"])
-                if row.get("expires_at") else None
+                datetime.fromisoformat(row["expires_at"]) if row.get("expires_at") else None
             ),
             metadata=json.loads(row.get("metadata_json", "{}")),
         )
@@ -1176,8 +1187,10 @@ class MemoryManager:
         similarity_threshold: float = 0.7,
     ) -> MemoryManager:
         """使用自定义参数创建"""
-        return cls(MemoryManagerConfig(
-            short_term_window=short_term_window,
-            max_long_term_memories=max_long_term_memories,
-            similarity_threshold=similarity_threshold,
-        ))
+        return cls(
+            MemoryManagerConfig(
+                short_term_window=short_term_window,
+                max_long_term_memories=max_long_term_memories,
+                similarity_threshold=similarity_threshold,
+            )
+        )

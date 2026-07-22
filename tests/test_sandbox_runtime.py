@@ -23,7 +23,9 @@ def test_codex_style_policy_names_are_canonicalized():
     assert normalize_sandbox_access_mode("workspace_write") == SandboxAccessMode.WORKSPACE_WRITE
     assert normalize_sandbox_access_mode("workspace-write") == SandboxAccessMode.WORKSPACE_WRITE
     assert normalize_sandbox_access_mode("unrestricted") == SandboxAccessMode.DANGER_FULL_ACCESS
-    assert normalize_sandbox_access_mode("danger-full-access") == SandboxAccessMode.DANGER_FULL_ACCESS
+    assert (
+        normalize_sandbox_access_mode("danger-full-access") == SandboxAccessMode.DANGER_FULL_ACCESS
+    )
     assert normalize_approval_policy("on_request") == ApprovalPolicy.ON_REQUEST
     assert normalize_approval_policy("on-request") == ApprovalPolicy.ON_REQUEST
     assert normalize_approval_policy("on_failure") == ApprovalPolicy.ON_FAILURE

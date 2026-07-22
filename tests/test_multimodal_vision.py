@@ -31,10 +31,10 @@ PLACEHOLDER = "[图片描述占位]"
 def _write_png(path: Path, width: int = 2, height: int = 2, pad: int = 40) -> None:
     """写一个魔数+IHDR 合法的最小 PNG（内容不要求可解码，仅用于格式/尺寸检测）。"""
     data = (
-        b"\x89PNG\r\n\x1a\n"          # 魔数 (8)
-        + b"\x00\x00\x00\x0dIHDR"      # IHDR chunk 长度+类型 (8)
+        b"\x89PNG\r\n\x1a\n"  # 魔数 (8)
+        + b"\x00\x00\x00\x0dIHDR"  # IHDR chunk 长度+类型 (8)
         + struct.pack(">II", width, height)  # 宽高 (offset 16:24)
-        + b"\x08\x06\x00\x00\x00"      # 位深/颜色类型等
+        + b"\x08\x06\x00\x00\x00"  # 位深/颜色类型等
         + b"\x00" * pad
     )
     path.write_bytes(data)
@@ -86,9 +86,7 @@ def test_jpeg_maps_to_jpeg_media_type(tmp_path):
     _write_jpeg(img)
 
     seen: dict[str, str] = {}
-    mm = MultiModalMemory(
-        vision_describe=lambda b64, mime: seen.setdefault("mime", mime) or "ok"
-    )
+    mm = MultiModalMemory(vision_describe=lambda b64, mime: seen.setdefault("mime", mime) or "ok")
     mm.process_content(str(img), ContentModality.IMAGE)
 
     assert seen["mime"] == "image/jpeg"
@@ -180,11 +178,15 @@ def test_default_describe_without_api_key_returns_none(tmp_path, monkeypatch):
     real = settings_mod.get_settings()
 
     class _Stub:
-        model = type("M", (), {
-            "anthropic_api_key": "",
-            "anthropic_base_url": "https://api.anthropic.com",
-            "model_medium": "claude-sonnet-4-6",
-        })()
+        model = type(
+            "M",
+            (),
+            {
+                "anthropic_api_key": "",
+                "anthropic_base_url": "https://api.anthropic.com",
+                "model_medium": "claude-sonnet-4-6",
+            },
+        )()
 
     monkeypatch.setattr(settings_mod, "get_settings", lambda: _Stub())
     # multimodal 内部是 `from symbio.config.settings import get_settings`（函数内导入），

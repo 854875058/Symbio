@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Optional
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -27,6 +27,7 @@ logger = get_logger("security.trust_zones")
 # 信任区域枚举
 # ---------------------------------------------------------------------------
 
+
 class TrustZone(str, Enum):
     """信任等级
 
@@ -43,6 +44,7 @@ class TrustZone(str, Enum):
 # ---------------------------------------------------------------------------
 # 数据模型
 # ---------------------------------------------------------------------------
+
 
 class AttackPattern(BaseModel):
     """攻击模式定义
@@ -120,11 +122,11 @@ _DEFAULT_SOURCE_MAP: dict[str, TrustZone] = {
 # 允许的跨区域数据流（from -> to 集合）
 # 不在列表中的流向需要额外验证
 _ALLOWED_CROSS_ZONE_FLOWS: set[tuple[TrustZone, TrustZone]] = {
-    (TrustZone.UNTRUSTED, TrustZone.SEMI_TRUSTED),    # 用户输入可进入 Agent 处理
-    (TrustZone.SEMI_TRUSTED, TrustZone.SEMI_TRUSTED), # Agent 内部流转
-    (TrustZone.SEMI_TRUSTED, TrustZone.TRUSTED),      # Agent 结果可升级（需验证）
-    (TrustZone.TRUSTED, TrustZone.TRUSTED),            # 系统内部流转
-    (TrustZone.TRUSTED, TrustZone.SEMI_TRUSTED),      # 系统配置下发
+    (TrustZone.UNTRUSTED, TrustZone.SEMI_TRUSTED),  # 用户输入可进入 Agent 处理
+    (TrustZone.SEMI_TRUSTED, TrustZone.SEMI_TRUSTED),  # Agent 内部流转
+    (TrustZone.SEMI_TRUSTED, TrustZone.TRUSTED),  # Agent 结果可升级（需验证）
+    (TrustZone.TRUSTED, TrustZone.TRUSTED),  # 系统内部流转
+    (TrustZone.TRUSTED, TrustZone.SEMI_TRUSTED),  # 系统配置下发
 }
 
 
@@ -153,9 +155,7 @@ class TrustZoneManager:
             self._source_map.update(source_map)
 
         self._guard = injection_guard or InjectionGuard()
-        logger.info(
-            f"TrustZoneManager 创建: 已注册 {len(self._source_map)} 个源映射"
-        )
+        logger.info(f"TrustZoneManager 创建: 已注册 {len(self._source_map)} 个源映射")
 
     # ------------------------------------------------------------------
     # 分类
@@ -241,14 +241,10 @@ class TrustZoneManager:
                 is_safe = self._guard.is_safe(data)
                 if not is_safe:
                     logger.warning(
-                        f"跨区域验证失败(注入检测): "
-                        f"{from_zone.value} -> {to_zone.value}"
+                        f"跨区域验证失败(注入检测): {from_zone.value} -> {to_zone.value}"
                     )
                 return is_safe
-            logger.debug(
-                f"跨区域验证通过(白名单): "
-                f"{from_zone.value} -> {to_zone.value}"
-            )
+            logger.debug(f"跨区域验证通过(白名单): {from_zone.value} -> {to_zone.value}")
             return True
 
         # UNTRUSTED -> TRUSTED: 严格校验
@@ -262,18 +258,13 @@ class TrustZoneManager:
                     f"threat={record.threat_level.value}"
                 )
             else:
-                logger.debug(
-                    f"跨区域验证通过(严格校验): "
-                    f"{from_zone.value} -> {to_zone.value}"
-                )
+                logger.debug(f"跨区域验证通过(严格校验): {from_zone.value} -> {to_zone.value}")
             return is_safe
 
         # 其他未列入白名单的流向：需要检测
         is_safe = self._guard.is_safe(data)
         if not is_safe:
-            logger.warning(
-                f"跨区域验证失败: {from_zone.value} -> {to_zone.value}"
-            )
+            logger.warning(f"跨区域验证失败: {from_zone.value} -> {to_zone.value}")
         return is_safe
 
     # ------------------------------------------------------------------
@@ -435,10 +426,7 @@ class SecurityTestPipeline:
     ):
         self._guard = injection_guard or InjectionGuard()
         self._patterns: list[AttackPattern] = list(patterns or _BUILTIN_ATTACK_PATTERNS)
-        logger.info(
-            f"SecurityTestPipeline 创建: "
-            f"{len(self._patterns)} 个攻击模式"
-        )
+        logger.info(f"SecurityTestPipeline 创建: {len(self._patterns)} 个攻击模式")
 
     # ------------------------------------------------------------------
     # 模式管理
@@ -498,9 +486,8 @@ class SecurityTestPipeline:
         }
 
         detected = record.threat_level not in (ThreatLevel.SAFE,)
-        passed = (
-            threat_values.get(record.threat_level, 0)
-            >= threat_values.get(pattern.expected_threat, 0)
+        passed = threat_values.get(record.threat_level, 0) >= threat_values.get(
+            pattern.expected_threat, 0
         )
 
         result = SecurityTestResult(
@@ -532,9 +519,7 @@ class SecurityTestPipeline:
         """
         patterns_to_test = self._patterns
         if attack_types:
-            patterns_to_test = [
-                p for p in self._patterns if p.attack_type in attack_types
-            ]
+            patterns_to_test = [p for p in self._patterns if p.attack_type in attack_types]
 
         results: list[SecurityTestResult] = []
         for pattern in patterns_to_test:

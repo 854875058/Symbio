@@ -128,16 +128,8 @@ class DAGRuntime:
         return _NodeOutcome.SUCCESS
 
     def _ready_nodes(self, nodes: list[ExecutionNode]) -> list[ExecutionNode]:
-        completed = {
-            node.node_id
-            for node in nodes
-            if node.status == ExecutionNodeStatus.COMPLETED
-        }
-        failed = {
-            node.node_id
-            for node in nodes
-            if node.status == ExecutionNodeStatus.FAILED
-        }
+        completed = {node.node_id for node in nodes if node.status == ExecutionNodeStatus.COMPLETED}
+        failed = {node.node_id for node in nodes if node.status == ExecutionNodeStatus.FAILED}
         return [
             node
             for node in nodes
@@ -238,6 +230,7 @@ class DAGRuntime:
                     return False
             except Exception as exc:
                 from symbio.utils.logger import get_logger
+
                 get_logger("dag_runtime").warning(f"预算扣减检查失败（不阻断）: {exc}")
 
         # Mark verification as pending (no longer auto-pass).
@@ -272,7 +265,9 @@ class DAGRuntime:
         )
         return True
 
-    async def _node_to_task(self, execution_id: str, node: ExecutionNode, all_artifacts: list | None = None) -> Task:
+    async def _node_to_task(
+        self, execution_id: str, node: ExecutionNode, all_artifacts: list | None = None
+    ) -> Task:
         parameters = dict(node.metadata.get("parameters", {}))
         parameters.update(node.input_refs)
         task_metadata = dict(node.metadata.get("task_metadata", {}))
@@ -295,7 +290,8 @@ class DAGRuntime:
             predecessor_results = {}
             for dep_id in node.dependencies:
                 dep_artifacts = [
-                    a for a in all_artifacts
+                    a
+                    for a in all_artifacts
                     if a.node_id == dep_id and a.artifact_type == "node_result"
                 ]
                 if dep_artifacts:
@@ -345,7 +341,9 @@ class DAGRuntime:
             "last_failure": {
                 **payload,
                 "kind": failure_kind,
-                "message": payload.get("content") or payload.get("error") or payload.get("reason", ""),
+                "message": payload.get("content")
+                or payload.get("error")
+                or payload.get("reason", ""),
             },
         }
         latest_node.status = ExecutionNodeStatus.FAILED
@@ -508,10 +506,7 @@ class DAGRuntime:
     ) -> None:
         graph_versions = await self.store.list_graph_versions(execution_id)
         next_version = (graph_versions[-1].graph_version if graph_versions else 0) + 1
-        nodes = [
-            node.model_dump(mode="json")
-            for node in await self.store.list_nodes(execution_id)
-        ]
+        nodes = [node.model_dump(mode="json") for node in await self.store.list_nodes(execution_id)]
         edges = [
             {"source": dependency, "target": node["node_id"]}
             for node in nodes

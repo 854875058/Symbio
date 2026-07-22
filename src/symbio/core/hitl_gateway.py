@@ -24,16 +24,19 @@ from pydantic import BaseModel, Field
 # Enums
 # ---------------------------------------------------------------------------
 
+
 class RiskLevel(str, Enum):
     """风险等级"""
-    LOW = "low"               # auto-approve
-    MEDIUM = "medium"         # 1 approver, 1 hour timeout
-    HIGH = "high"             # 2 approvers, 2 hours
-    CRITICAL = "critical"     # 3 approvers, 24 hours
+
+    LOW = "low"  # auto-approve
+    MEDIUM = "medium"  # 1 approver, 1 hour timeout
+    HIGH = "high"  # 2 approvers, 2 hours
+    CRITICAL = "critical"  # 3 approvers, 24 hours
 
 
 class ApprovalStatus(str, Enum):
     """审批状态"""
+
     PENDING = "pending"
     APPROVED = "approved"
     REJECTED = "rejected"
@@ -45,8 +48,10 @@ class ApprovalStatus(str, Enum):
 # Data Models
 # ---------------------------------------------------------------------------
 
+
 class ApprovalRecord(BaseModel):
     """审批记录"""
+
     approver_id: str
     decision: ApprovalStatus
     comment: str = ""
@@ -64,6 +69,7 @@ class ApprovalRequest(BaseModel):
         5. risk_level     -- 风险等级
         6. timeout_seconds -- 超时时间
     """
+
     request_id: str = Field(default_factory=lambda: str(uuid4()))
     task_id: str
     node_id: str = ""  # DAG node id
@@ -79,9 +85,9 @@ class ApprovalRequest(BaseModel):
 
     # 超时策略：reject(自动拒绝) | approve(自动通过) | escalate(转交管理员)
     timeout_policy: str = "reject"
-    escalation_target: str = ""        # 转交目标（管理员标识 / 通知渠道）
-    escalation_level: int = 0          # 已升级次数
-    max_escalations: int = 1           # 最多升级次数，超出后落到 reject
+    escalation_target: str = ""  # 转交目标（管理员标识 / 通知渠道）
+    escalation_level: int = 0  # 已升级次数
+    max_escalations: int = 1  # 最多升级次数，超出后落到 reject
 
     # 状态
     status: ApprovalStatus = ApprovalStatus.PENDING
@@ -100,6 +106,7 @@ class ApprovalRequest(BaseModel):
 
 class WebhookPayload(BaseModel):
     """Webhook 回调载荷"""
+
     request_id: str
     status: ApprovalStatus
     approver_id: str = ""
@@ -120,15 +127,16 @@ _RISK_APPROVERS: dict[RiskLevel, int] = {
 
 _RISK_TIMEOUT: dict[RiskLevel, int] = {
     RiskLevel.LOW: 0,
-    RiskLevel.MEDIUM: 3600,      # 1 hour
-    RiskLevel.HIGH: 7200,        # 2 hours
-    RiskLevel.CRITICAL: 86400,   # 24 hours
+    RiskLevel.MEDIUM: 3600,  # 1 hour
+    RiskLevel.HIGH: 7200,  # 2 hours
+    RiskLevel.CRITICAL: 86400,  # 24 hours
 }
 
 
 # ---------------------------------------------------------------------------
 # JWT-like Token Helpers
 # ---------------------------------------------------------------------------
+
 
 def generate_approval_token(
     request_id: str,
@@ -140,12 +148,16 @@ def generate_approval_token(
     The token is ``base64(json_payload.signature)`` so that the caller can
     decode and verify without an external JWT library.
     """
-    payload = json.dumps({
-        "request_id": request_id,
-        "exp": time.time() + ttl_seconds,
-    })
+    payload = json.dumps(
+        {
+            "request_id": request_id,
+            "exp": time.time() + ttl_seconds,
+        }
+    )
     signature = hmac.new(
-        secret.encode(), payload.encode(), hashlib.sha256,
+        secret.encode(),
+        payload.encode(),
+        hashlib.sha256,
     ).hexdigest()
     token = base64.b64encode(f"{payload}.{signature}".encode()).decode()
     return token
@@ -163,7 +175,9 @@ def verify_approval_token(
         decoded = base64.b64decode(token.encode()).decode()
         payload_str, signature = decoded.rsplit(".", 1)
         expected_sig = hmac.new(
-            secret.encode(), payload_str.encode(), hashlib.sha256,
+            secret.encode(),
+            payload_str.encode(),
+            hashlib.sha256,
         ).hexdigest()
         if not hmac.compare_digest(signature, expected_sig):
             return None
@@ -178,6 +192,7 @@ def verify_approval_token(
 # ---------------------------------------------------------------------------
 # Approval Gateway
 # ---------------------------------------------------------------------------
+
 
 class ApprovalGateway:
     """Async approval gateway -- non-blocking HITL.
@@ -267,8 +282,7 @@ class ApprovalGateway:
 
             # Check quorum
             approved_count = sum(
-                1 for a in request.approvals
-                if a.decision == ApprovalStatus.APPROVED
+                1 for a in request.approvals if a.decision == ApprovalStatus.APPROVED
             )
             if approved_count >= request.required_approvers:
                 request.status = ApprovalStatus.APPROVED
@@ -356,12 +370,14 @@ class ApprovalGateway:
                 extend = extend_seconds if extend_seconds is not None else request.timeout_seconds
                 request.created_at = datetime.now()
                 request.timeout_seconds = max(extend, 1)
-                request.metadata.setdefault("escalations", []).append({
-                    "level": request.escalation_level,
-                    "target": request.escalation_target,
-                    "comment": comment,
-                    "at": datetime.now().isoformat(),
-                })
+                request.metadata.setdefault("escalations", []).append(
+                    {
+                        "level": request.escalation_level,
+                        "target": request.escalation_target,
+                        "comment": comment,
+                        "at": datetime.now().isoformat(),
+                    }
+                )
                 exhausted = False
 
         await self._persist_request(request)
@@ -574,9 +590,7 @@ class ApprovalGateway:
                 else:
                     self._history.append(request)
 
-            cursor = await self._db.execute(
-                "SELECT request_id, task_json FROM hitl_task_contexts"
-            )
+            cursor = await self._db.execute("SELECT request_id, task_json FROM hitl_task_contexts")
             for row in await cursor.fetchall():
                 self._task_contexts[row[0]] = json.loads(row[1])
 
@@ -634,6 +648,7 @@ class ApprovalGateway:
 # Fatigue Prevention
 # ---------------------------------------------------------------------------
 
+
 class FatiguePreventer:
     """Prevent approval fatigue by merging similar requests.
 
@@ -655,10 +670,7 @@ class FatiguePreventer:
         window = timedelta(seconds=self._merge_window)
 
         # Prune old entries
-        self._recent_requests = [
-            r for r in self._recent_requests
-            if (now - r.created_at) < window
-        ]
+        self._recent_requests = [r for r in self._recent_requests if (now - r.created_at) < window]
 
         for existing in self._recent_requests:
             if (
@@ -684,7 +696,8 @@ class FatiguePreventer:
 
         # Count recent approvals for the same action+impact
         approval_count = sum(
-            1 for r in self._recent_requests
+            1
+            for r in self._recent_requests
             if (
                 r.action == request.action
                 and r.impact_scope == request.impact_scope
@@ -692,7 +705,8 @@ class FatiguePreventer:
             )
         )
         rejection_count = sum(
-            1 for r in self._recent_requests
+            1
+            for r in self._recent_requests
             if (
                 r.action == request.action
                 and r.impact_scope == request.impact_scope

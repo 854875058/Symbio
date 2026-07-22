@@ -190,7 +190,9 @@ class ExternalAgentController:
         self.allow_any_workspace = allow_any_workspace
         self.providers: dict[str, ExternalAgentProvider] = {
             provider.provider_id: provider
-            for provider in (providers if providers is not None else discover_external_agent_providers())
+            for provider in (
+                providers if providers is not None else discover_external_agent_providers()
+            )
         }
         self.sessions: dict[str, ExternalAgentSession] = {}
         self.audit: list[ExternalAgentRunResult] = []
@@ -281,7 +283,7 @@ class ExternalAgentController:
         return result
 
     def list_audit(self, limit: int = 50) -> list[ExternalAgentRunResult]:
-        return list(reversed(self.audit[-max(limit, 1):]))
+        return list(reversed(self.audit[-max(limit, 1) :]))
 
     def _require_provider(self, provider_id: str) -> ExternalAgentProvider:
         normalized = ExternalAgentSessionCreate(provider=provider_id).provider
@@ -385,7 +387,9 @@ class ExternalAgentController:
             "sessions": [session.model_dump(mode="json") for session in self.sessions.values()],
             "audit": [record.model_dump(mode="json") for record in self.audit[-200:]],
         }
-        self.state_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        self.state_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
 
 
 def discover_external_agent_providers() -> list[ExternalAgentProvider]:

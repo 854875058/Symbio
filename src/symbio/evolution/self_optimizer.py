@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 import json
-import statistics
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Optional
@@ -31,6 +30,7 @@ logger = get_logger("self_optimizer")
 
 class MetricType(str, Enum):
     """指标类型。"""
+
     SUCCESS_RATE = "success_rate"
     AVERAGE_SCORE = "average_score"
     AVERAGE_LATENCY = "average_latency"
@@ -41,14 +41,15 @@ class MetricType(str, Enum):
 
 class OptimizationStrategy(str, Enum):
     """优化策略。"""
-    SHORTEN_PROMPT = "shorten_prompt"         # 缩短 prompt
-    ADD_EXAMPLES = "add_examples"             # 添加示例
+
+    SHORTEN_PROMPT = "shorten_prompt"  # 缩短 prompt
+    ADD_EXAMPLES = "add_examples"  # 添加示例
     CLARIFY_INSTRUCTION = "clarify_instruction"  # 明确指令
-    ADD_CONSTRAINTS = "add_constraints"       # 添加约束
-    RESTRUCTURE = "restructure"               # 重新组织结构
-    ADJUST_PARAMETERS = "adjust_parameters"   # 调整参数
-    MERGE_BEST = "merge_best"                 # 合并最优部分
-    ROLLBACK = "rollback"                     # 回滚到旧版本
+    ADD_CONSTRAINTS = "add_constraints"  # 添加约束
+    RESTRUCTURE = "restructure"  # 重新组织结构
+    ADJUST_PARAMETERS = "adjust_parameters"  # 调整参数
+    MERGE_BEST = "merge_best"  # 合并最优部分
+    ROLLBACK = "rollback"  # 回滚到旧版本
 
 
 class PerformanceRecord(BaseModel):
@@ -74,19 +75,11 @@ class OptimizationSuggestion(BaseModel):
     current_version_id: str = Field(description="当前版本 ID")
     strategy: OptimizationStrategy = Field(description="优化策略")
     reason: str = Field(description="建议原因")
-    expected_improvement: float = Field(
-        default=0.0, description="预期改进幅度 (0-1)"
-    )
-    confidence: float = Field(
-        default=0.5, ge=0.0, le=1.0, description="建议置信度"
-    )
-    based_on_records: list[str] = Field(
-        default_factory=list, description="基于的性能记录 ID"
-    )
+    expected_improvement: float = Field(default=0.0, description="预期改进幅度 (0-1)")
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0, description="建议置信度")
+    based_on_records: list[str] = Field(default_factory=list, description="基于的性能记录 ID")
     is_applied: bool = Field(default=False, description="是否已执行")
-    new_version_id: Optional[str] = Field(
-        default=None, description="执行后创建的新版本 ID"
-    )
+    new_version_id: Optional[str] = Field(default=None, description="执行后创建的新版本 ID")
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.now)
 
@@ -99,21 +92,11 @@ class EvolutionLogEntry(BaseModel):
     action: str = Field(description="动作描述")
     from_version_id: Optional[str] = Field(default=None, description="原始版本 ID")
     to_version_id: Optional[str] = Field(default=None, description="目标版本 ID")
-    strategy: Optional[OptimizationStrategy] = Field(
-        default=None, description="优化策略"
-    )
-    metrics_before: dict[str, float] = Field(
-        default_factory=dict, description="优化前指标"
-    )
-    metrics_after: dict[str, float] = Field(
-        default_factory=dict, description="优化后指标"
-    )
-    improvement: dict[str, float] = Field(
-        default_factory=dict, description="改进幅度"
-    )
-    suggestion_id: Optional[str] = Field(
-        default=None, description="关联的优化建议 ID"
-    )
+    strategy: Optional[OptimizationStrategy] = Field(default=None, description="优化策略")
+    metrics_before: dict[str, float] = Field(default_factory=dict, description="优化前指标")
+    metrics_after: dict[str, float] = Field(default_factory=dict, description="优化后指标")
+    improvement: dict[str, float] = Field(default_factory=dict, description="改进幅度")
+    suggestion_id: Optional[str] = Field(default=None, description="关联的优化建议 ID")
     success: bool = Field(default=True, description="是否执行成功")
     error_message: str = Field(default="", description="错误信息")
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -136,21 +119,11 @@ class OptimizationConfig(BaseModel):
 
     min_sample_size: int = Field(default=50, description="最小样本量")
     lookback_days: int = Field(default=7, description="回溯天数")
-    success_rate_threshold: float = Field(
-        default=0.7, description="成功率阈值（低于此值触发优化）"
-    )
-    score_threshold: float = Field(
-        default=0.6, description="评分阈值"
-    )
-    latency_threshold_ms: float = Field(
-        default=5000.0, description="延迟阈值（毫秒）"
-    )
-    max_suggestions_per_run: int = Field(
-        default=3, description="单次最多建议数"
-    )
-    auto_apply: bool = Field(
-        default=False, description="是否自动执行优化建议"
-    )
+    success_rate_threshold: float = Field(default=0.7, description="成功率阈值（低于此值触发优化）")
+    score_threshold: float = Field(default=0.6, description="评分阈值")
+    latency_threshold_ms: float = Field(default=5000.0, description="延迟阈值（毫秒）")
+    max_suggestions_per_run: int = Field(default=3, description="单次最多建议数")
+    auto_apply: bool = Field(default=False, description="是否自动执行优化建议")
 
 
 # =============================================================================
@@ -327,9 +300,7 @@ class SelfOptimizer:
         )
         return record.record_id
 
-    async def track_performance_batch(
-        self, records: list[PerformanceRecord]
-    ) -> int:
+    async def track_performance_batch(self, records: list[PerformanceRecord]) -> int:
         """批量追踪性能指标。
 
         Args:
@@ -418,9 +389,7 @@ class SelfOptimizer:
 
         # 计算趋势
         for metric_name in summary.metrics:
-            trend = await self._compute_trend(
-                prompt_name, version_id, metric_name, window_days
-            )
+            trend = await self._compute_trend(prompt_name, version_id, metric_name, window_days)
             summary.trends[metric_name] = trend
 
         return summary
@@ -435,9 +404,7 @@ class SelfOptimizer:
         """计算指标趋势。"""
         assert self._db is not None
         since = (datetime.now() - timedelta(days=window_days)).isoformat()
-        mid_point = (
-            datetime.now() - timedelta(days=window_days // 2)
-        ).isoformat()
+        mid_point = (datetime.now() - timedelta(days=window_days // 2)).isoformat()
 
         conditions = ["prompt_name = ?", "metric_type = ?", "recorded_at >= ?"]
         params_first: list[Any] = [prompt_name, metric_type, since]
@@ -452,8 +419,7 @@ class SelfOptimizer:
 
         # 前半段平均
         cursor = await self._db.execute(
-            f"SELECT AVG(value) FROM performance_records "
-            f"WHERE {where} AND recorded_at < ?",
+            f"SELECT AVG(value) FROM performance_records WHERE {where} AND recorded_at < ?",
             params_first + [mid_point],
         )
         row = await cursor.fetchone()
@@ -512,9 +478,7 @@ class SelfOptimizer:
             优化建议列表
         """
         cfg = config or self._config
-        summary = await self.get_performance_summary(
-            prompt_name, window_days=cfg.lookback_days
-        )
+        summary = await self.get_performance_summary(prompt_name, window_days=cfg.lookback_days)
 
         # 获取当前活跃版本
         assert self._db is not None
@@ -530,12 +494,9 @@ class SelfOptimizer:
         current_version_id = row[0]
 
         # 收集用于分析的记录 ID
-        since = (
-            datetime.now() - timedelta(days=cfg.lookback_days)
-        ).isoformat()
+        since = (datetime.now() - timedelta(days=cfg.lookback_days)).isoformat()
         cursor = await self._db.execute(
-            "SELECT record_id FROM performance_records "
-            "WHERE prompt_name = ? AND recorded_at >= ?",
+            "SELECT record_id FROM performance_records WHERE prompt_name = ? AND recorded_at >= ?",
             (prompt_name, since),
         )
         rows = await cursor.fetchall()
@@ -547,9 +508,7 @@ class SelfOptimizer:
         success_rate = summary.metrics.get(MetricType.SUCCESS_RATE.value, 1.0)
         success_trend = summary.trends.get(MetricType.SUCCESS_RATE.value, "stable")
         if success_rate < cfg.success_rate_threshold:
-            strat = self._determine_strategy_for_low_success(
-                success_rate, success_trend
-            )
+            strat = self._determine_strategy_for_low_success(success_rate, success_trend)
             suggestion = OptimizationSuggestion(
                 prompt_name=prompt_name,
                 current_version_id=current_version_id,
@@ -559,9 +518,7 @@ class SelfOptimizer:
                     f"({cfg.success_rate_threshold:.2%}). "
                     f"Trend: {success_trend}."
                 ),
-                expected_improvement=round(
-                    (cfg.success_rate_threshold - success_rate) * 0.5, 4
-                ),
+                expected_improvement=round((cfg.success_rate_threshold - success_rate) * 0.5, 4),
                 confidence=0.6 if success_trend == "stable" else 0.75,
                 based_on_records=record_ids,
             )
@@ -581,9 +538,7 @@ class SelfOptimizer:
                     f"({cfg.score_threshold}). "
                     f"Trend: {score_trend}."
                 ),
-                expected_improvement=round(
-                    (cfg.score_threshold - avg_score) * 0.4, 4
-                ),
+                expected_improvement=round((cfg.score_threshold - avg_score) * 0.4, 4),
                 confidence=0.55 if score_trend == "stable" else 0.7,
                 based_on_records=record_ids,
             )
@@ -591,9 +546,7 @@ class SelfOptimizer:
 
         # 检查延迟
         avg_latency = summary.metrics.get(MetricType.AVERAGE_LATENCY.value, 0.0)
-        latency_trend = summary.trends.get(
-            MetricType.AVERAGE_LATENCY.value, "stable"
-        )
+        latency_trend = summary.trends.get(MetricType.AVERAGE_LATENCY.value, "stable")
         if (
             avg_latency > cfg.latency_threshold_ms
             and MetricType.AVERAGE_LATENCY.value in summary.metrics
@@ -647,8 +600,7 @@ class SelfOptimizer:
             await self._save_suggestion(s)
 
         logger.info(
-            f"Generated {len(suggestions)} optimization suggestions "
-            f"for prompt '{prompt_name}'"
+            f"Generated {len(suggestions)} optimization suggestions for prompt '{prompt_name}'"
         )
 
         # 自动执行
@@ -678,16 +630,13 @@ class SelfOptimizer:
             return None
 
         suggestion_dict = self._row_to_dict(row)
-        suggestion = OptimizationSuggestion(**{
-            k: v for k, v in suggestion_dict.items()
-            if k in OptimizationSuggestion.model_fields
-        })
+        suggestion = OptimizationSuggestion(
+            **{k: v for k, v in suggestion_dict.items() if k in OptimizationSuggestion.model_fields}
+        )
 
         return await self._apply_suggestion(suggestion)
 
-    async def _apply_suggestion(
-        self, suggestion: OptimizationSuggestion
-    ) -> Optional[str]:
+    async def _apply_suggestion(self, suggestion: OptimizationSuggestion) -> Optional[str]:
         """执行优化建议，创建新版本并记录进化日志。"""
         assert self._db is not None
 
@@ -740,8 +689,7 @@ class SelfOptimizer:
 
             # 标记建议为已执行
             await self._db.execute(
-                "UPDATE optimization_suggestions SET is_applied = 1 "
-                "WHERE suggestion_id = ?",
+                "UPDATE optimization_suggestions SET is_applied = 1 WHERE suggestion_id = ?",
                 (suggestion.suggestion_id,),
             )
 
@@ -791,9 +739,7 @@ class SelfOptimizer:
                 ),
             )
             await self._db.commit()
-            logger.error(
-                f"Failed to apply suggestion {suggestion.suggestion_id}: {exc}"
-            )
+            logger.error(f"Failed to apply suggestion {suggestion.suggestion_id}: {exc}")
             return None
 
     async def _save_suggestion(self, suggestion: OptimizationSuggestion) -> None:
@@ -864,8 +810,7 @@ class SelfOptimizer:
         params.append(limit)
 
         cursor = await self._db.execute(
-            f"SELECT * FROM evolution_log WHERE {where} "
-            f"ORDER BY created_at DESC LIMIT ?",
+            f"SELECT * FROM evolution_log WHERE {where} ORDER BY created_at DESC LIMIT ?",
             params,
         )
         rows = await cursor.fetchall()
@@ -929,9 +874,7 @@ class SelfOptimizer:
         return OptimizationStrategy.ADD_CONSTRAINTS
 
     @staticmethod
-    def _determine_strategy_for_low_score(
-        avg_score: float, trend: str
-    ) -> OptimizationStrategy:
+    def _determine_strategy_for_low_score(avg_score: float, trend: str) -> OptimizationStrategy:
         """根据评分和趋势确定优化策略。"""
         if trend == "degrading":
             return OptimizationStrategy.ROLLBACK
@@ -946,8 +889,11 @@ class SelfOptimizer:
         """将数据库行转为字典，处理 JSON 字段和布尔字段。"""
         d = dict(row)
         json_fields = (
-            "metadata", "based_on_records",
-            "metrics_before", "metrics_after", "improvement",
+            "metadata",
+            "based_on_records",
+            "metrics_before",
+            "metrics_after",
+            "improvement",
         )
         for key in json_fields:
             if key in d and isinstance(d[key], str):

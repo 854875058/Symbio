@@ -69,10 +69,7 @@ class ResultReducer:
 
             sink_results = []
             for artifact in reversed(artifacts):
-                if (
-                    artifact.artifact_type == "node_result"
-                    and artifact.node_id in sink_ids
-                ):
+                if artifact.artifact_type == "node_result" and artifact.node_id in sink_ids:
                     content = artifact.content.get("content")
                     if content:
                         sink_results.append(str(content))

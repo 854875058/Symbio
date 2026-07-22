@@ -28,6 +28,7 @@ logger = get_logger("wechat_bridge")
 
 class WeChatInbound(BaseModel):
     """归一化的入站微信消息（由外部 bridge 提供）。"""
+
     from_user: str = Field(..., description="发送者标识（微信 wxid / 备注名）")
     content: str = Field(default="", description="消息文本")
     msg_id: str = ""
@@ -53,17 +54,17 @@ class WeChatBridge:
         self._session_path = Path(session_path)
         self._login: dict[str, Any] = {
             "status": "logged_out",
-            "qr": "",          # 登录二维码内容（URL/字符串，前端可渲染成二维码）
-            "qr_image": "",    # 二维码图片 data URL（bridge 直接给图时用）
-            "user": "",        # 绑定成功后的微信账号名
+            "qr": "",  # 登录二维码内容（URL/字符串，前端可渲染成二维码）
+            "qr_image": "",  # 二维码图片 data URL（bridge 直接给图时用）
+            "user": "",  # 绑定成功后的微信账号名
             "updated_at": "",
         }
         # 内置 iLink 模式运行态
-        self._client: Any = None              # ILinkClient
+        self._client: Any = None  # ILinkClient
         self._login_task: Optional[asyncio.Task] = None
         self._recv_task: Optional[asyncio.Task] = None
-        self._qrcode_id: str = ""             # 当前二维码 id（轮询登录状态用）
-        self._sync_buf: str = ""              # getupdates 增量游标
+        self._qrcode_id: str = ""  # 当前二维码 id（轮询登录状态用）
+        self._sync_buf: str = ""  # getupdates 增量游标
         # 消息处理回调：由 api 层注入，签名 async (from_user, content, is_group) -> reply
         self._handler: Optional[Callable[[str, str, bool], Awaitable[str]]] = None
         # 实时消息流环形缓冲（收/发），供 UI 展示是否真正收发通了
@@ -79,15 +80,18 @@ class WeChatBridge:
     def record_message(self, direction: str, user: str, text: str, kind: str = "") -> None:
         """记录一条收/发消息到实时消息流（direction: in / out）。"""
         from datetime import datetime, timezone
-        self._messages.append({
-            "direction": direction,
-            "user": user,
-            "text": (text or "")[:300],
-            "kind": kind,
-            "at": datetime.now(timezone.utc).isoformat(),
-        })
+
+        self._messages.append(
+            {
+                "direction": direction,
+                "user": user,
+                "text": (text or "")[:300],
+                "kind": kind,
+                "at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
         if len(self._messages) > self._messages_max:
-            self._messages = self._messages[-self._messages_max:]
+            self._messages = self._messages[-self._messages_max :]
 
     def recent_messages(self, limit: int = 40) -> list[dict[str, Any]]:
         return list(reversed(self._messages[-limit:]))
@@ -107,6 +111,7 @@ class WeChatBridge:
         user: Optional[str] = None,
     ) -> dict[str, Any]:
         from datetime import datetime, timezone
+
         if status in LOGIN_STATES:
             self._login["status"] = status
         if qr is not None:
@@ -191,6 +196,7 @@ class WeChatBridge:
     async def _recv_loop(self) -> None:
         """登录后长轮询收消息，分流处理后回复。"""
         from symbio.interfaces.ilink_client import extract_text
+
         client = self._client
         if client is None:
             return
@@ -263,13 +269,19 @@ class WeChatBridge:
             return
         try:
             self._session_path.parent.mkdir(parents=True, exist_ok=True)
-            self._session_path.write_text(json.dumps({
-                "token": self._client.token,
-                "account_id": getattr(self._client, "account_id", ""),
-                "base_url": getattr(self._client, "base_url", ""),
-                "user": self._login.get("user", ""),
-                "sync_buf": self._sync_buf,
-            }, ensure_ascii=False), encoding="utf-8")
+            self._session_path.write_text(
+                json.dumps(
+                    {
+                        "token": self._client.token,
+                        "account_id": getattr(self._client, "account_id", ""),
+                        "base_url": getattr(self._client, "base_url", ""),
+                        "user": self._login.get("user", ""),
+                        "sync_buf": self._sync_buf,
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
         except Exception as e:  # pragma: no cover - 磁盘异常
             logger.warning(f"保存微信会话失败: {e}")
 
@@ -304,7 +316,9 @@ class WeChatBridge:
         self._client.token = token
         self._client.account_id = str(data.get("account_id") or "")
         self._sync_buf = str(data.get("sync_buf") or "")
-        self.update_login("logged_in", user=str(data.get("user") or data.get("account_id") or "微信账号"))
+        self.update_login(
+            "logged_in", user=str(data.get("user") or data.get("account_id") or "微信账号")
+        )
         self._start_recv_loop()
         logger.info("微信登录态已从本地恢复，免重扫码")
         return True
@@ -316,6 +330,7 @@ class WeChatBridge:
         """
         try:
             from symbio.core.hitl_notifier import parse_im_approval_command
+
             cmd = parse_im_approval_command(content or "")
             if cmd is not None:
                 return "approval", cmd
@@ -323,8 +338,9 @@ class WeChatBridge:
             logger.debug(f"审批命令解析跳过: {e}")
         return "chat", None
 
-    async def send(self, to_user: str, content: str, *, is_group: bool = False,
-                   context_token: str = "") -> dict[str, Any]:
+    async def send(
+        self, to_user: str, content: str, *, is_group: bool = False, context_token: str = ""
+    ) -> dict[str, Any]:
         """发送一条微信消息。
 
         优先级：内置 iLink 已登录 → 直接调 iLink sendmessage；
@@ -337,26 +353,42 @@ class WeChatBridge:
             last_err = ""
             for attempt in range(self._send_retries):
                 try:
-                    resp = await self._client.send_message(to_user, content, context_token=context_token)
+                    resp = await self._client.send_message(
+                        to_user, content, context_token=context_token
+                    )
                     ok = not (resp.get("ret") or resp.get("errcode"))
-                    return {"delivery_status": "sent" if ok else "error", "via": "ilink",
-                            "payload": payload, "response": resp, "attempts": attempt + 1}
+                    return {
+                        "delivery_status": "sent" if ok else "error",
+                        "via": "ilink",
+                        "payload": payload,
+                        "response": resp,
+                        "attempts": attempt + 1,
+                    }
                 except Exception as e:
                     last_err = str(e)
                     logger.warning(f"iLink 发送失败(第{attempt + 1}/{self._send_retries}次): {e}")
                     if attempt + 1 < self._send_retries:
                         await asyncio.sleep(0.5 * (attempt + 1))
-            return {"delivery_status": "error", "via": "ilink", "payload": payload,
-                    "error": last_err, "attempts": self._send_retries}
+            return {
+                "delivery_status": "error",
+                "via": "ilink",
+                "payload": payload,
+                "error": last_err,
+                "attempts": self._send_retries,
+            }
 
         # 2) 外部 bridge 模式
         cfg = getattr(get_settings(), "wechat", None)
         endpoint = getattr(cfg, "send_endpoint", "") if cfg else ""
         if not endpoint:
-            return {"delivery_status": "prepared", "payload": payload,
-                    "reason": "未登录 iLink 且未配置 send_endpoint，回复随 HTTP 响应返回"}
+            return {
+                "delivery_status": "prepared",
+                "payload": payload,
+                "reason": "未登录 iLink 且未配置 send_endpoint，回复随 HTTP 响应返回",
+            }
         try:
             import httpx
+
             headers = {"Content-Type": "application/json"}
             token = getattr(cfg, "send_token", "")
             if token:

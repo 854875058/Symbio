@@ -9,7 +9,7 @@ import re
 from abc import ABC, abstractmethod
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Optional
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -21,6 +21,7 @@ logger = get_logger("memory.noise_filter")
 
 class NoiseType(str, Enum):
     """噪声类型"""
+
     GREETING = "greeting"
     SHORT_TEXT = "short_text"
     QUESTION = "question"
@@ -31,6 +32,7 @@ class NoiseType(str, Enum):
 
 class FilterResult(BaseModel):
     """过滤结果"""
+
     result_id: str = Field(default_factory=lambda: str(uuid4()))
     original_text: str = ""
     is_noise: bool = False
@@ -42,6 +44,7 @@ class FilterResult(BaseModel):
 
 class FilterStats(BaseModel):
     """过滤统计"""
+
     total_processed: int = 0
     total_filtered: int = 0
     filter_rate: float = 0.0
@@ -195,7 +198,23 @@ class ClassifierNoiseFilter(BaseNoiseFilter):
             scores.append(0.0)
 
         # 3. 信息密度（非停用词比例）
-        stop_words = {"的", "了", "是", "在", "我", "有", "和", "就", "不", "a", "the", "is", "are", "was", "were"}
+        stop_words = {
+            "的",
+            "了",
+            "是",
+            "在",
+            "我",
+            "有",
+            "和",
+            "就",
+            "不",
+            "a",
+            "the",
+            "is",
+            "are",
+            "was",
+            "were",
+        }
         if words:
             content_words = [w for w in words if w.lower() not in stop_words]
             density = len(content_words) / len(words)
@@ -204,8 +223,8 @@ class ClassifierNoiseFilter(BaseNoiseFilter):
             scores.append(0.0)
 
         # 4. 结构分数（有标点、分段等）
-        has_punctuation = bool(re.search(r'[。！？.!?,，;；:：]', text))
-        has_newlines = '\n' in text
+        has_punctuation = bool(re.search(r"[。！？.!?,，;；:：]", text))
+        has_newlines = "\n" in text
         structure_score = 0.0
         if has_punctuation:
             structure_score += 0.5
@@ -269,7 +288,9 @@ class CombinedNoiseFilter:
         classifier_result = self._classifier_filter.check(text)
         if classifier_result.is_noise:
             self._stats.total_filtered += 1
-            noise_key = classifier_result.noise_type.value if classifier_result.noise_type else "unknown"
+            noise_key = (
+                classifier_result.noise_type.value if classifier_result.noise_type else "unknown"
+            )
             self._stats.by_type[noise_key] = self._stats.by_type.get(noise_key, 0) + 1
             self._update_filter_rate()
             return classifier_result

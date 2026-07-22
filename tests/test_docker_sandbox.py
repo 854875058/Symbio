@@ -40,13 +40,15 @@ def _docker_ready() -> bool:
     try:
         info = subprocess.run(
             ["docker", "info", "--format", "{{.ServerVersion}}"],
-            capture_output=True, timeout=10,
+            capture_output=True,
+            timeout=10,
         )
         if info.returncode != 0:
             return False
         img = subprocess.run(
             ["docker", "image", "inspect", DOCKER_TEST_IMAGE],
-            capture_output=True, timeout=10,
+            capture_output=True,
+            timeout=10,
         )
         return img.returncode == 0
     except Exception:
@@ -65,9 +67,7 @@ requires_docker = pytest.mark.skipif(
 
 
 def test_docker_run_command_contains_all_isolation_flags():
-    cmd = build_docker_run_command(
-        "echo hi", "python:3.11-slim", container_name="symbio-sbx-test"
-    )
+    cmd = build_docker_run_command("echo hi", "python:3.11-slim", container_name="symbio-sbx-test")
     joined = " ".join(cmd)
     assert cmd[:2] == ["docker", "run"]
     assert "--rm" in cmd
@@ -80,7 +80,7 @@ def test_docker_run_command_contains_all_isolation_flags():
     assert "-w /workspace" in joined
     # 镜像后紧跟 sh -c <command>
     idx = cmd.index("python:3.11-slim")
-    assert cmd[idx + 1:] == ["sh", "-c", "echo hi"]
+    assert cmd[idx + 1 :] == ["sh", "-c", "echo hi"]
 
 
 def test_docker_run_command_does_not_leak_host_env(monkeypatch):
@@ -99,7 +99,9 @@ def test_docker_run_command_does_not_leak_host_env(monkeypatch):
 
 def test_docker_run_command_mounts_volumes_read_only(tmp_path):
     cmd = build_docker_run_command(
-        "ls", "python:3.11-slim", container_name="n",
+        "ls",
+        "python:3.11-slim",
+        container_name="n",
         volumes={str(tmp_path): "/workspace"},
     )
     vol_args = [cmd[i + 1] for i, a in enumerate(cmd) if a == "-v"]
@@ -109,8 +111,13 @@ def test_docker_run_command_mounts_volumes_read_only(tmp_path):
 
 def test_docker_run_command_custom_limits():
     cmd = build_docker_run_command(
-        "x", "img", container_name="n",
-        memory_limit="1g", cpus="2", network="bridge", working_dir="/app",
+        "x",
+        "img",
+        container_name="n",
+        memory_limit="1g",
+        cpus="2",
+        network="bridge",
+        working_dir="/app",
     )
     joined = " ".join(cmd)
     assert "--memory 1g" in joined
@@ -179,9 +186,7 @@ async def test_api_docker_execute_returns_503_when_engine_unavailable(monkeypatc
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.post(
-            "/api/sandbox/docker/execute", json={"command": "echo hi"}
-        )
+        resp = await client.post("/api/sandbox/docker/execute", json={"command": "echo hi"})
     assert resp.status_code == 503
     assert "DOCKER_UNAVAILABLE" in resp.json()["detail"]
 
@@ -196,7 +201,7 @@ async def test_api_docker_execute_returns_503_when_engine_unavailable(monkeypatc
 async def test_real_container_runs_python_and_captures_output():
     executor = SandboxExecutor()
     result = await executor.execute_in_container(
-        "python -c \"print(6*7)\"", image=DOCKER_TEST_IMAGE, timeout=120
+        'python -c "print(6*7)"', image=DOCKER_TEST_IMAGE, timeout=120
     )
     assert result.exit_code == 0, result.stderr
     assert result.stdout.strip() == "42"
@@ -236,15 +241,15 @@ async def test_real_container_root_filesystem_is_read_only():
 @pytest.mark.asyncio
 async def test_real_container_timeout_cleans_up_orphan():
     executor = SandboxExecutor()
-    result = await executor.execute_in_container(
-        "sleep 60", image=DOCKER_TEST_IMAGE, timeout=8
-    )
+    result = await executor.execute_in_container("sleep 60", image=DOCKER_TEST_IMAGE, timeout=8)
     assert result.timed_out is True
     container_name = result.metadata["container_name"]
     # 兜底清理后容器不应存活
     ps = subprocess.run(
         ["docker", "ps", "-a", "--filter", f"name={container_name}", "--format", "{{.Names}}"],
-        capture_output=True, timeout=15, text=True,
+        capture_output=True,
+        timeout=15,
+        text=True,
     )
     assert container_name not in ps.stdout
 

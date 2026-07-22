@@ -75,6 +75,7 @@ async def test_navigate_updates_current_url_in_dry_run():
 # 规划器闭环
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.slow
 @pytest.mark.asyncio
 async def test_planner_drives_recon_sequence():
@@ -95,6 +96,7 @@ async def test_planner_drives_recon_sequence():
 # 回放
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.slow
 @pytest.mark.asyncio
 async def test_replay_reexecutes_recorded_steps():
@@ -111,6 +113,7 @@ async def test_replay_reexecutes_recorded_steps():
 # ---------------------------------------------------------------------------
 # 管理器
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_manager_lifecycle(tmp_path):
@@ -131,12 +134,15 @@ async def test_manager_lifecycle(tmp_path):
 # API
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.slow
 @pytest.mark.asyncio
 async def test_computer_use_api_flow():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.post("/api/computer-use/sessions", json={"start_url": "https://example.com"})
+        resp = await client.post(
+            "/api/computer-use/sessions", json={"start_url": "https://example.com"}
+        )
         assert resp.status_code == 200
         sid = resp.json()["session_id"]
 
@@ -144,14 +150,18 @@ async def test_computer_use_api_flow():
         assert resp.status_code == 200
         assert resp.json()["total"] >= 1
 
-        resp = await client.post(f"/api/computer-use/sessions/{sid}/act",
-                                 json={"action": "navigate", "params": {"url": "https://example.com"}})
+        resp = await client.post(
+            f"/api/computer-use/sessions/{sid}/act",
+            json={"action": "navigate", "params": {"url": "https://example.com"}},
+        )
         assert resp.status_code == 200
         _skip_if_transient_network_error(resp.json()["step"])
         assert resp.json()["step"]["success"] is True
 
-        resp = await client.post(f"/api/computer-use/sessions/{sid}/plan",
-                                 json={"goal": "read https://example.com", "auto_execute": True})
+        resp = await client.post(
+            f"/api/computer-use/sessions/{sid}/plan",
+            json={"goal": "read https://example.com", "auto_execute": True},
+        )
         assert resp.status_code == 200
         assert resp.json()["plan"]["action"]
 
@@ -174,10 +184,12 @@ async def test_computer_use_api_flow():
 # LLM 动作规划器
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_llm_planner_parses_structured_action():
     async def fake_complete(system, user):
         return '{"action": "navigate", "params": {"url": "https://symbio.ai"}, "reason": "打开目标站点"}'
+
     planner = LLMActionPlanner(complete=fake_complete)
     session = ComputerUseSession("cu-test")
     plan = await planner.plan("打开 symbio.ai 看看", session)
@@ -190,6 +202,7 @@ async def test_llm_planner_parses_structured_action():
 async def test_llm_planner_tolerates_code_fence():
     async def fake_complete(system, user):
         return '```json\n{"action": "screenshot", "params": {}, "reason": "看页面"}\n```'
+
     planner = LLMActionPlanner(complete=fake_complete)
     plan = await planner.plan("理解页面", ComputerUseSession("cu-test"))
     assert plan["action"] == "screenshot"
@@ -200,6 +213,7 @@ async def test_llm_planner_tolerates_code_fence():
 async def test_llm_planner_done_maps_to_wait_done():
     async def fake_complete(system, user):
         return '{"action": "done", "reason": "目标已完成"}'
+
     plan = await LLMActionPlanner(complete=fake_complete).plan("x", ComputerUseSession("cu-test"))
     assert plan["action"] == "wait"
     assert plan.get("done") is True
@@ -209,6 +223,7 @@ async def test_llm_planner_done_maps_to_wait_done():
 async def test_llm_planner_falls_back_on_garbage():
     async def fake_complete(system, user):
         return "对不起我不知道怎么办"
+
     session = ComputerUseSession("cu-test")
     plan = await LLMActionPlanner(complete=fake_complete).plan("open https://x.com", session)
     # 回退启发式：目标含 URL -> navigate
@@ -220,6 +235,7 @@ async def test_llm_planner_falls_back_on_garbage():
 async def test_llm_planner_falls_back_when_no_llm():
     # complete=None 且默认无 anthropic key -> 回退启发式
     from symbio.config.settings import get_settings
+
     if get_settings().model.anthropic_api_key:
         pytest.skip("环境配置了真实 anthropic key")
     plan = await LLMActionPlanner().plan("open https://x.com", ComputerUseSession("cu-test"))
@@ -234,6 +250,7 @@ async def test_plan_api_use_llm_flag(monkeypatch):
 
     async def fake_complete(system, user):
         return '{"action": "screenshot", "params": {}, "reason": "mock"}'
+
     monkeypatch.setattr(cu.LLMActionPlanner, "_default_complete", lambda self: fake_complete)
 
     mgr = get_computer_use_manager()
@@ -253,8 +270,9 @@ async def test_plan_api_use_llm_flag(monkeypatch):
 async def test_act_on_missing_session_404():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.post("/api/computer-use/sessions/nope/act",
-                                 json={"action": "screenshot", "params": {}})
+        resp = await client.post(
+            "/api/computer-use/sessions/nope/act", json={"action": "screenshot", "params": {}}
+        )
         assert resp.status_code == 404
 
 
@@ -265,7 +283,9 @@ async def test_act_on_missing_session_404():
 # 1x1 透明 PNG 的最小合法字节（用于让 latest_screenshot/_image_to_block 拿到真图）
 _TINY_PNG = bytes.fromhex(
     "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
-    "0000000a49444154789c6360000002000100" "05fe02fea7" "00000000"
+    "0000000a49444154789c6360000002000100"
+    "05fe02fea7"
+    "00000000"
     "49454e44ae426082"
 )
 
@@ -315,9 +335,7 @@ async def test_vision_plan_feeds_screenshot_to_model(tmp_path):
         captured["system"] = system
         return '{"action": "click", "params": {"x": 42, "y": 99}, "reason": "看到按钮"}'
 
-    plan = await LLMActionPlanner(complete=fake_complete).plan(
-        "点击登录", session, use_vision=True
-    )
+    plan = await LLMActionPlanner(complete=fake_complete).plan("点击登录", session, use_vision=True)
     # 图确实喂进去了
     assert captured["image_path"] == session.latest_screenshot()
     # 视觉提示进了 system
@@ -338,9 +356,7 @@ async def test_vision_plan_without_screenshot_falls_back_to_text(tmp_path):
         seen["image_path"] = image_path
         return '{"action": "screenshot", "params": {}, "reason": "先看看"}'
 
-    plan = await LLMActionPlanner(complete=fake_complete).plan(
-        "打开页面", session, use_vision=True
-    )
+    plan = await LLMActionPlanner(complete=fake_complete).plan("打开页面", session, use_vision=True)
     assert seen["image_path"] is None
     assert plan["planner"] == "llm"
 
@@ -353,9 +369,7 @@ async def test_vision_plan_tolerates_two_arg_backend(tmp_path):
     async def old_complete(system, user):  # 不接受 image_path
         return '{"action": "wait", "params": {"ms": 0}, "reason": "ok"}'
 
-    plan = await LLMActionPlanner(complete=old_complete).plan(
-        "x", session, use_vision=True
-    )
+    plan = await LLMActionPlanner(complete=old_complete).plan("x", session, use_vision=True)
     assert plan["action"] == "wait"
 
 
@@ -369,6 +383,7 @@ async def test_plan_api_use_vision_flag(monkeypatch, tmp_path):
     async def fake_complete(system, user, image_path=None):
         got["image_path"] = image_path
         return '{"action": "click", "params": {"x": 5, "y": 6}, "reason": "mock"}'
+
     monkeypatch.setattr(cu.LLMActionPlanner, "_default_complete", lambda self: fake_complete)
 
     mgr = get_computer_use_manager()
@@ -377,8 +392,7 @@ async def test_plan_api_use_vision_flag(monkeypatch, tmp_path):
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.post(
             f"/api/computer-use/sessions/{session.session_id}/plan",
-            json={"goal": "点击", "auto_execute": False,
-                  "use_llm": True, "use_vision": True},
+            json={"goal": "点击", "auto_execute": False, "use_llm": True, "use_vision": True},
         )
     assert resp.status_code == 200
     body = resp.json()

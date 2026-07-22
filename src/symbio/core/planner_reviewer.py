@@ -155,9 +155,7 @@ class PlannerReviewerLoop:
         plan = self._build_plan(normalized_intent, policy)
         spec_review = self._review(
             stage="spec_review",
-            findings=[
-                finding for finding in findings if finding.source == "spec_review"
-            ],
+            findings=[finding for finding in findings if finding.source == "spec_review"],
             checked_items=[
                 "task intent captured",
                 "workflow policy requirements captured",
@@ -166,9 +164,7 @@ class PlannerReviewerLoop:
         )
         quality_review = self._review(
             stage="quality_review",
-            findings=[
-                finding for finding in findings if finding.source == "quality_review"
-            ],
+            findings=[finding for finding in findings if finding.source == "quality_review"],
             checked_items=[
                 "verification evidence required",
                 "implementation remains deterministic",
@@ -183,9 +179,7 @@ class PlannerReviewerLoop:
         approved = not blocking_findings
 
         return PlannerReviewerResult(
-            status=PlannerReviewerStatus.APPROVED
-            if approved
-            else PlannerReviewerStatus.BLOCKED,
+            status=PlannerReviewerStatus.APPROVED if approved else PlannerReviewerStatus.BLOCKED,
             approved=approved,
             task_text=normalized_intent.raw_text,
             action=normalized_intent.action,
@@ -214,7 +208,9 @@ class PlannerReviewerLoop:
         if intent is None:
             intent = Intent(raw_text=text, estimated_complexity=self._complexity(complexity))
         elif complexity is not None:
-            intent = intent.model_copy(update={"estimated_complexity": self._complexity(complexity)})
+            intent = intent.model_copy(
+                update={"estimated_complexity": self._complexity(complexity)}
+            )
         return intent
 
     @staticmethod
@@ -322,10 +318,11 @@ class PlannerReviewerLoop:
         findings: list[ReviewFinding],
         checked_items: list[str],
     ) -> ReviewResult:
-        status = "blocked" if any(
-            finding.severity == ReviewFindingSeverity.BLOCKING
-            for finding in findings
-        ) else "passed"
+        status = (
+            "blocked"
+            if any(finding.severity == ReviewFindingSeverity.BLOCKING for finding in findings)
+            else "passed"
+        )
         return ReviewResult(
             stage=stage,
             status=status,

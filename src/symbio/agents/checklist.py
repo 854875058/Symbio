@@ -13,7 +13,6 @@ import re
 import time
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -30,6 +29,7 @@ logger = get_logger("checklist")
 
 class ChecklistItemStatus(str, Enum):
     """清单条目状态"""
+
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
@@ -39,6 +39,7 @@ class ChecklistItemStatus(str, Enum):
 
 class ChecklistItem(BaseModel):
     """清单条目"""
+
     item_id: str = Field(default_factory=lambda: str(uuid4()))
     name: str
     description: str = ""
@@ -50,6 +51,7 @@ class ChecklistItem(BaseModel):
 
 class CompletionCriteria(BaseModel):
     """完成标准"""
+
     all_items_done: bool = True
     all_tests_pass: bool = True
     no_todo_comments: bool = False
@@ -57,6 +59,7 @@ class CompletionCriteria(BaseModel):
 
 class TaskChecklist(BaseModel):
     """任务完成清单"""
+
     checklist_id: str = Field(default_factory=lambda: str(uuid4()))
     task_id: str
     items: list[ChecklistItem] = Field(default_factory=list)
@@ -82,7 +85,8 @@ class TaskChecklist(BaseModel):
         if not self.items:
             return 1.0
         done = sum(
-            1 for i in self.items
+            1
+            for i in self.items
             if i.status in (ChecklistItemStatus.COMPLETED, ChecklistItemStatus.SKIPPED)
         )
         return done / len(self.items)
@@ -105,6 +109,7 @@ class TaskChecklist(BaseModel):
 
 class ValidationResult(BaseModel):
     """验证结果"""
+
     is_valid: bool
     passed_checks: list[str] = Field(default_factory=list)
     failed_checks: list[str] = Field(default_factory=list)
@@ -118,9 +123,9 @@ class ValidationResult(BaseModel):
 
 # TODO/FIXME 注释模式
 _TODO_PATTERN = re.compile(
-    r'#\s*TODO|#\s*FIXME|#\s*HACK|#\s*XXX|'
-    r'//\s*TODO|//\s*FIXME|'
-    r'/\*\s*TODO|/\*\s*FIXME',
+    r"#\s*TODO|#\s*FIXME|#\s*HACK|#\s*XXX|"
+    r"//\s*TODO|//\s*FIXME|"
+    r"/\*\s*TODO|/\*\s*FIXME",
     re.IGNORECASE,
 )
 
@@ -175,9 +180,9 @@ class ChecklistValidator:
                     continue
                 for file_path in item.files:
                     p = Path(file_path)
-                    if p.exists() and p.suffix in ('.py', '.js', '.ts', '.java', '.go', '.rs'):
+                    if p.exists() and p.suffix in (".py", ".js", ".ts", ".java", ".go", ".rs"):
                         try:
-                            content = p.read_text(encoding='utf-8', errors='ignore')
+                            content = p.read_text(encoding="utf-8", errors="ignore")
                             todos = _TODO_PATTERN.findall(content)
                             if todos:
                                 warnings.append(

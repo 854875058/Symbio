@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 
 from symbio.agents.registry import AgentRegistry
 from symbio.core.dag_runtime import DAGRuntime

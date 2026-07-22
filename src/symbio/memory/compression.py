@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import math
 import re
 from collections import Counter
@@ -36,15 +35,17 @@ logger = get_logger("memory_compression")
 # 数据模型
 # ---------------------------------------------------------------------------
 
+
 class CompressionStats(BaseModel):
     """压缩统计"""
-    original_count: int = 0          # 原始记忆数量
-    compressed_count: int = 0        # 压缩后记忆数量
-    rules_extracted: int = 0         # 提取的规则数
-    clusters_formed: int = 0         # 形成的聚类数
-    cold_archived: int = 0           # 冷存储归档数
-    compression_ratio: float = 0.0   # 压缩比 (compressed / original)
-    duration_seconds: float = 0.0    # 耗时
+
+    original_count: int = 0  # 原始记忆数量
+    compressed_count: int = 0  # 压缩后记忆数量
+    rules_extracted: int = 0  # 提取的规则数
+    clusters_formed: int = 0  # 形成的聚类数
+    cold_archived: int = 0  # 冷存储归档数
+    compression_ratio: float = 0.0  # 压缩比 (compressed / original)
+    duration_seconds: float = 0.0  # 耗时
     created_at: datetime = Field(default_factory=datetime.now)
 
     @property
@@ -60,10 +61,11 @@ class CompressionStats(BaseModel):
 @dataclass
 class MemoryCluster:
     """记忆聚类"""
+
     cluster_id: str = field(default_factory=lambda: str(uuid4()))
     centroid: list[float] = field(default_factory=list)
     members: list[MemoryItem] = field(default_factory=list)
-    theme: str = ""                       # 聚类主题（由模式识别填充）
+    theme: str = ""  # 聚类主题（由模式识别填充）
     common_tags: list[str] = field(default_factory=list)
     avg_importance: float = 0.0
 
@@ -75,12 +77,13 @@ class MemoryCluster:
 @dataclass
 class ExtractedRule:
     """提取的规则"""
+
     rule_id: str = field(default_factory=lambda: str(uuid4()))
     name: str = ""
     description: str = ""
     source_cluster_ids: list[str] = field(default_factory=list)
-    concept_name: str = ""               # 对应的 T-Box 概念名
-    relation_name: str = ""              # 对应的 T-Box 关系名
+    concept_name: str = ""  # 对应的 T-Box 概念名
+    relation_name: str = ""  # 对应的 T-Box 关系名
     properties: dict[str, Any] = field(default_factory=dict)
     confidence: float = 0.0
     example_contents: list[str] = field(default_factory=list)
@@ -90,35 +93,38 @@ class ExtractedRule:
 # 配置
 # ---------------------------------------------------------------------------
 
+
 class CompressorConfig(BaseModel):
     """压缩器配置"""
+
     # 聚类参数
-    n_clusters: int = 0                   # 聚类数，0 = 自动推断
-    max_clusters: int = 20                # 最大聚类数
-    min_cluster_size: int = 3             # 最小聚类大小
-    embedding_dim: int = 0                # 嵌入维度，0 = 自动检测
+    n_clusters: int = 0  # 聚类数，0 = 自动推断
+    max_clusters: int = 20  # 最大聚类数
+    min_cluster_size: int = 3  # 最小聚类大小
+    embedding_dim: int = 0  # 嵌入维度，0 = 自动检测
 
     # 模式识别参数
-    min_pattern_frequency: int = 2        # 最小模式出现频率
-    tag_weight: float = 0.3               # 标签权重
-    content_weight: float = 0.7           # 内容权重
+    min_pattern_frequency: int = 2  # 最小模式出现频率
+    tag_weight: float = 0.3  # 标签权重
+    content_weight: float = 0.7  # 内容权重
 
     # 规则提取参数
-    min_cluster_confidence: float = 0.5   # 最小聚类置信度
-    max_rules_per_cluster: int = 3        # 每个聚类最大规则数
+    min_cluster_confidence: float = 0.5  # 最小聚类置信度
+    max_rules_per_cluster: int = 3  # 每个聚类最大规则数
 
     # 冷存储参数
     cold_storage_memory_type: MemoryType = MemoryType.SEMANTIC
     archive_importance_threshold: float = 0.3  # 低于此重要性的原始记忆归档
 
     # 流水线控制
-    search_batch_size: int = 500          # 每批搜索记忆数
-    search_query: str = "*"               # 搜索查询（* 表示全部）
+    search_batch_size: int = 500  # 每批搜索记忆数
+    search_query: str = "*"  # 搜索查询（* 表示全部）
 
 
 # ---------------------------------------------------------------------------
 # 记忆压缩器
 # ---------------------------------------------------------------------------
+
 
 class MemoryCompressor:
     """记忆压缩流水线
@@ -165,6 +171,7 @@ class MemoryCompressor:
             压缩统计
         """
         import time
+
         start_time = time.monotonic()
 
         logger.info("=== 记忆压缩流水线启动 ===")
@@ -208,9 +215,7 @@ class MemoryCompressor:
             rules_extracted=len(self._rules),
             clusters_formed=len(self._clusters),
             cold_archived=archived,
-            compression_ratio=(
-                compressed_count / original_count if original_count > 0 else 0.0
-            ),
+            compression_ratio=(compressed_count / original_count if original_count > 0 else 0.0),
             duration_seconds=elapsed,
         )
 
@@ -296,7 +301,6 @@ class MemoryCompressor:
         k = max(2, min(k, n_samples))
 
         # 简易 k-means 实现
-        dim = vectors.shape[1]
         indices = np.random.choice(n_samples, k, replace=False)
         centroids = vectors[indices].copy()
 
@@ -306,9 +310,7 @@ class MemoryCompressor:
         for _ in range(max_iter):
             # 分配：每个点到最近的质心
             # dists shape: (n_samples, k)
-            dists = np.linalg.norm(
-                vectors[:, np.newaxis, :] - centroids[np.newaxis, :, :], axis=2
-            )
+            dists = np.linalg.norm(vectors[:, np.newaxis, :] - centroids[np.newaxis, :, :], axis=2)
             new_labels = np.argmin(dists, axis=1)
 
             # 收敛检查
@@ -333,9 +335,7 @@ class MemoryCompressor:
             cluster = MemoryCluster(
                 centroid=centroids[i].tolist(),
                 members=members,
-                avg_importance=(
-                    sum(m.importance for m in members) / len(members)
-                ),
+                avg_importance=(sum(m.importance for m in members) / len(members)),
             )
             clusters.append(cluster)
 
@@ -364,9 +364,7 @@ class MemoryCompressor:
         all_buckets.update(keyword_buckets)
 
         # 排序：优先大的桶
-        sorted_buckets = sorted(
-            all_buckets.items(), key=lambda kv: len(kv[1]), reverse=True
-        )
+        sorted_buckets = sorted(all_buckets.items(), key=lambda kv: len(kv[1]), reverse=True)
 
         assigned: set[str] = set()  # memory_id
         clusters: list[MemoryCluster] = []
@@ -383,9 +381,7 @@ class MemoryCompressor:
                 members=members,
                 theme=theme,
                 common_tags=self._most_common_tags(members),
-                avg_importance=(
-                    sum(m.importance for m in members) / len(members)
-                ),
+                avg_importance=(sum(m.importance for m in members) / len(members)),
             )
             clusters.append(cluster)
 
@@ -395,13 +391,13 @@ class MemoryCompressor:
         # 未分配的记忆归入一个杂项聚类
         orphans = [m for m in self._memories if m.memory_id not in assigned]
         if len(orphans) >= self._config.min_cluster_size:
-            clusters.append(MemoryCluster(
-                members=orphans,
-                theme="miscellaneous",
-                avg_importance=(
-                    sum(m.importance for m in orphans) / len(orphans)
-                ),
-            ))
+            clusters.append(
+                MemoryCluster(
+                    members=orphans,
+                    theme="miscellaneous",
+                    avg_importance=(sum(m.importance for m in orphans) / len(orphans)),
+                )
+            )
 
         logger.info(f"频率聚类: {len(clusters)} 个聚类")
         return clusters
@@ -433,7 +429,8 @@ class MemoryCompressor:
                 all_keywords.extend(self._extract_keywords(mem.content))
             keyword_freq = Counter(all_keywords)
             top_keywords = [
-                kw for kw, cnt in keyword_freq.most_common(10)
+                kw
+                for kw, cnt in keyword_freq.most_common(10)
                 if cnt >= self._config.min_pattern_frequency
             ]
 
@@ -452,9 +449,7 @@ class MemoryCompressor:
                 "avg_importance": sum(importances) / len(importances),
                 "max_importance": max(importances),
                 "member_count": cluster.size,
-                "example_contents": [
-                    m.content[:200] for m in cluster.members[:3]
-                ],
+                "example_contents": [m.content[:200] for m in cluster.members[:3]],
             }
             patterns.append(pattern)
 
@@ -501,9 +496,7 @@ class MemoryCompressor:
             if pattern["avg_importance"] >= self._config.min_cluster_confidence:
                 concept_rule = ExtractedRule(
                     name=f"concept:{theme}",
-                    description=(
-                        f"从 {pattern['member_count']} 条记忆中提取的概念: {theme}"
-                    ),
+                    description=(f"从 {pattern['member_count']} 条记忆中提取的概念: {theme}"),
                     source_cluster_ids=[pattern["cluster_id"]],
                     concept_name=theme,
                     properties={
@@ -511,9 +504,7 @@ class MemoryCompressor:
                         "tags": pattern["common_tags"],
                         "type_distribution": pattern["type_distribution"],
                     },
-                    confidence=min(
-                        pattern["avg_importance"] + 0.1, 1.0
-                    ),
+                    confidence=min(pattern["avg_importance"] + 0.1, 1.0),
                     example_contents=pattern["example_contents"],
                 )
                 cluster_rules.append(concept_rule)
@@ -526,8 +517,7 @@ class MemoryCompressor:
                         rel_rule = ExtractedRule(
                             name=f"relation:{tags[i]}_related_to_{tags[j]}",
                             description=(
-                                f"标签 '{tags[i]}' 和 '{tags[j]}' 在聚类 "
-                                f"'{theme}' 中频繁共现"
+                                f"标签 '{tags[i]}' 和 '{tags[j]}' 在聚类 '{theme}' 中频繁共现"
                             ),
                             source_cluster_ids=[pattern["cluster_id"]],
                             relation_name=f"{tags[i]}_related_to_{tags[j]}",
@@ -556,9 +546,7 @@ class MemoryCompressor:
 
             # 限制每个聚类的规则数
             cluster_rules.sort(key=lambda r: r.confidence, reverse=True)
-            rules.extend(
-                cluster_rules[: self._config.max_rules_per_cluster]
-            )
+            rules.extend(cluster_rules[: self._config.max_rules_per_cluster])
 
         logger.info(f"规则提取: {len(rules)} 条规则")
         return rules
@@ -581,9 +569,7 @@ class MemoryCompressor:
             # 注入概念
             if rule.concept_name and rule.concept_name not in seen_concepts:
                 # 检查是否已存在
-                existing = self._ontology._name_to_concept.get(
-                    rule.concept_name.lower()
-                )
+                existing = self._ontology._name_to_concept.get(rule.concept_name.lower())
                 if not existing:
                     concept = Concept(
                         name=rule.concept_name,
@@ -730,9 +716,7 @@ class MemoryCompressor:
             parts.append(f"共同标签: {', '.join(cluster.common_tags[:5])}")
 
         # 选取最具代表性的内容（重要性最高的几条）
-        sorted_members = sorted(
-            cluster.members, key=lambda m: m.importance, reverse=True
-        )
+        sorted_members = sorted(cluster.members, key=lambda m: m.importance, reverse=True)
         examples = sorted_members[:3]
         parts.append("代表性内容:")
         for i, mem in enumerate(examples, 1):
@@ -771,13 +755,71 @@ class MemoryCompressor:
 
         # 过滤停用词
         stop_words = {
-            "the", "is", "at", "which", "on", "a", "an", "and", "or", "but",
-            "in", "with", "to", "for", "of", "not", "no", "can", "had", "has",
-            "this", "that", "it", "be", "as", "was", "were", "been", "are",
-            "from", "by", "do", "did", "will", "would", "should", "could",
-            "的", "了", "是", "在", "我", "有", "和", "就", "不", "人", "都",
-            "一", "一个", "上", "也", "很", "到", "说", "要", "去", "你",
-            "会", "着", "没有", "看", "好", "自己", "这",
+            "the",
+            "is",
+            "at",
+            "which",
+            "on",
+            "a",
+            "an",
+            "and",
+            "or",
+            "but",
+            "in",
+            "with",
+            "to",
+            "for",
+            "of",
+            "not",
+            "no",
+            "can",
+            "had",
+            "has",
+            "this",
+            "that",
+            "it",
+            "be",
+            "as",
+            "was",
+            "were",
+            "been",
+            "are",
+            "from",
+            "by",
+            "do",
+            "did",
+            "will",
+            "would",
+            "should",
+            "could",
+            "的",
+            "了",
+            "是",
+            "在",
+            "我",
+            "有",
+            "和",
+            "就",
+            "不",
+            "人",
+            "都",
+            "一",
+            "一个",
+            "上",
+            "也",
+            "很",
+            "到",
+            "说",
+            "要",
+            "去",
+            "你",
+            "会",
+            "着",
+            "没有",
+            "看",
+            "好",
+            "自己",
+            "这",
         }
 
         return [w for w in words if w not in stop_words and len(w) >= 2]

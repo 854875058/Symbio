@@ -108,7 +108,9 @@ def _validate_workflow_policy_evidence(
     )
 
     for policy_key, label, evidence_keys in required_evidence:
-        if policy_dict.get(policy_key) is True and not _has_any_evidence(evidence_dict, evidence_keys):
+        if policy_dict.get(policy_key) is True and not _has_any_evidence(
+            evidence_dict, evidence_keys
+        ):
             failed.append(
                 f"workflow policy requires {label} evidence "
                 f"(provide one of: {', '.join(evidence_keys)})"
@@ -209,11 +211,7 @@ class SubmitTaskTool(BaseTool):
                 call_id="",
                 tool_name=self.name,
                 success=True,
-                output=(
-                    f"任务已成功提交并通过验证。\n\n"
-                    f"{result.summary}\n\n"
-                    f"完成摘要: {summary}"
-                ),
+                output=(f"任务已成功提交并通过验证。\n\n{result.summary}\n\n完成摘要: {summary}"),
             )
         else:
             logger.warning(f"任务提交被拒绝: {checklist.task_id}")

@@ -18,7 +18,6 @@ from __future__ import annotations
 import asyncio
 import re
 import time
-from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Coroutine, Optional
@@ -28,7 +27,7 @@ from pydantic import BaseModel, Field
 from symbio.agents.base import BaseAgent
 from symbio.agents.checklist import ChecklistItem, ChecklistItemStatus, TaskChecklist
 from symbio.utils.logger import get_logger
-from symbio.utils.types import AgentState, Intent, Result, Task
+from symbio.utils.types import Result, Task
 
 logger = get_logger("testing_agent")
 
@@ -90,11 +89,7 @@ class RetryHistory(BaseModel):
     @property
     def all_failure_classifications(self) -> list[FailureClassification]:
         """所有失败分类"""
-        return [
-            rec.failure_analysis.classification
-            for rec in self.records
-            if rec.failure_analysis
-        ]
+        return [rec.failure_analysis.classification for rec in self.records if rec.failure_analysis]
 
 
 class TestRunResult(BaseModel):
@@ -122,10 +117,12 @@ class FileVerificationResult(BaseModel):
 
 # 用于匹配语法错误中的行号
 _SYNTAX_ERROR_PATTERN = re.compile(
-    r'(?:line|行)\s*(\d+)', re.IGNORECASE,
+    r"(?:line|行)\s*(\d+)",
+    re.IGNORECASE,
 )
 _RUNTIME_ERROR_PATTERN = re.compile(
-    r'(?:line|行)\s*(\d+)', re.IGNORECASE,
+    r"(?:line|行)\s*(\d+)",
+    re.IGNORECASE,
 )
 
 
@@ -168,9 +165,7 @@ class TestDrivenLoop:
         total_attempts = 1 + max_retries  # 首次 + 重试
 
         for attempt in range(1, total_attempts + 1):
-            logger.info(
-                f"TestDrivenLoop: 条目 '{item.name}' 第 {attempt}/{total_attempts} 次尝试"
-            )
+            logger.info(f"TestDrivenLoop: 条目 '{item.name}' 第 {attempt}/{total_attempts} 次尝试")
 
             record = RetryRecord(attempt=attempt)
             failure_hint: FailureAnalysis | None = history.last_failure
@@ -207,20 +202,12 @@ class TestDrivenLoop:
                         record.passed = True
                         record.finished_at = time.strftime("%Y-%m-%dT%H:%M:%S")
                         history.records.append(record)
-                        logger.info(
-                            f"TestDrivenLoop: 条目 '{item.name}' 文件验证通过 (无测试命令)"
-                        )
+                        logger.info(f"TestDrivenLoop: 条目 '{item.name}' 文件验证通过 (无测试命令)")
                         break
                     else:
-                        missing = [
-                            f["path"]
-                            for f in file_result.files
-                            if not f["exists"]
-                        ]
+                        missing = [f["path"] for f in file_result.files if not f["exists"]]
                         empty = [
-                            f["path"]
-                            for f in file_result.files
-                            if f["exists"] and f["size"] == 0
+                            f["path"] for f in file_result.files if f["exists"] and f["size"] == 0
                         ]
                         err_parts: list[str] = []
                         if missing:
@@ -241,9 +228,7 @@ class TestDrivenLoop:
                         file_result = await self._agent.verify_files(item.files)
                         if file_result.all_exist and file_result.all_non_empty:
                             record.passed = True
-                            record.finished_at = time.strftime(
-                                "%Y-%m-%dT%H:%M:%S"
-                            )
+                            record.finished_at = time.strftime("%Y-%m-%dT%H:%M:%S")
                             history.records.append(record)
                             logger.info(
                                 f"TestDrivenLoop: 条目 '{item.name}' 第 {attempt} 次测试通过"
@@ -296,8 +281,7 @@ class TestDrivenLoop:
             item.status = ChecklistItemStatus.COMPLETED
             item.result = f"测试通过 (第 {final_record.attempt} 次尝试)"
             logger.info(
-                f"TestDrivenLoop: 条目 '{item.name}' 最终通过 "
-                f"(共 {history.attempt_count} 次尝试)"
+                f"TestDrivenLoop: 条目 '{item.name}' 最终通过 (共 {history.attempt_count} 次尝试)"
             )
             return True, history
         else:
@@ -337,8 +321,12 @@ class TestDrivenLoop:
 
         # 2. 检测语法错误
         syntax_indicators = [
-            "SyntaxError", "SyntaxWarning", "IndentationError",
-            "TabError", "unexpected EOF", "invalid syntax",
+            "SyntaxError",
+            "SyntaxWarning",
+            "IndentationError",
+            "TabError",
+            "unexpected EOF",
+            "invalid syntax",
             "语法错误",
         ]
         for indicator in syntax_indicators:
@@ -348,15 +336,28 @@ class TestDrivenLoop:
                     classification=FailureClassification.SYNTAX_ERROR,
                     error_message=self._extract_error_message(error_text),
                     line_number=line_num,
-                    fix_suggestion=f"检查第 {line_num} 行附近的语法" if line_num else "检查代码语法",
+                    fix_suggestion=f"检查第 {line_num} 行附近的语法"
+                    if line_num
+                    else "检查代码语法",
                 )
 
         # 3. 检测运行时错误
         runtime_indicators = [
-            "Traceback", "Error:", "Exception:", "TypeError", "ValueError",
-            "AttributeError", "NameError", "KeyError", "IndexError",
-            "ImportError", "ModuleNotFoundError", "FileNotFoundError",
-            "RuntimeError", "ZeroDivisionError", "AssertionError",
+            "Traceback",
+            "Error:",
+            "Exception:",
+            "TypeError",
+            "ValueError",
+            "AttributeError",
+            "NameError",
+            "KeyError",
+            "IndexError",
+            "ImportError",
+            "ModuleNotFoundError",
+            "FileNotFoundError",
+            "RuntimeError",
+            "ZeroDivisionError",
+            "AssertionError",
         ]
         for indicator in runtime_indicators:
             if indicator in error_text:
@@ -550,9 +551,7 @@ class TestingAgent(BaseAgent):
             duration_ms=duration_ms,
         )
 
-    async def run_tests(
-        self, test_command: str, working_dir: str = "."
-    ) -> TestRunResult:
+    async def run_tests(self, test_command: str, working_dir: str = ".") -> TestRunResult:
         """运行测试命令
 
         使用 asyncio.create_subprocess_exec 沙箱化执行，
@@ -623,9 +622,7 @@ class TestingAgent(BaseAgent):
             if passed:
                 logger.info(f"测试通过: {test_command} ({elapsed:.0f}ms)")
             else:
-                logger.warning(
-                    f"测试失败: {test_command} (exit_code={exit_code}, {elapsed:.0f}ms)"
-                )
+                logger.warning(f"测试失败: {test_command} (exit_code={exit_code}, {elapsed:.0f}ms)")
 
             return TestRunResult(
                 command=test_command,

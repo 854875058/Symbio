@@ -6,7 +6,7 @@ from collections import defaultdict
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from symbio.utils.logger import get_logger
 
@@ -17,32 +17,37 @@ logger = get_logger("layered_router")
 # 枚举与数据模型
 # ---------------------------------------------------------------------------
 
+
 class ClassificationResult(str, Enum):
     """DAG 节点执行结果分类"""
-    SUCCESS = "success"                      # 70% - 无需 LLM，直接继续
-    TRANSIENT_ERROR = "transient_error"      # 15% - 规则引擎简单重试
-    UNKNOWN_ERROR = "unknown_error"          # 10% - 轻量模型诊断
-    STRUCTURAL_ERROR = "structural_error"    # 5%  - 强模型拓扑重构
+
+    SUCCESS = "success"  # 70% - 无需 LLM，直接继续
+    TRANSIENT_ERROR = "transient_error"  # 15% - 规则引擎简单重试
+    UNKNOWN_ERROR = "unknown_error"  # 10% - 轻量模型诊断
+    STRUCTURAL_ERROR = "structural_error"  # 5%  - 强模型拓扑重构
 
 
 class RoutingDecision(BaseModel):
     """路由决策"""
+
     classification: ClassificationResult
     reason: str = ""
     suggested_action: str = ""
-    model_tier: Optional[str] = None        # "haiku" / "sonnet" / "opus" / None
+    model_tier: Optional[str] = None  # "haiku" / "sonnet" / "opus" / None
 
 
 class RetryStrategy(BaseModel):
     """重试策略"""
+
     max_retries: int = 3
-    backoff_base: float = 1.0               # 基础退避秒数
-    backoff_max: float = 30.0               # 最大退避秒数
-    jitter: bool = True                     # 是否添加随机抖动
+    backoff_base: float = 1.0  # 基础退避秒数
+    backoff_max: float = 30.0  # 最大退避秒数
+    jitter: bool = True  # 是否添加随机抖动
 
 
 class CircuitBreakerStatus(BaseModel):
     """熔断器状态"""
+
     tripped: bool = False
     reason: str = ""
     step_count: int = 0
@@ -53,6 +58,7 @@ class CircuitBreakerStatus(BaseModel):
 # ---------------------------------------------------------------------------
 # 熔断器
 # ---------------------------------------------------------------------------
+
 
 class CircuitBreaker:
     """三重熔断器 - 防止 DAG 执行失控
@@ -190,6 +196,7 @@ def _error_signature(error: Any) -> str:
 # 分层路由器
 # ---------------------------------------------------------------------------
 
+
 class LayeredRouter:
     """DAG 分层路由器
 
@@ -213,9 +220,15 @@ class LayeredRouter:
         # 各分类对应的默认重试策略
         self._retry_strategies: dict[ClassificationResult, RetryStrategy] = {
             ClassificationResult.SUCCESS: RetryStrategy(max_retries=0),
-            ClassificationResult.TRANSIENT_ERROR: RetryStrategy(max_retries=3, backoff_base=1.0, backoff_max=10.0),
-            ClassificationResult.UNKNOWN_ERROR: RetryStrategy(max_retries=2, backoff_base=2.0, backoff_max=20.0),
-            ClassificationResult.STRUCTURAL_ERROR: RetryStrategy(max_retries=1, backoff_base=5.0, backoff_max=30.0),
+            ClassificationResult.TRANSIENT_ERROR: RetryStrategy(
+                max_retries=3, backoff_base=1.0, backoff_max=10.0
+            ),
+            ClassificationResult.UNKNOWN_ERROR: RetryStrategy(
+                max_retries=2, backoff_base=2.0, backoff_max=20.0
+            ),
+            ClassificationResult.STRUCTURAL_ERROR: RetryStrategy(
+                max_retries=1, backoff_base=5.0, backoff_max=30.0
+            ),
         }
 
         logger.info("LayeredRouter 初始化完成")

@@ -9,8 +9,7 @@ import sys
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
-from uuid import uuid4
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, Field
@@ -18,7 +17,6 @@ from pydantic import BaseModel, Field
 from symbio.skills.registry import (
     SkillRegistry,
     SkillRegistration,
-    SkillStatus,
     SkillType,
 )
 from symbio.utils.logger import get_logger
@@ -30,18 +28,21 @@ logger = get_logger("skills.importer")
 # 数据模型
 # ---------------------------------------------------------------------------
 
+
 class SkillSource(str, Enum):
     """Skill 来源"""
-    FILE = "file"              # 本地文件
-    DIRECTORY = "directory"    # 本地目录
-    PACKAGE = "package"        # Python 包
+
+    FILE = "file"  # 本地文件
+    DIRECTORY = "directory"  # 本地目录
+    PACKAGE = "package"  # Python 包
     MARKETPLACE = "marketplace"  # 市场
-    URL = "url"               # 远程 URL
-    CLAUDE_MD = "claude_md"   # CLAUDE.md 文件
+    URL = "url"  # 远程 URL
+    CLAUDE_MD = "claude_md"  # CLAUDE.md 文件
 
 
 class ImportResult(BaseModel):
     """导入结果"""
+
     success: bool
     skill_id: str = ""
     skill_name: str = ""
@@ -54,6 +55,7 @@ class ImportResult(BaseModel):
 
 class BatchImportResult(BaseModel):
     """批量导入结果"""
+
     total: int = 0
     success_count: int = 0
     failure_count: int = 0
@@ -69,6 +71,7 @@ class BatchImportResult(BaseModel):
 
 class SkillDefinition(BaseModel):
     """Skill 定义（从文件/JSON 解析）"""
+
     name: str
     display_name: str = ""
     description: str = ""
@@ -85,6 +88,7 @@ class SkillDefinition(BaseModel):
 # ---------------------------------------------------------------------------
 # Skills 导入器
 # ---------------------------------------------------------------------------
+
 
 class SkillImporter:
     """Skills 导入器
@@ -224,6 +228,7 @@ class SkillImporter:
             批量导入结果
         """
         import time
+
         start_time = time.monotonic()
 
         dir_path = Path(dir_path)
@@ -232,12 +237,14 @@ class SkillImporter:
                 total=0,
                 success_count=0,
                 failure_count=1,
-                results=[ImportResult(
-                    success=False,
-                    source=SkillSource.DIRECTORY,
-                    source_path=str(dir_path),
-                    error=f"目录不存在: {dir_path}",
-                )],
+                results=[
+                    ImportResult(
+                        success=False,
+                        source=SkillSource.DIRECTORY,
+                        source_path=str(dir_path),
+                        error=f"目录不存在: {dir_path}",
+                    )
+                ],
             )
 
         # 扫描文件
@@ -578,6 +585,7 @@ class SkillImporter:
     def _is_valid_version(self, version: str) -> bool:
         """检查版本格式"""
         import re
+
         return bool(re.match(r"^\d+\.\d+\.\d+$", version))
 
     def _create_registration(
@@ -614,18 +622,14 @@ class SkillImporter:
             metadata=metadata,
         )
 
-    def _extract_skills_from_markdown(
-        self, content: str
-    ) -> list[SkillDefinition]:
+    def _extract_skills_from_markdown(self, content: str) -> list[SkillDefinition]:
         """从 Markdown 中提取 Skill 定义"""
         import re
 
         skills: list[SkillDefinition] = []
 
         # 匹配 YAML 代码块中的 skill 定义
-        yaml_pattern = re.compile(
-            r"```(?:yaml|yml)\n(.*?)```", re.DOTALL
-        )
+        yaml_pattern = re.compile(r"```(?:yaml|yml)\n(.*?)```", re.DOTALL)
 
         for match in yaml_pattern.finditer(content):
             yaml_content = match.group(1)
@@ -650,10 +654,12 @@ class SkillImporter:
             tags_str = match.group(3) if match.group(3) else ""
             tags = [t.strip() for t in tags_str.split(",") if t.strip()] if tags_str else []
 
-            skills.append(SkillDefinition(
-                name=name,
-                description=description,
-                tags=tags,
-            ))
+            skills.append(
+                SkillDefinition(
+                    name=name,
+                    description=description,
+                    tags=tags,
+                )
+            )
 
         return skills

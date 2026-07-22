@@ -242,7 +242,9 @@ class MCPStdioClient:
                     continue
                 if "error" in message:
                     error = message["error"]
-                    raise MCPError(error.get("message", str(error)) if isinstance(error, dict) else str(error))
+                    raise MCPError(
+                        error.get("message", str(error)) if isinstance(error, dict) else str(error)
+                    )
                 return message.get("result")
 
     async def _readline(self) -> str:
@@ -438,10 +440,7 @@ def discover_mcp_servers(data: dict[str, Any] | list[Any]) -> list[MCPServerConf
     if isinstance(data, dict):
         raw_servers = data.get("mcpServers", data.get("servers", data))
         if isinstance(raw_servers, dict):
-            return [
-                _parse_mcp_server_config(name, value)
-                for name, value in raw_servers.items()
-            ]
+            return [_parse_mcp_server_config(name, value) for name, value in raw_servers.items()]
         if isinstance(raw_servers, list):
             return [_parse_mcp_server_config(None, value) for value in raw_servers]
         raise ValueError("MCP config must contain a mapping or list of servers")
@@ -551,7 +550,7 @@ def _stringify_mcp_result(result: Any) -> str:
 
 def mcp_server_script() -> str:
     """Small stdio MCP server used by tests and smoke checks."""
-    return r'''
+    return r"""
 import json
 import sys
 
@@ -592,7 +591,7 @@ for line in sys.stdin:
         print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "error": {"code": -32601, "message": "not found"}}), flush=True)
         continue
     print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": result}), flush=True)
-'''
+"""
 
 
 def test_server_command() -> list[str]:

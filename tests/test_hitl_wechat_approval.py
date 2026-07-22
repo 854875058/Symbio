@@ -12,7 +12,6 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
 from httpx import ASGITransport, AsyncClient
 
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -88,6 +87,7 @@ async def _submit(client: AsyncClient, **overrides):
 # 出向：提交即推送审批卡到微信
 # --------------------------------------------------------------------------
 
+
 async def test_submit_pushes_approval_card_to_wechat(monkeypatch):
     bridge = _install(monkeypatch, approver="wxid_admin")
     transport = ASGITransport(app=app)
@@ -133,12 +133,15 @@ async def test_prepared_when_logged_out(monkeypatch):
 # 入向：微信回复"同意 <短码>"完成审批
 # --------------------------------------------------------------------------
 
+
 async def test_wechat_reply_short_code_approves(monkeypatch):
     _install(monkeypatch, approver="wxid_admin")
     gw = app.state.hitl_gateway
     # MEDIUM 风险需 1 个审批人，单条"同意"即可终态（HIGH 需 2 人，属设计如此）
     req = ApprovalRequest(
-        task_id="danger-2", risk_level=RiskLevel.MEDIUM, action="drop table users",
+        task_id="danger-2",
+        risk_level=RiskLevel.MEDIUM,
+        action="drop table users",
         timeout_seconds=9999,
     )
     rid = await gw.submit_request(req)
@@ -171,6 +174,7 @@ async def test_wechat_reply_reject_short_code(monkeypatch):
 # --------------------------------------------------------------------------
 # 短码：要短、好记（4 位数字），且按 pending 优先解析
 # --------------------------------------------------------------------------
+
 
 def test_short_code_is_short_and_numeric():
     code = approval_short_code("f483f8b7-53e4-4462-9494-bde0fa989be0")
@@ -206,6 +210,7 @@ async def test_resolve_prefers_pending_when_short_code_collides(monkeypatch):
 # --------------------------------------------------------------------------
 # 审批命令：中文不带空格也要识别（"同意5754"）
 # --------------------------------------------------------------------------
+
 
 def test_parse_chinese_command_without_space():
     from symbio.core.hitl_notifier import parse_im_approval_command as parse
@@ -243,6 +248,7 @@ async def test_wechat_dispatch_approves_without_space(monkeypatch):
 # 单条待审批时裸"同意/拒绝"（不用记码）
 # --------------------------------------------------------------------------
 
+
 def test_parse_bare_command():
     from symbio.core.hitl_notifier import parse_im_approval_command as parse
 
@@ -277,8 +283,12 @@ async def test_bare_no_pending_gives_friendly_reply(monkeypatch):
 async def test_bare_multiple_pending_asks_for_code(monkeypatch):
     _install(monkeypatch, approver="wxid_admin")
     gw = app.state.hitl_gateway
-    a = await gw.submit_request(ApprovalRequest(task_id="a", risk_level=RiskLevel.MEDIUM, timeout_seconds=9999))
-    b = await gw.submit_request(ApprovalRequest(task_id="b", risk_level=RiskLevel.MEDIUM, timeout_seconds=9999))
+    a = await gw.submit_request(
+        ApprovalRequest(task_id="a", risk_level=RiskLevel.MEDIUM, timeout_seconds=9999)
+    )
+    b = await gw.submit_request(
+        ApprovalRequest(task_id="b", risk_level=RiskLevel.MEDIUM, timeout_seconds=9999)
+    )
     reply, routed = await _wechat_dispatch("wxid_admin", "同意")
     assert routed.get("ok") is False
     assert "待审批" in reply  # 提示有多条、要带短码
@@ -290,6 +300,7 @@ async def test_bare_multiple_pending_asks_for_code(monkeypatch):
 # --------------------------------------------------------------------------
 # 失败重推：/api/hitl/{id}/repush-wechat
 # --------------------------------------------------------------------------
+
 
 async def test_repush_wechat_endpoint(monkeypatch):
     bridge = _install(monkeypatch, approver="wxid_admin")

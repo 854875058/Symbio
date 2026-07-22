@@ -20,8 +20,10 @@ logger = get_logger("config.migration")
 # 数据模型
 # ---------------------------------------------------------------------------
 
+
 class MigrationStatus(str, Enum):
     """迁移状态"""
+
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -31,6 +33,7 @@ class MigrationStatus(str, Enum):
 
 class MigrationStep(BaseModel):
     """单次迁移步骤"""
+
     step_id: int
     description: str
     from_version: str
@@ -43,6 +46,7 @@ class MigrationStep(BaseModel):
 
 class MigrationPlan(BaseModel):
     """迁移计划"""
+
     plan_id: str
     from_version: str
     to_version: str
@@ -54,6 +58,7 @@ class MigrationPlan(BaseModel):
 
 class VersionInfo(BaseModel):
     """版本信息"""
+
     version: str
     description: str = ""
     config_schema: dict[str, Any] = Field(default_factory=dict)
@@ -62,6 +67,7 @@ class VersionInfo(BaseModel):
 
 class MigrationRecord(BaseModel):
     """迁移记录"""
+
     record_id: str
     config_path: str
     from_version: str
@@ -78,6 +84,7 @@ class MigrationRecord(BaseModel):
 # ---------------------------------------------------------------------------
 # 版本解析器
 # ---------------------------------------------------------------------------
+
 
 class VersionParser:
     """语义化版本解析器"""
@@ -127,6 +134,7 @@ class VersionParser:
 # ---------------------------------------------------------------------------
 # 迁移器注册中心
 # ---------------------------------------------------------------------------
+
 
 class MigrationRegistry:
     """迁移函数注册中心"""
@@ -202,6 +210,7 @@ class MigrationRegistry:
 # 内置迁移函数
 # ---------------------------------------------------------------------------
 
+
 def _migrate_v0_to_v1(config: dict[str, Any]) -> dict[str, Any]:
     """v0.x -> v1.0 迁移
 
@@ -269,6 +278,7 @@ def _migrate_v1_to_v2(config: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # 配置迁移管理器
 # ---------------------------------------------------------------------------
+
 
 class ConfigMigrationManager:
     """配置迁移管理器
@@ -417,9 +427,12 @@ class ConfigMigrationManager:
         # 创建备份
         backup_path = ""
         if not dry_run:
-            backup_path = str(self._backup_dir / f"{path.stem}_backup_{datetime.now():%Y%m%d_%H%M%S}{path.suffix}")
+            backup_path = str(
+                self._backup_dir / f"{path.stem}_backup_{datetime.now():%Y%m%d_%H%M%S}{path.suffix}"
+            )
             if path.exists():
                 import shutil
+
                 shutil.copy2(path, backup_path)
                 logger.info(f"配置备份: {backup_path}")
 
@@ -456,7 +469,9 @@ class ConfigMigrationManager:
                         from_version=plan.from_version,
                         to_version=plan.to_version,
                         status=MigrationStatus.FAILED,
-                        steps_applied=sum(1 for s in plan.steps if s.status == MigrationStatus.COMPLETED),
+                        steps_applied=sum(
+                            1 for s in plan.steps if s.status == MigrationStatus.COMPLETED
+                        ),
                         total_steps=len(plan.steps),
                         backup_path=backup_path,
                         error=str(exc),

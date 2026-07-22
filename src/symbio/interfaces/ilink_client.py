@@ -80,7 +80,9 @@ def extract_text(item_list: list[dict[str, Any]]) -> str:
 class ILinkClient:
     """iLink Bot API 异步客户端。"""
 
-    def __init__(self, base_url: str = DEFAULT_BASE_URL, token: str = "", account_id: str = "") -> None:
+    def __init__(
+        self, base_url: str = DEFAULT_BASE_URL, token: str = "", account_id: str = ""
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.token = token
         self.account_id = account_id
@@ -90,6 +92,7 @@ class ILinkClient:
     async def get_qr(self) -> Optional[dict[str, str]]:
         """拉取登录二维码。返回 {qrcode, qr_content} 或 None。"""
         import httpx
+
         url = f"{self.base_url}/{EP_GET_BOT_QR}"
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
@@ -110,6 +113,7 @@ class ILinkClient:
     async def poll_qr_status(self, qrcode: str) -> dict[str, Any]:
         """查询一次扫码状态。返回 {status, ...}，confirmed 时含 token/account_id。"""
         import httpx
+
         url = f"{self.base_url}/{EP_GET_QR_STATUS}"
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
@@ -131,18 +135,24 @@ class ILinkClient:
 
     # -- 消息收发 ----------------------------------------------------------
 
-    async def get_updates(self, sync_buf: str = "", timeout_ms: int = LONG_POLL_TIMEOUT_MS) -> dict[str, Any]:
+    async def get_updates(
+        self, sync_buf: str = "", timeout_ms: int = LONG_POLL_TIMEOUT_MS
+    ) -> dict[str, Any]:
         """长轮询拉取入站消息。"""
         import httpx
+
         url = f"{self.base_url}/{EP_GET_UPDATES}"
         payload = {"get_updates_buf": sync_buf, "longpolling_timeout_ms": timeout_ms}
         async with httpx.AsyncClient(timeout=timeout_ms / 1000 + 5) as client:
             resp = await client.post(url, json=payload, headers=_bot_headers(self.token))
         return resp.json()
 
-    async def send_message(self, to_user: str, text: str, context_token: str = "") -> dict[str, Any]:
+    async def send_message(
+        self, to_user: str, text: str, context_token: str = ""
+    ) -> dict[str, Any]:
         """发送一条文本消息。"""
         import httpx
+
         url = f"{self.base_url}/{EP_SEND_MESSAGE}"
         msg: dict[str, Any] = {
             "from_user_id": "",

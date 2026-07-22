@@ -18,6 +18,7 @@ from symbio.core.semantic_cache import (
 
 def test_build_schema_vector_is_fixed_size_list():
     import pyarrow as pa
+
     schema = build_cache_schema(256)
     vec = schema.field("vector")
     # 必须是固定维度 list，否则 LanceDB 向量检索报 "Data type is not a vector"
@@ -40,6 +41,7 @@ def test_local_embedding_deterministic_and_normalized():
 def test_backend_selection_without_key():
     eng = SemanticCacheEngine(SemanticCacheConfig(local_embedding_fallback=True))
     from symbio.config.settings import get_settings
+
     if get_settings().model.openai_api_key:
         pytest.skip("环境配置了真实 embedding key")
     assert eng._embedding_backend == "local"
@@ -51,11 +53,16 @@ def test_backend_selection_without_key():
 @pytest.mark.asyncio
 async def test_local_cache_hit_and_miss(tmp_path):
     from symbio.config.settings import get_settings
+
     if get_settings().model.openai_api_key:
         pytest.skip("环境配置了真实 embedding key")
-    eng = SemanticCacheEngine(SemanticCacheConfig(
-        lancedb_path=str(tmp_path), local_embedding_fallback=True, similarity_threshold=0.9,
-    ))
+    eng = SemanticCacheEngine(
+        SemanticCacheConfig(
+            lancedb_path=str(tmp_path),
+            local_embedding_fallback=True,
+            similarity_threshold=0.9,
+        )
+    )
     await eng.initialize()
     try:
         await eng.put("帮我写个快速排序算法", "QUICKSORT", model="m")
@@ -73,11 +80,16 @@ async def test_local_cache_hit_and_miss(tmp_path):
 @pytest.mark.asyncio
 async def test_local_cache_context_isolation(tmp_path):
     from symbio.config.settings import get_settings
+
     if get_settings().model.openai_api_key:
         pytest.skip("环境配置了真实 embedding key")
-    eng = SemanticCacheEngine(SemanticCacheConfig(
-        lancedb_path=str(tmp_path), local_embedding_fallback=True, similarity_threshold=0.9,
-    ))
+    eng = SemanticCacheEngine(
+        SemanticCacheConfig(
+            lancedb_path=str(tmp_path),
+            local_embedding_fallback=True,
+            similarity_threshold=0.9,
+        )
+    )
     await eng.initialize()
     try:
         await eng.put("同样的问题", "A", model="m", context_hash="ctx-1")

@@ -20,8 +20,10 @@ logger = get_logger("config.project")
 # 数据模型
 # ---------------------------------------------------------------------------
 
+
 class ProjectStatus(str, Enum):
     """项目状态"""
+
     ACTIVE = "active"
     ARCHIVED = "archived"
     TEMPLATE = "template"
@@ -29,6 +31,7 @@ class ProjectStatus(str, Enum):
 
 class ProjectProfile(BaseModel):
     """项目配置档案"""
+
     project_id: str
     name: str
     description: str = ""
@@ -44,6 +47,7 @@ class ProjectProfile(BaseModel):
 
 class ConfigLayer(BaseModel):
     """配置层级"""
+
     layer_name: str
     priority: int
     config: dict[str, Any] = Field(default_factory=dict)
@@ -52,6 +56,7 @@ class ConfigLayer(BaseModel):
 # ---------------------------------------------------------------------------
 # 配置合并器
 # ---------------------------------------------------------------------------
+
 
 class ConfigMerger:
     """配置合并器 - 支持深度合并和覆盖"""
@@ -140,6 +145,7 @@ class ConfigMerger:
 # ---------------------------------------------------------------------------
 # 项目配置管理器
 # ---------------------------------------------------------------------------
+
 
 class ProjectConfigManager:
     """项目级配置管理器
@@ -286,9 +292,7 @@ class ProjectConfigManager:
             visited.add(current.project_id)
             chain.append(current)
             current = (
-                self._projects.get(current.parent_project_id)
-                if current.parent_project_id
-                else None
+                self._projects.get(current.parent_project_id) if current.parent_project_id else None
             )
 
         # 从最远祖先开始合并

@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import re
-from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -20,11 +18,13 @@ logger = get_logger("tools.codex_adapter")
 # 数据模型
 # ---------------------------------------------------------------------------
 
+
 class CodexRequest(BaseModel):
     """Codex 请求"""
+
     prompt: str
     model: str = ""
-    language: str = ""               # 编程语言提示
+    language: str = ""  # 编程语言提示
     max_tokens: int = 4096
     temperature: float = 0.0
     stop_sequences: list[str] = Field(default_factory=list)
@@ -33,6 +33,7 @@ class CodexRequest(BaseModel):
 
 class CodeSuggestion(BaseModel):
     """代码建议"""
+
     code: str
     language: str = ""
     description: str = ""
@@ -44,6 +45,7 @@ class CodeSuggestion(BaseModel):
 
 class CodexResponse(BaseModel):
     """Codex 响应"""
+
     suggestions: list[CodeSuggestion] = Field(default_factory=list)
     raw_output: str = ""
     model: str = ""
@@ -69,9 +71,10 @@ class CodexResponse(BaseModel):
 
 class CodexAdapterConfig(BaseModel):
     """Codex 适配器配置"""
+
     api_key: str = ""
     base_url: str = "https://api.openai.com/v1"
-    model: str = "gpt-4"           # 默认模型
+    model: str = "gpt-4"  # 默认模型
     timeout: int = 120
     max_retries: int = 3
     proxy: str = ""
@@ -80,6 +83,7 @@ class CodexAdapterConfig(BaseModel):
 # ---------------------------------------------------------------------------
 # Codex 适配器
 # ---------------------------------------------------------------------------
+
 
 class CodexAdapter:
     """Codex 适配器
@@ -114,6 +118,7 @@ class CodexAdapter:
 
     def __init__(self, config: CodexAdapterConfig | None = None):
         from symbio.config.settings import get_settings
+
         settings = get_settings()
 
         self._config = config or CodexAdapterConfig(
@@ -128,8 +133,7 @@ class CodexAdapter:
             self._config.base_url = settings.model.openai_base_url
 
         logger.info(
-            f"CodexAdapter 创建: base_url={self._config.base_url}, "
-            f"model={self._config.model}"
+            f"CodexAdapter 创建: base_url={self._config.base_url}, model={self._config.model}"
         )
 
     # ------------------------------------------------------------------
@@ -222,7 +226,7 @@ class CodexAdapter:
         code: str,
         *,
         language: str = "",
-        detail_level: str = "normal",   # brief / normal / detailed
+        detail_level: str = "normal",  # brief / normal / detailed
     ) -> CodexResponse:
         """解释代码
 
@@ -244,7 +248,9 @@ class CodexAdapter:
         if language:
             system_prompt += f" 编程语言: {language}。"
 
-        user_message = f"{detail_prompts.get(detail_level, detail_prompts['normal'])}\n\n```\n{code}\n```"
+        user_message = (
+            f"{detail_prompts.get(detail_level, detail_prompts['normal'])}\n\n```\n{code}\n```"
+        )
 
         return await self._chat_completion(
             system_prompt=system_prompt,
@@ -271,7 +277,9 @@ class CodexAdapter:
         system_prompt = "你是一个代码重构助手。请提供重构后的代码和解释。"
         if language:
             system_prompt += f" 编程语言: {language}。"
-        system_prompt += "\n输出格式：先输出重构后的代码（使用 ```language ... ``` 格式），然后解释改动。"
+        system_prompt += (
+            "\n输出格式：先输出重构后的代码（使用 ```language ... ``` 格式），然后解释改动。"
+        )
 
         goal_str = ""
         if goals:
@@ -298,6 +306,7 @@ class CodexAdapter:
     ) -> CodexResponse:
         """调用 Chat Completion API"""
         import time
+
         start_time = time.monotonic()
 
         if not self._config.api_key:
@@ -362,7 +371,7 @@ class CodexAdapter:
                         error=f"API 调用失败: {str(e)}",
                         duration_ms=duration_ms,
                     )
-                await asyncio.sleep(2 ** attempt)
+                await asyncio.sleep(2**attempt)
 
         return CodexResponse(error="未知错误")
 
@@ -377,19 +386,23 @@ class CodexAdapter:
             code = match.group(2).strip()
 
             if code:
-                suggestions.append(CodeSuggestion(
-                    code=code,
-                    language=language,
-                    confidence=0.9,  # 默认置信度
-                ))
+                suggestions.append(
+                    CodeSuggestion(
+                        code=code,
+                        language=language,
+                        confidence=0.9,  # 默认置信度
+                    )
+                )
 
         # 如果没有代码块，将整个内容作为文本建议
         if not suggestions and content.strip():
-            suggestions.append(CodeSuggestion(
-                code=content.strip(),
-                language="text",
-                confidence=0.5,
-            ))
+            suggestions.append(
+                CodeSuggestion(
+                    code=content.strip(),
+                    language="text",
+                    confidence=0.5,
+                )
+            )
 
         return suggestions
 
@@ -397,6 +410,7 @@ class CodexAdapter:
 # ---------------------------------------------------------------------------
 # Tool 注册
 # ---------------------------------------------------------------------------
+
 
 class CodexTool(BaseTool):
     """Codex 工具（注册到 ToolRegistry）"""

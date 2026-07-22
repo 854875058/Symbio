@@ -28,7 +28,7 @@ def test_encrypt_is_real_and_reversible(tmp_path):
 
     token = ex.sanitize_value("13812345678", rule)
     assert token.startswith("ENC:")
-    assert "13812345678" not in token         # 密文里看不到原文
+    assert "13812345678" not in token  # 密文里看不到原文
     assert ex.decrypt(token) == "13812345678"  # 可还原
 
 

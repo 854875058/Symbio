@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import gc
-import sys
 import threading
 import time
 import tracemalloc
 from collections import defaultdict
 from datetime import datetime
 from enum import Enum
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -24,17 +23,20 @@ logger = get_logger("utils.memory_manager")
 # 数据模型
 # ---------------------------------------------------------------------------
 
+
 class GCStrategy(str, Enum):
     """垃圾回收策略"""
-    AUTO = "auto"             # 自动 (Python 默认)
-    AGGRESSIVE = "aggressive" # 激进回收
+
+    AUTO = "auto"  # 自动 (Python 默认)
+    AGGRESSIVE = "aggressive"  # 激进回收
     CONSERVATIVE = "conservative"  # 保守回收
-    MANUAL = "manual"         # 手动回收
-    ADAPTIVE = "adaptive"     # 自适应
+    MANUAL = "manual"  # 手动回收
+    ADAPTIVE = "adaptive"  # 自适应
 
 
 class MemoryPressure(str, Enum):
     """内存压力等级"""
+
     LOW = "low"
     MODERATE = "moderate"
     HIGH = "high"
@@ -43,11 +45,12 @@ class MemoryPressure(str, Enum):
 
 class MemorySnapshot(BaseModel):
     """内存快照"""
+
     snapshot_id: str = Field(default_factory=lambda: str(uuid4()))
     timestamp: datetime = Field(default_factory=datetime.now)
-    rss_mb: float = 0.0           # 物理内存 (MB)
-    vms_mb: float = 0.0           # 虚拟内存 (MB)
-    heap_mb: float = 0.0          # Python 堆内存 (MB)
+    rss_mb: float = 0.0  # 物理内存 (MB)
+    vms_mb: float = 0.0  # 虚拟内存 (MB)
+    heap_mb: float = 0.0  # Python 堆内存 (MB)
     gc_counts: dict[int, int] = Field(default_factory=dict)  # 各代 GC 计数
     object_counts: dict[str, int] = Field(default_factory=dict)  # 各类对象计数
     tracemalloc_top: list[dict[str, Any]] = Field(default_factory=list)
@@ -56,6 +59,7 @@ class MemorySnapshot(BaseModel):
 
 class MemoryAlert(BaseModel):
     """内存告警"""
+
     alert_id: str = Field(default_factory=lambda: str(uuid4()))
     level: MemoryPressure
     message: str
@@ -67,6 +71,7 @@ class MemoryAlert(BaseModel):
 
 class MemoryStats(BaseModel):
     """内存统计信息"""
+
     current_rss_mb: float = 0.0
     peak_rss_mb: float = 0.0
     current_heap_mb: float = 0.0
@@ -80,6 +85,7 @@ class MemoryStats(BaseModel):
 
 class ObjectTracker(BaseModel):
     """对象跟踪记录"""
+
     type_name: str
     count: int = 0
     total_size_bytes: int = 0
@@ -89,6 +95,7 @@ class ObjectTracker(BaseModel):
 # ---------------------------------------------------------------------------
 # 内存监控器
 # ---------------------------------------------------------------------------
+
 
 class MemoryMonitor:
     """内存监控器 - 跟踪进程内存使用"""
@@ -113,6 +120,7 @@ class MemoryMonitor:
         # 获取进程内存
         try:
             import psutil
+
             process = psutil.Process()
             mem_info = process.memory_info()
             snapshot.rss_mb = mem_info.rss / (1024 * 1024)
@@ -190,6 +198,7 @@ class MemoryMonitor:
         """获取当前 RSS (MB)"""
         try:
             import psutil
+
             return psutil.Process().memory_info().rss / (1024 * 1024)
         except ImportError:
             if self._enable_tracemalloc:
@@ -217,6 +226,7 @@ class MemoryMonitor:
 # ---------------------------------------------------------------------------
 # 垃圾回收管理器
 # ---------------------------------------------------------------------------
+
 
 class GCManager:
     """垃圾回收管理器 - 自定义 GC 策略"""
@@ -318,6 +328,7 @@ class GCManager:
 # 对象泄漏检测器
 # ---------------------------------------------------------------------------
 
+
 class LeakDetector:
     """对象泄漏检测器"""
 
@@ -384,6 +395,7 @@ class LeakDetector:
 # ---------------------------------------------------------------------------
 # 内存管理器
 # ---------------------------------------------------------------------------
+
 
 class MemoryManager:
     """内存管理器

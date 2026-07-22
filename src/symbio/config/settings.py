@@ -24,20 +24,28 @@ class ModelConfig(BaseSettings):
 
     # Anthropic
     anthropic_api_key: str = Field(default="", description="Anthropic API key")
-    anthropic_base_url: str = Field(default="https://api.anthropic.com", description="Anthropic base URL")
+    anthropic_base_url: str = Field(
+        default="https://api.anthropic.com", description="Anthropic base URL"
+    )
 
     # OpenAI compatible (for local models)
     openai_api_key: str = Field(default="", description="OpenAI API key")
     openai_base_url: str = Field(default="https://api.openai.com/v1", description="OpenAI base URL")
 
     # Model routing
-    model_low: str = Field(default="claude-3-5-haiku-20241022", description="Model for simple tasks")
-    model_medium: str = Field(default="claude-sonnet-4-20250514", description="Model for medium tasks")
+    model_low: str = Field(
+        default="claude-3-5-haiku-20241022", description="Model for simple tasks"
+    )
+    model_medium: str = Field(
+        default="claude-sonnet-4-20250514", description="Model for medium tasks"
+    )
     model_high: str = Field(default="claude-opus-4-20250514", description="Model for complex tasks")
 
     # Local model fallback
     local_model_enabled: bool = Field(default=False, description="Enable local model fallback")
-    local_model_url: str = Field(default="http://localhost:11434", description="Local model URL (Ollama)")
+    local_model_url: str = Field(
+        default="http://localhost:11434", description="Local model URL (Ollama)"
+    )
     local_model_name: str = Field(default="qwen2.5:14b", description="Local model name")
 
     model_config = {"env_prefix": "SYMBIO_MODEL_"}
@@ -57,7 +65,9 @@ class MemoryConfig(BaseSettings):
 
     # Long-term memory
     max_memories: int = Field(default=10000, description="Max stored memories")
-    similarity_threshold: float = Field(default=0.7, description="Memory recall similarity threshold")
+    similarity_threshold: float = Field(
+        default=0.7, description="Memory recall similarity threshold"
+    )
 
     model_config = {"env_prefix": "SYMBIO_MEMORY_"}
 
@@ -69,7 +79,7 @@ class ToolConfig(BaseSettings):
     shell_timeout: int = Field(default=60, description="Shell command timeout (seconds)")
     shell_blocked_commands: list[str] = Field(
         default=["rm -rf /", "mkfs", "dd if=", ":(){ :|:& };:"],
-        description="Blocked shell commands"
+        description="Blocked shell commands",
     )
 
     # File
@@ -84,7 +94,9 @@ class ToolConfig(BaseSettings):
 class ServerConfig(BaseSettings):
     """Server configuration."""
 
-    host: str = Field(default="127.0.0.1", description="Server host (use 0.0.0.0 only behind reverse proxy)")
+    host: str = Field(
+        default="127.0.0.1", description="Server host (use 0.0.0.0 only behind reverse proxy)"
+    )
     port: int = Field(default=9090, description="Server port")
     debug: bool = Field(default=False, description="Debug mode")
 
@@ -123,8 +135,12 @@ class HITLConfig(BaseSettings):
 
     # 超时策略：reject(自动拒绝) | approve(自动通过) | escalate(转交管理员)
     timeout_action: str = Field(default="reject", description="Default action on approval timeout")
-    escalation_target: str = Field(default="", description="Escalation target (admin id / notify channel)")
-    max_escalations: int = Field(default=1, description="Max escalations before falling back to reject")
+    escalation_target: str = Field(
+        default="", description="Escalation target (admin id / notify channel)"
+    )
+    max_escalations: int = Field(
+        default=1, description="Max escalations before falling back to reject"
+    )
 
     # IM notification
     notify_platform: str = Field(default="", description="Notification platform (qq/wechat/feishu)")
@@ -133,7 +149,9 @@ class HITLConfig(BaseSettings):
     notify_chat_type: str = Field(default="group", description="Chat type (group/private)")
     notify_access_token: str = Field(default="", description="Notification bridge access token")
     notify_secret: str = Field(default="", description="Notification platform signing secret")
-    notify_targets: list[dict[str, Any]] = Field(default_factory=list, description="Notification targets")
+    notify_targets: list[dict[str, Any]] = Field(
+        default_factory=list, description="Notification targets"
+    )
     notify_timeout: float = Field(default=5.0, description="Notification HTTP timeout (seconds)")
     callback_base_url: str = Field(default="", description="Public API base URL for approval links")
     im_webhook_token: str = Field(default="", description="Shared token for IM approval callbacks")
@@ -144,8 +162,13 @@ class HITLConfig(BaseSettings):
 class CostConfig(BaseSettings):
     """Token cost optimization configuration (semantic cache / context pruning / budget)."""
 
-    semantic_cache_enabled: bool = Field(default=True, description="Enable semantic cache on chat path (requires OpenAI embedding key)")
-    context_max_tokens: int = Field(default=8000, description="Context pruning target budget (tokens)")
+    semantic_cache_enabled: bool = Field(
+        default=True,
+        description="Enable semantic cache on chat path (requires OpenAI embedding key)",
+    )
+    context_max_tokens: int = Field(
+        default=8000, description="Context pruning target budget (tokens)"
+    )
     budget_project_id: str = Field(default="default", description="Default budget project id")
     monthly_budget_tokens: int = Field(default=0, description="Monthly token budget, 0 = unlimited")
 
@@ -160,13 +183,25 @@ class WeChatConfig(BaseSettings):
     """
 
     enabled: bool = Field(default=False, description="Enable WeChat two-way bridge")
-    inbound_token: str = Field(default="", description="Shared token to authenticate inbound messages")
-    send_endpoint: str = Field(default="", description="Bridge HTTP endpoint Symbio POSTs replies to")
+    inbound_token: str = Field(
+        default="", description="Shared token to authenticate inbound messages"
+    )
+    send_endpoint: str = Field(
+        default="", description="Bridge HTTP endpoint Symbio POSTs replies to"
+    )
     send_token: str = Field(default="", description="Token sent to the outbound bridge endpoint")
     timeout: float = Field(default=10.0, description="Outbound HTTP timeout (seconds)")
-    reply_in_response: bool = Field(default=True, description="Also return the reply text in the inbound HTTP response")
-    ilink_base_url: str = Field(default="https://ilinkai.weixin.qq.com", description="iLink Bot API base URL (built-in clawbot QR-login mode)")
-    hitl_approver: str = Field(default="", description="WeChat recipient (wxid/contact/group id) that HITL approval cards are pushed to via the logged-in bridge")
+    reply_in_response: bool = Field(
+        default=True, description="Also return the reply text in the inbound HTTP response"
+    )
+    ilink_base_url: str = Field(
+        default="https://ilinkai.weixin.qq.com",
+        description="iLink Bot API base URL (built-in clawbot QR-login mode)",
+    )
+    hitl_approver: str = Field(
+        default="",
+        description="WeChat recipient (wxid/contact/group id) that HITL approval cards are pushed to via the logged-in bridge",
+    )
 
     model_config = {"env_prefix": "SYMBIO_WECHAT_"}
 
@@ -176,7 +211,9 @@ class SecurityConfig(BaseSettings):
 
     enabled: bool = Field(default=True, description="Enable injection defense on chat input")
     mode: str = Field(default="default", description="Guard mode: default / strict / permissive")
-    block_enabled: bool = Field(default=True, description="Actually block high-risk input (vs detect-only)")
+    block_enabled: bool = Field(
+        default=True, description="Actually block high-risk input (vs detect-only)"
+    )
 
     model_config = {"env_prefix": "SYMBIO_SECURITY_"}
 
@@ -186,7 +223,10 @@ class OtelConfig(BaseSettings):
 
     enabled: bool = Field(default=False, description="Enable OpenTelemetry tracing")
     exporter: str = Field(default="otlp", description="Exporter type (jaeger/otlp/console)")
-    endpoint: str = Field(default="http://localhost:4317", description="OTLP gRPC endpoint (works with Jaeger >= 1.35)")
+    endpoint: str = Field(
+        default="http://localhost:4317",
+        description="OTLP gRPC endpoint (works with Jaeger >= 1.35)",
+    )
     service_name: str = Field(default="symbio", description="OTel service name")
 
     model_config = {"env_prefix": "SYMBIO_OTEL_"}

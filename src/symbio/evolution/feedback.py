@@ -30,23 +30,25 @@ logger = get_logger("feedback")
 
 class FeedbackType(str, Enum):
     """反馈类型枚举。"""
+
     EXPLICIT = "explicit"
     IMPLICIT = "implicit"
 
 
 class ImplicitActionType(str, Enum):
     """隐式行为类型。"""
+
     CLICK = "click"
     SCROLL = "scroll"
-    DWELL = "dwell"           # 停留
-    COPY = "copy"             # 复制结果
-    REGENERATE = "regenerate" # 重新生成
-    ACCEPT = "accept"         # 采纳结果
-    REJECT = "reject"         # 拒绝结果
-    ABANDON = "abandon"       # 中途放弃
-    RETRY = "retry"           # 重试
-    SHARE = "share"           # 分享
-    BOOKMARK = "bookmark"     # 收藏
+    DWELL = "dwell"  # 停留
+    COPY = "copy"  # 复制结果
+    REGENERATE = "regenerate"  # 重新生成
+    ACCEPT = "accept"  # 采纳结果
+    REJECT = "reject"  # 拒绝结果
+    ABANDON = "abandon"  # 中途放弃
+    RETRY = "retry"  # 重试
+    SHARE = "share"  # 分享
+    BOOKMARK = "bookmark"  # 收藏
 
 
 class ExplicitFeedback(BaseModel):

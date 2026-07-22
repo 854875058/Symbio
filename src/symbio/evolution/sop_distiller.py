@@ -14,7 +14,6 @@ import asyncio
 import statistics
 import threading
 import time
-from collections import defaultdict
 from datetime import datetime
 from enum import Enum
 from typing import Any, Callable, Optional
@@ -53,16 +52,12 @@ class SOP(BaseModel):
     description: str = Field(default="", description="SOP 描述")
     task_type: str = Field(default="", description="适用任务类型")
     steps: list[str] = Field(default_factory=list, description="操作步骤列表")
-    decision_points: list[DecisionPoint] = Field(
-        default_factory=list, description="关键决策点"
-    )
+    decision_points: list[DecisionPoint] = Field(default_factory=list, description="关键决策点")
     success_rate: float = Field(default=1.0, description="成功率 (0.0 ~ 1.0)")
     avg_tokens: int = Field(default=0, description="平均 token 消耗")
     avg_steps: float = Field(default=0.0, description="平均步骤数")
     avg_duration_ms: int = Field(default=0, description="平均耗时(ms)")
-    source_trajectory_ids: list[str] = Field(
-        default_factory=list, description="来源轨迹 ID"
-    )
+    source_trajectory_ids: list[str] = Field(default_factory=list, description="来源轨迹 ID")
     created_at: datetime = Field(default_factory=datetime.now)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -70,15 +65,9 @@ class SOP(BaseModel):
 class SOPQualityThresholds(BaseModel):
     """SOP 蒸馏质量阈值配置。"""
 
-    min_success_rate: float = Field(
-        default=1.0, description="最低成功率，必须 100% 成功"
-    )
-    max_tokens_ratio: float = Field(
-        default=1.5, description="token 上限 = 中位数 * 此系数"
-    )
-    max_steps_ratio: float = Field(
-        default=1.5, description="步骤上限 = 中位数 * 此系数"
-    )
+    min_success_rate: float = Field(default=1.0, description="最低成功率，必须 100% 成功")
+    max_tokens_ratio: float = Field(default=1.5, description="token 上限 = 中位数 * 此系数")
+    max_steps_ratio: float = Field(default=1.5, description="步骤上限 = 中位数 * 此系数")
     max_retries: int = Field(default=1, description="最大允许重试次数")
 
 
@@ -90,9 +79,7 @@ class TrajectoryQueueStats(BaseModel):
     total_dropped: int = Field(default=0, description="累计丢弃数")
     queue_size: int = Field(default=0, description="当前队列长度")
     batch_count: int = Field(default=0, description="累计批次数")
-    last_batch_at: Optional[datetime] = Field(
-        default=None, description="最后一批写入时间"
-    )
+    last_batch_at: Optional[datetime] = Field(default=None, description="最后一批写入时间")
     is_running: bool = Field(default=False, description="后台消费者是否运行中")
 
 
@@ -276,9 +263,7 @@ class SOPDistiller:
 
             # 多工具调用 → 需要选择
             if len(step.tool_calls) > 1:
-                reasons.append(
-                    f"选择工具: {[tc.tool_name for tc in step.tool_calls]}"
-                )
+                reasons.append(f"选择工具: {[tc.tool_name for tc in step.tool_calls]}")
 
             # 思维中包含选择/比较关键词
             thought_lower = step.thought.lower()
@@ -422,9 +407,7 @@ class AsyncTrajectoryCapture:
 
         if loop.is_running():
             # 在已有事件循环中（如 FastAPI），通过 ensure_future 启动
-            self._consumer_task = asyncio.ensure_future(
-                self._consumer_loop(), loop=loop
-            )
+            self._consumer_task = asyncio.ensure_future(self._consumer_loop(), loop=loop)
         else:
             self._consumer_task = loop.create_task(self._consumer_loop())
 

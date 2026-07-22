@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from datetime import datetime
 from enum import Enum
@@ -20,72 +19,79 @@ logger = get_logger("ontology")
 # Pydantic 数据模型
 # ---------------------------------------------------------------------------
 
+
 class EntityType(str, Enum):
     """实体类型"""
-    CONCEPT = "concept"          # 概念类
-    INDIVIDUAL = "individual"    # 个体实例
-    PROPERTY = "property"        # 属性
-    RELATION = "relation"        # 关系
+
+    CONCEPT = "concept"  # 概念类
+    INDIVIDUAL = "individual"  # 个体实例
+    PROPERTY = "property"  # 属性
+    RELATION = "relation"  # 关系
 
 
 class RelationType(str, Enum):
     """关系类型"""
-    IS_A = "is_a"                    # 继承关系 (A is_a B)
-    PART_OF = "part_of"              # 组成关系 (A part_of B)
-    HAS_PROPERTY = "has_property"    # 属性关系 (A has_property P)
-    INSTANCE_OF = "instance_of"      # 实例关系 (A instance_of C)
-    RELATED_TO = "related_to"        # 一般关联
-    CAUSES = "causes"                # 因果关系
-    TEMPORAL = "temporal"            # 时序关系
-    SPATIAL = "spatial"              # 空间关系
-    CUSTOM = "custom"                # 自定义关系
+
+    IS_A = "is_a"  # 继承关系 (A is_a B)
+    PART_OF = "part_of"  # 组成关系 (A part_of B)
+    HAS_PROPERTY = "has_property"  # 属性关系 (A has_property P)
+    INSTANCE_OF = "instance_of"  # 实例关系 (A instance_of C)
+    RELATED_TO = "related_to"  # 一般关联
+    CAUSES = "causes"  # 因果关系
+    TEMPORAL = "temporal"  # 时序关系
+    SPATIAL = "spatial"  # 空间关系
+    CUSTOM = "custom"  # 自定义关系
 
 
 class InferenceRule(str, Enum):
     """推理规则"""
-    TRANSITIVITY = "transitivity"        # 传递性 (A is_a B, B is_a C => A is_a C)
-    INHERITANCE = "inheritance"          # 属性继承
-    COMPOSITION = "composition"          # 组合推理
-    SYMMETRY = "symmetry"                # 对称性
-    INVERSE = "inverse"                  # 反向关系
+
+    TRANSITIVITY = "transitivity"  # 传递性 (A is_a B, B is_a C => A is_a C)
+    INHERITANCE = "inheritance"  # 属性继承
+    COMPOSITION = "composition"  # 组合推理
+    SYMMETRY = "symmetry"  # 对称性
+    INVERSE = "inverse"  # 反向关系
 
 
 # T-Box: 概念层（Schema）
 class Concept(BaseModel):
     """概念定义（T-Box）"""
+
     concept_id: str = Field(default_factory=lambda: str(uuid4()))
-    name: str                                    # 概念名称
-    description: str = ""                        # 概念描述
+    name: str  # 概念名称
+    description: str = ""  # 概念描述
     parent_concepts: list[str] = Field(default_factory=list)  # 父概念 ID 列表
-    properties: list[str] = Field(default_factory=list)       # 属性定义 ID 列表
-    constraints: dict[str, Any] = Field(default_factory=dict) # 约束条件
+    properties: list[str] = Field(default_factory=list)  # 属性定义 ID 列表
+    constraints: dict[str, Any] = Field(default_factory=dict)  # 约束条件
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.now)
 
 
 class PropertyDefinition(BaseModel):
     """属性定义（T-Box）"""
+
     property_id: str = Field(default_factory=lambda: str(uuid4()))
-    name: str                                    # 属性名称
-    domain: str = ""                             # 定义域（概念名称）
-    range_type: str = "string"                   # 值域类型
-    is_required: bool = False                    # 是否必填
-    is_unique: bool = False                      # 是否唯一
-    default_value: Any = None                    # 默认值
+    name: str  # 属性名称
+    domain: str = ""  # 定义域（概念名称）
+    range_type: str = "string"  # 值域类型
+    is_required: bool = False  # 是否必填
+    is_unique: bool = False  # 是否唯一
+    default_value: Any = None  # 默认值
     constraints: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class RelationDefinition(BaseModel):
     """关系定义（T-Box）"""
+
     relation_id: str = Field(default_factory=lambda: str(uuid4()))
-    name: str                                    # 关系名称
+    name: str  # 关系名称
     relation_type: RelationType = RelationType.CUSTOM
-    domain_concept: str = ""                     # 定义域概念
-    range_concept: str = ""                      # 值域概念
-    is_transitive: bool = False                  # 是否可传递
-    is_symmetric: bool = False                   # 是否对称
-    inverse_relation: str = ""                   # 反向关系名称
+    domain_concept: str = ""  # 定义域概念
+    range_concept: str = ""  # 值域概念
+    is_transitive: bool = False  # 是否可传递
+    is_symmetric: bool = False  # 是否对称
+    inverse_relation: str = ""  # 反向关系名称
     constraints: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -93,8 +99,9 @@ class RelationDefinition(BaseModel):
 # A-Box: 实例层（Data）
 class Individual(BaseModel):
     """个体实例（A-Box）"""
+
     individual_id: str = Field(default_factory=lambda: str(uuid4()))
-    name: str                                    # 实例名称
+    name: str  # 实例名称
     concept_ids: list[str] = Field(default_factory=list)  # 所属概念 ID 列表
     properties: dict[str, Any] = Field(default_factory=dict)  # 属性值
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -104,11 +111,12 @@ class Individual(BaseModel):
 
 class RelationInstance(BaseModel):
     """关系实例（A-Box）"""
+
     instance_id: str = Field(default_factory=lambda: str(uuid4()))
-    relation_id: str                             # 关系定义 ID
-    source_id: str                               # 源实体 ID
-    target_id: str                               # 目标实体 ID
-    weight: float = 1.0                          # 关系权重
+    relation_id: str  # 关系定义 ID
+    source_id: str  # 源实体 ID
+    target_id: str  # 目标实体 ID
+    weight: float = 1.0  # 关系权重
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.now)
 
@@ -116,6 +124,7 @@ class RelationInstance(BaseModel):
 # 图结构
 class GraphNode(BaseModel):
     """图节点"""
+
     node_id: str
     node_type: EntityType = EntityType.CONCEPT
     label: str = ""
@@ -124,6 +133,7 @@ class GraphNode(BaseModel):
 
 class GraphEdge(BaseModel):
     """图边"""
+
     edge_id: str = Field(default_factory=lambda: str(uuid4()))
     source_id: str
     target_id: str
@@ -134,39 +144,43 @@ class GraphEdge(BaseModel):
 
 class SubGraph(BaseModel):
     """子图查询结果"""
+
     subgraph_id: str = Field(default_factory=lambda: str(uuid4()))
-    center_node_id: str                          # 中心节点
+    center_node_id: str  # 中心节点
     nodes: list[GraphNode] = Field(default_factory=list)
     edges: list[GraphEdge] = Field(default_factory=list)
-    depth: int = 0                               # 查询深度
-    token_estimate: int = 0                      # 预估 Token 数（用于零 Token 控制）
+    depth: int = 0  # 查询深度
+    token_estimate: int = 0  # 预估 Token 数（用于零 Token 控制）
 
 
 class QueryResult(BaseModel):
     """查询结果"""
+
     result_id: str = Field(default_factory=lambda: str(uuid4()))
     query: str
     results: list[dict[str, Any]] = Field(default_factory=list)
     subgraph: Optional[SubGraph] = None
-    token_count: int = 0                         # 结果占用的 Token 数
+    token_count: int = 0  # 结果占用的 Token 数
     inference_applied: list[InferenceRule] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.now)
 
 
 class OntologyConfig(BaseModel):
     """本体引擎配置"""
-    max_depth: int = 3                           # 最大查询深度
-    max_nodes_per_query: int = 50                # 每次查询最大节点数
-    enable_inference: bool = True                # 启用推理
-    enable_inheritance: bool = True              # 启用属性继承
-    token_budget: int = 2000                     # Token 预算（零 Token 控制）
-    persist_path: str = ""                       # 持久化路径
-    auto_save: bool = True                       # 自动保存
+
+    max_depth: int = 3  # 最大查询深度
+    max_nodes_per_query: int = 50  # 每次查询最大节点数
+    enable_inference: bool = True  # 启用推理
+    enable_inheritance: bool = True  # 启用属性继承
+    token_budget: int = 2000  # Token 预算（零 Token 控制）
+    persist_path: str = ""  # 持久化路径
+    auto_save: bool = True  # 自动保存
 
 
 # ---------------------------------------------------------------------------
 # 本体引擎
 # ---------------------------------------------------------------------------
+
 
 class OntologyEngine:
     """本体引擎
@@ -207,8 +221,8 @@ class OntologyEngine:
         self._relation_instances: dict[str, RelationInstance] = {}
 
         # 索引
-        self._name_to_concept: dict[str, str] = {}      # name -> concept_id
-        self._name_to_individual: dict[str, str] = {}    # name -> individual_id
+        self._name_to_concept: dict[str, str] = {}  # name -> concept_id
+        self._name_to_individual: dict[str, str] = {}  # name -> individual_id
         self._concept_individuals: dict[str, list[str]] = {}  # concept_id -> [individual_ids]
 
         # 推理缓存
@@ -402,33 +416,37 @@ class OntologyEngine:
         concept_id = self._name_to_concept.get(entity_name.lower())
         if concept_id:
             concept = self._concepts[concept_id]
-            results.append({
-                "type": "concept",
-                "id": concept.concept_id,
-                "name": concept.name,
-                "description": concept.description,
-                "parent_concepts": [
-                    self._concepts[pid].name
-                    for pid in concept.parent_concepts
-                    if pid in self._concepts
-                ],
-            })
+            results.append(
+                {
+                    "type": "concept",
+                    "id": concept.concept_id,
+                    "name": concept.name,
+                    "description": concept.description,
+                    "parent_concepts": [
+                        self._concepts[pid].name
+                        for pid in concept.parent_concepts
+                        if pid in self._concepts
+                    ],
+                }
+            )
 
         # 查找个体
         individual_id = self._name_to_individual.get(entity_name.lower())
         if individual_id:
             individual = self._individuals[individual_id]
-            results.append({
-                "type": "individual",
-                "id": individual.individual_id,
-                "name": individual.name,
-                "concepts": [
-                    self._concepts[cid].name
-                    for cid in individual.concept_ids
-                    if cid in self._concepts
-                ],
-                "properties": individual.properties,
-            })
+            results.append(
+                {
+                    "type": "individual",
+                    "id": individual.individual_id,
+                    "name": individual.name,
+                    "concepts": [
+                        self._concepts[cid].name
+                        for cid in individual.concept_ids
+                        if cid in self._concepts
+                    ],
+                    "properties": individual.properties,
+                }
+            )
 
         # 生成子图
         subgraph = None
@@ -453,13 +471,15 @@ class OntologyEngine:
             target = self._individuals.get(rel_inst.target_id)
 
             if source and target:
-                results.append({
-                    "type": "relation",
-                    "relation": rel_def.name,
-                    "source": source.name,
-                    "target": target.name,
-                    "weight": rel_inst.weight,
-                })
+                results.append(
+                    {
+                        "type": "relation",
+                        "relation": rel_def.name,
+                        "source": source.name,
+                        "target": target.name,
+                        "weight": rel_inst.weight,
+                    }
+                )
 
         return results
 
@@ -476,12 +496,14 @@ class OntologyEngine:
         if individual_id:
             individual = self._individuals[individual_id]
             for prop_name, prop_value in individual.properties.items():
-                results.append({
-                    "type": "property",
-                    "entity": individual.name,
-                    "property": prop_name,
-                    "value": prop_value,
-                })
+                results.append(
+                    {
+                        "type": "property",
+                        "entity": individual.name,
+                        "property": prop_name,
+                        "value": prop_value,
+                    }
+                )
 
             # 属性继承
             if self._config.enable_inheritance:
@@ -489,13 +511,17 @@ class OntologyEngine:
                     inherited = self._get_inherited_properties(concept_id)
                     for prop_name, prop_value in inherited.items():
                         if prop_name not in individual.properties:
-                            results.append({
-                                "type": "inherited_property",
-                                "entity": individual.name,
-                                "property": prop_name,
-                                "value": prop_value,
-                                "inherited_from": self._concepts.get(concept_id, Concept(name="unknown")).name,
-                            })
+                            results.append(
+                                {
+                                    "type": "inherited_property",
+                                    "entity": individual.name,
+                                    "property": prop_name,
+                                    "value": prop_value,
+                                    "inherited_from": self._concepts.get(
+                                        concept_id, Concept(name="unknown")
+                                    ).name,
+                                }
+                            )
 
         return results
 
@@ -511,26 +537,30 @@ class OntologyEngine:
         # 搜索概念
         for concept in self._concepts.values():
             if query_lower in concept.name.lower() or query_lower in concept.description.lower():
-                results.append({
-                    "type": "concept",
-                    "id": concept.concept_id,
-                    "name": concept.name,
-                    "description": concept.description,
-                })
+                results.append(
+                    {
+                        "type": "concept",
+                        "id": concept.concept_id,
+                        "name": concept.name,
+                        "description": concept.description,
+                    }
+                )
 
         # 搜索个体
         for individual in self._individuals.values():
             if query_lower in individual.name.lower():
-                results.append({
-                    "type": "individual",
-                    "id": individual.individual_id,
-                    "name": individual.name,
-                    "concepts": [
-                        self._concepts[cid].name
-                        for cid in individual.concept_ids
-                        if cid in self._concepts
-                    ],
-                })
+                results.append(
+                    {
+                        "type": "individual",
+                        "id": individual.individual_id,
+                        "name": individual.name,
+                        "concepts": [
+                            self._concepts[cid].name
+                            for cid in individual.concept_ids
+                            if cid in self._concepts
+                        ],
+                    }
+                )
 
         # 生成子图（如果有结果）
         subgraph = None
@@ -674,24 +704,28 @@ class OntologyEngine:
                 # 传递性推理（通过 is_a 关系）
                 transitive_concepts = self._infer_transitive_concepts(individual_id)
                 if transitive_concepts:
-                    inferred.append({
-                        "type": "inferred_concept",
-                        "individual": result.get("name", ""),
-                        "inferred_concepts": transitive_concepts,
-                        "rule": "transitivity",
-                    })
+                    inferred.append(
+                        {
+                            "type": "inferred_concept",
+                            "individual": result.get("name", ""),
+                            "inferred_concepts": transitive_concepts,
+                            "rule": "transitivity",
+                        }
+                    )
                     if InferenceRule.TRANSITIVITY not in applied_rules:
                         applied_rules.append(InferenceRule.TRANSITIVITY)
 
                 # 属性继承推理
                 inherited_props = self._infer_inherited_properties(individual_id)
                 if inherited_props:
-                    inferred.append({
-                        "type": "inferred_properties",
-                        "individual": result.get("name", ""),
-                        "inherited_properties": inherited_props,
-                        "rule": "inheritance",
-                    })
+                    inferred.append(
+                        {
+                            "type": "inferred_properties",
+                            "individual": result.get("name", ""),
+                            "inherited_properties": inherited_props,
+                            "rule": "inheritance",
+                        }
+                    )
                     if InferenceRule.INHERITANCE not in applied_rules:
                         applied_rules.append(InferenceRule.INHERITANCE)
 
@@ -732,9 +766,7 @@ class OntologyEngine:
 
         # 移除直接概念（已经知道的）
         direct_concepts = {
-            self._concepts[cid].name
-            for cid in individual.concept_ids
-            if cid in self._concepts
+            self._concepts[cid].name for cid in individual.concept_ids if cid in self._concepts
         }
         inferred = list(all_concepts - direct_concepts)
 
@@ -761,7 +793,10 @@ class OntologyEngine:
                     continue
 
                 # 如果个体没有该属性，继承默认值
-                if prop_def.name not in individual.properties and prop_def.default_value is not None:
+                if (
+                    prop_def.name not in individual.properties
+                    and prop_def.default_value is not None
+                ):
                     inherited[prop_def.name] = prop_def.default_value
 
         return inherited
@@ -813,7 +848,9 @@ class OntologyEngine:
         edges: list[GraphEdge],
     ) -> int:
         """估算子图占用的 Token 数"""
-        node_chars = sum(len(node.label) + len(json.dumps(node.data, ensure_ascii=False)) for node in nodes)
+        node_chars = sum(
+            len(node.label) + len(json.dumps(node.data, ensure_ascii=False)) for node in nodes
+        )
         edge_chars = sum(len(edge.label) + 20 for edge in edges)
         return (node_chars + edge_chars) // 4
 
@@ -906,9 +943,7 @@ class OntologyEngine:
         hierarchy: dict[str, list[str]] = {}
         for concept in self._concepts.values():
             parents = [
-                self._concepts[pid].name
-                for pid in concept.parent_concepts
-                if pid in self._concepts
+                self._concepts[pid].name for pid in concept.parent_concepts if pid in self._concepts
             ]
             hierarchy[concept.name] = parents
         return hierarchy

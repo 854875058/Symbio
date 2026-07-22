@@ -72,7 +72,7 @@ class CheckpointManager:
 
         await self._db.execute(
             "INSERT INTO checkpoints (id, task_id, data, created_at) VALUES (?, ?, ?, ?)",
-            (checkpoint_id, task_id, data, created_at)
+            (checkpoint_id, task_id, data, created_at),
         )
         await self._db.commit()
 
@@ -92,8 +92,7 @@ class CheckpointManager:
             await self.initialize()
 
         cursor = await self._db.execute(
-            "SELECT data FROM checkpoints WHERE id = ?",
-            (checkpoint_id,)
+            "SELECT data FROM checkpoints WHERE id = ?", (checkpoint_id,)
         )
         row = await cursor.fetchone()
 
@@ -117,7 +116,7 @@ class CheckpointManager:
 
         cursor = await self._db.execute(
             "SELECT data FROM checkpoints WHERE task_id = ? ORDER BY created_at DESC LIMIT 1",
-            (task_id,)
+            (task_id,),
         )
         row = await cursor.fetchone()
 
@@ -146,19 +145,16 @@ class CheckpointManager:
         if task_id:
             cursor = await self._db.execute(
                 "SELECT id, task_id, created_at FROM checkpoints WHERE task_id = ? ORDER BY created_at DESC LIMIT ?",
-                (task_id, limit)
+                (task_id, limit),
             )
         else:
             cursor = await self._db.execute(
                 "SELECT id, task_id, created_at FROM checkpoints ORDER BY created_at DESC LIMIT ?",
-                (limit,)
+                (limit,),
             )
 
         rows = await cursor.fetchall()
-        return [
-            {"id": row[0], "task_id": row[1], "created_at": row[2]}
-            for row in rows
-        ]
+        return [{"id": row[0], "task_id": row[1], "created_at": row[2]} for row in rows]
 
     async def delete_checkpoint(self, checkpoint_id: str) -> bool:
         """删除检查点
@@ -172,10 +168,7 @@ class CheckpointManager:
         if not self._db:
             await self.initialize()
 
-        cursor = await self._db.execute(
-            "DELETE FROM checkpoints WHERE id = ?",
-            (checkpoint_id,)
-        )
+        cursor = await self._db.execute("DELETE FROM checkpoints WHERE id = ?", (checkpoint_id,))
         await self._db.commit()
 
         return cursor.rowcount > 0
@@ -192,15 +185,13 @@ class CheckpointManager:
         if not self._db:
             await self.initialize()
 
-        cutoff = datetime.now().replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
+        cutoff = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         from datetime import timedelta
+
         cutoff = cutoff - timedelta(days=days)
 
         cursor = await self._db.execute(
-            "DELETE FROM checkpoints WHERE created_at < ?",
-            (cutoff.isoformat(),)
+            "DELETE FROM checkpoints WHERE created_at < ?", (cutoff.isoformat(),)
         )
         await self._db.commit()
 

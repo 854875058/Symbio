@@ -28,8 +28,19 @@ logger = get_logger("decomposer")
 # ---------------------------------------------------------------------------
 
 _DEBATE_KEYWORDS: set[str] = {
-    "对比", "评估", "选择", "比较", "权衡", "评判", "分析优劣",
-    "compare", "evaluate", "choose", "assess", "weigh", "trade-off",
+    "对比",
+    "评估",
+    "选择",
+    "比较",
+    "权衡",
+    "评判",
+    "分析优劣",
+    "compare",
+    "evaluate",
+    "choose",
+    "assess",
+    "weigh",
+    "trade-off",
 }
 
 # ---------------------------------------------------------------------------
@@ -239,18 +250,20 @@ class TaskDecomposer:
             name = raw_st.get("name", f"subtask_{st_id[:8]}")
             name_to_id[name] = st_id
 
-            subtasks.append(SubTask(
-                subtask_id=st_id,
-                name=name,
-                description=raw_st.get("description", ""),
-                action=raw_st.get("action", "chat"),
-                dependencies=[],  # 先留空，后面统一解析
-                estimated_complexity=self._parse_complexity(
-                    raw_st.get("estimated_complexity", "medium")
-                ),
-                suggested_agent=raw_st.get("suggested_agent", "general"),
-                parameters=raw_st.get("parameters", {}),
-            ))
+            subtasks.append(
+                SubTask(
+                    subtask_id=st_id,
+                    name=name,
+                    description=raw_st.get("description", ""),
+                    action=raw_st.get("action", "chat"),
+                    dependencies=[],  # 先留空，后面统一解析
+                    estimated_complexity=self._parse_complexity(
+                        raw_st.get("estimated_complexity", "medium")
+                    ),
+                    suggested_agent=raw_st.get("suggested_agent", "general"),
+                    parameters=raw_st.get("parameters", {}),
+                )
+            )
 
         # 第二遍：解析 dependencies（name -> subtask_id）
         for subtask, raw_st in zip(subtasks, raw_subtasks):
@@ -263,9 +276,7 @@ class TaskDecomposer:
                     if dep_id and dep_id != subtask.subtask_id:
                         subtask.dependencies.append(dep_id)
                     elif dep_name and dep_name not in name_to_id:
-                        logger.warning(
-                            f"子任务 '{subtask.name}' 依赖 '{dep_name}' 未找到，已忽略"
-                        )
+                        logger.warning(f"子任务 '{subtask.name}' 依赖 '{dep_name}' 未找到，已忽略")
 
         return DecompositionResult(
             task_id=task_id,
@@ -306,9 +317,7 @@ class TaskDecomposer:
                     in_degree[st.subtask_id] += 1
 
         # Kahn 算法：逐层提取入度为 0 的节点
-        queue: deque[str] = deque(
-            sid for sid, deg in in_degree.items() if deg == 0
-        )
+        queue: deque[str] = deque(sid for sid, deg in in_degree.items() if deg == 0)
         execution_order: list[list[str]] = []
 
         while queue:
@@ -327,9 +336,7 @@ class TaskDecomposer:
         total_sorted = sum(len(group) for group in execution_order)
         if total_sorted < len(subtasks):
             orphan_ids = id_set - {sid for group in execution_order for sid in group}
-            logger.warning(
-                f"检测到循环依赖，以下子任务无法排序: {orphan_ids}，追加到最后一组"
-            )
+            logger.warning(f"检测到循环依赖，以下子任务无法排序: {orphan_ids}，追加到最后一组")
             execution_order.append(list(orphan_ids))
 
         return execution_order
@@ -424,7 +431,7 @@ class TaskDecomposer:
             # 去掉首行 ```json 或 ```
             first_newline = text.find("\n")
             if first_newline != -1:
-                text = text[first_newline + 1:]
+                text = text[first_newline + 1 :]
             # 去掉末尾 ```
             if text.endswith("```"):
                 text = text[:-3].strip()

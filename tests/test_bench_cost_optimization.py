@@ -23,8 +23,7 @@ def test_layered_router_bench_shape_and_bounds():
     r = bench.bench_layered_router()
     assert r["total_nodes"] == 100
     # 分类计数之和等于总数
-    assert (r["success"] + r["transient_error"]
-            + r["unknown_error"] + r["structural_error"]) == 100
+    assert (r["success"] + r["transient_error"] + r["unknown_error"] + r["structural_error"]) == 100
     # 成功 + 瞬态无需 LLM；未知 + 结构才调 LLM
     assert r["llm_calls"] == r["unknown_error"] + r["structural_error"]
     assert r["llm_avoided"] == r["success"] + r["transient_error"]
