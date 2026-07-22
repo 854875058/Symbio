@@ -84,9 +84,15 @@ class ToolConfig(BaseSettings):
 class ServerConfig(BaseSettings):
     """Server configuration."""
 
-    host: str = Field(default="0.0.0.0", description="Server host")
+    host: str = Field(default="127.0.0.1", description="Server host (use 0.0.0.0 only behind reverse proxy)")
     port: int = Field(default=9090, description="Server port")
     debug: bool = Field(default=False, description="Debug mode")
+
+    # CORS - comma-separated origins, e.g. "http://localhost:3000,https://app.example.com"
+    cors_origins: str = Field(
+        default="http://localhost:9090,http://127.0.0.1:9090",
+        description="Allowed CORS origins (comma-separated). Use * only without credentials.",
+    )
 
     # WebSocket
     ws_heartbeat_interval: int = Field(default=30, description="WebSocket heartbeat interval")
