@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Optional
 
 from symbio.agents.base import BaseAgent
@@ -15,11 +16,16 @@ class AgentRegistry:
     """Agent 注册中心
 
     管理所有注册的 Agent，支持动态发现和匹配。
+
+    设计原则：
+    - 保存 Agent 类和原型实例（用于查询）
+    - 每次任务请求创建新实例，避免并发状态错乱
     """
 
     def __init__(self):
-        self._agents: dict[str, BaseAgent] = {}
-        self._agent_classes: dict[str, type[BaseAgent]] = {}
+        self._prototypes: dict[str, BaseAgent] = {}  # 原型实例（只读，用于查询）
+        self._agent_classes: dict[str, type[BaseAgent]] = {}  # Agent 类
+        self._creation_lock = asyncio.Lock()  # 保护并发创建
 
     def register(self, agent_class: type[BaseAgent]) -> type[BaseAgent]:
         """注册 Agent 类（装饰器）
@@ -30,29 +36,62 @@ class AgentRegistry:
                 name = "my_agent"
                 ...
         """
-        instance = agent_class()
-        self._agents[instance.name] = instance
-        self._agent_classes[instance.name] = agent_class
-        logger.info(f"注册 Agent: {instance.name}")
+        # 创建原型实例（只用于查询，不用于执行）
+        prototype = agent_class()
+        self._prototypes[prototype.name] = prototype
+        self._agent_classes[prototype.name] = agent_class
+        logger.info(f"注册 Agent: {prototype.name}")
         return agent_class
 
     def register_instance(self, agent: BaseAgent) -> None:
-        """注册 Agent 实例"""
-        self._agents[agent.name] = agent
+        """注册 Agent 实例（作为原型）"""
+        self._prototypes[agent.name] = agent
         logger.info(f"注册 Agent 实例: {agent.name}")
 
     def unregister(self, name: str) -> bool:
         """注销 Agent"""
-        if name in self._agents:
-            del self._agents[name]
+        if name in self._prototypes:
+            del self._prototypes[name]
             self._agent_classes.pop(name, None)
             logger.info(f"注销 Agent: {name}")
             return True
         return False
 
     def get(self, name: str) -> Optional[BaseAgent]:
-        """获取 Agent"""
-        return self._agents.get(name)
+        """获取 Agent 原型（只读，用于查询状态）
+
+        注意：不要并发调用此实例的 start() 等修改状态的方法
+        """
+        return self._prototypes.get(name)
+
+    def create_instance(self, name: str) -> Optional[BaseAgent]:
+        """创建新的 Agent 实例（用于并发执行）
+
+        每次调用都返回新实例，避免并发状态错乱。
+        """
+        agent_class = self._agent_classes.get(name)
+        if not agent_class:
+            logger.warning(f"未找到 Agent 类: {name}")
+            return None
+        return agent_class()
+
+    async def get_available_instance(self, name: str) -> Optional[BaseAgent]:
+        """获取可用的 Agent 实例（线程安全）
+
+        如果原型空闲，返回原型；否则创建新实例。
+        """
+        async with self._creation_lock:
+            prototype = self._prototypes.get(name)
+            if not prototype:
+                return None
+
+            # 如果原型空闲，返回原型
+            if prototype.state in [AgentState.IDLE, AgentState.COMPLETED]:
+                return prototype
+
+            # 否则创建新实例
+            logger.debug(f"Agent {name} 忙碌，创建新实例")
+            return self.create_instance(name)
 
     async def find_best(self, intent: Intent) -> Optional[BaseAgent]:
         """查找最适合的 Agent（异步并发评分）
