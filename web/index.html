@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css?v=2">
+  <link rel="stylesheet" href="/static/style.css?v=3">
   <link rel="stylesheet" href="/static/xterm.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <script src="/static/qrcode.min.js"></script>
@@ -16,6 +16,8 @@
   <script src="/static/xterm-addon-fit.min.js"></script>
 </head>
 <body>
+  <!-- 跳过导航：键盘用户第一个 Tab 就能直达主内容，不必穿过 17 个导航项 -->
+  <a class="skip-link" href="#main-content">跳到主内容</a>
   <div class="app">
     <!-- Left Sidebar -->
     <aside class="sidebar" id="sidebar">
@@ -37,12 +39,12 @@
         </div>
       </div>
 
-      <nav class="sidebar-nav">
+      <nav class="sidebar-nav" aria-label="主导航">
 
         <!-- 核心 -->
         <div class="nav-group">
           <span class="nav-group-label">核心</span>
-          <button class="nav-tab active" data-page="chat" title="对话">
+          <button class="nav-tab active" data-page="chat" title="对话" aria-current="page">
             <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
             <span class="nav-label">对话</span>
           </button>
@@ -170,7 +172,7 @@
           <span class="topbar-title" id="topbar-title">对话</span>
         </div>
         <div class="topbar-right">
-          <button class="icon-btn topbar-btn topbar-theme" id="topbar-theme-toggle" title="切换主题（浅色 / 深色）">
+          <button class="icon-btn topbar-btn topbar-theme" id="topbar-theme-toggle" title="切换主题（浅色 / 深色）" aria-label="切换主题（浅色 / 深色）">
             <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
             <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
           </button>
@@ -178,7 +180,7 @@
       </header>
 
     <!-- Main Content -->
-    <div class="main-content">
+    <div class="main-content" id="main-content" tabindex="-1">
       <!-- Chat Page -->
       <div class="page active" id="page-chat">
         <aside class="sessions-sidebar">
@@ -224,10 +226,10 @@
             <div class="input-wrapper">
               <textarea id="message-input" placeholder="输入消息..." rows="1"></textarea>
               <div class="input-actions">
-                <button class="input-btn" title="附件">
+                <button class="input-btn" title="附件" aria-label="添加附件">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
                 </button>
-                <button class="send-btn" id="send-btn" disabled>
+                <button class="send-btn" id="send-btn" disabled title="发送（Enter）" aria-label="发送消息">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
                 </button>
               </div>
@@ -247,7 +249,7 @@
         <aside class="context-panel" id="context-panel">
           <div class="panel-header">
             <span>上下文</span>
-            <button class="icon-btn-sm" id="toggle-panel">
+            <button class="icon-btn-sm" id="toggle-panel" title="收起 / 展开右侧上下文面板" aria-label="收起或展开右侧上下文面板">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
             </button>
           </div>
@@ -1597,7 +1599,7 @@
     </footer>
   </div>
 
-  <div class="toast-container" id="toast-container"></div>
+  <div class="toast-container" id="toast-container" role="status" aria-live="polite" aria-atomic="false"></div>
 
   <!-- 工作区目录选择弹窗（服务端目录浏览） -->
   <div class="dirpicker-overlay" id="dirpicker-overlay" style="display:none;">
@@ -1615,6 +1617,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=2"></script>
+  <script src="/static/app.js?v=3"></script>
 </body>
 </html>

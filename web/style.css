@@ -180,6 +180,37 @@ body {
   border-radius: var(--radius-sm);
 }
 
+/* ============ 跳过导航链接 ============
+   平时移出视口，仅在键盘聚焦时滑入左上角。 */
+.skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 5000;
+  padding: 8px 14px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  font-size: var(--fs-sm);
+  text-decoration: none;
+  transform: translateY(-200%);
+  transition: transform 160ms var(--ease-out);
+}
+.skip-link:focus { transform: translateY(0); }
+
+/* 仅读屏可见（用于给纯图标控件补文本、播报状态） */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* 尊重系统的"减少动态效果"偏好：关闭持续动画，降低 CPU/GPU 占用与晕眩风险 */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -654,7 +685,7 @@ textarea {
   flex:1; background:transparent; border:none;
   color:var(--text-primary); font-family:var(--font-body);
   font-size:var(--fs-md); line-height:1.5; padding:8px;
-  resize:none; max-height:180px; outline:none;
+  resize:none; max-height:180px;
 }
 textarea::placeholder { color:var(--text-tertiary); }
 
@@ -709,7 +740,7 @@ textarea::placeholder { color:var(--text-tertiary); }
   color: var(--text-secondary);
   font: 0.68rem var(--font-mono);
   padding: 2px 8px;
-  outline: none;
+
 }
 
 .chat-model-picker select:focus {
@@ -778,7 +809,7 @@ textarea::placeholder { color:var(--text-tertiary); }
 .select-input {
   padding:6px 12px; background:var(--bg-tertiary); border:1px solid var(--border);
   color:var(--text-primary); font-family:var(--font-body); font-size:var(--fs-sm);
-  border-radius:var(--radius-md); cursor:pointer; outline:none;
+  border-radius:var(--radius-md); cursor:pointer;
 }
 .select-input:focus { border-color:var(--accent-text); }
 .btn-outline {
@@ -1166,7 +1197,7 @@ textarea::placeholder { color:var(--text-tertiary); }
 .search-box input {
   background:transparent; border:none; color:var(--text-primary);
   font-family:var(--font-body); font-size:var(--fs-sm);
-  padding:8px 0; outline:none; width:200px;
+  padding:8px 0; width:200px;
 }
 .search-box input::placeholder { color:var(--text-tertiary); }
 
@@ -1856,7 +1887,7 @@ textarea::placeholder { color:var(--text-tertiary); }
   color: var(--text-secondary);
   font-size: var(--fs-xs);
   font-family: var(--font-mono);
-  outline: none;
+
 }
 .execution-filter-select:focus {
   border-color: var(--accent-text);
@@ -2309,7 +2340,7 @@ textarea::placeholder { color:var(--text-tertiary); }
   color: var(--text-primary);
   font-family: var(--font-body);
   font-size: var(--fs-sm);
-  outline: none;
+
   transition: border-color 200ms, box-shadow 200ms;
 }
 .form-group textarea {
@@ -3520,7 +3551,7 @@ textarea::placeholder { color:var(--text-tertiary); }
   resize: vertical;
   box-sizing: border-box;
 }
-.security-scan-input:focus { outline: none; border-color: var(--accent-text); }
+.security-scan-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
 .security-scan-result { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
 .security-scan-verdict {
   display: flex;
@@ -4932,7 +4963,7 @@ textarea::placeholder { color:var(--text-tertiary); }
   border: 2px solid var(--accent);
   border-radius: 0 0 10px 0;
   resize: none;
-  outline: none;
+
   white-space: pre;
   tab-size: 4;
 }
@@ -5098,7 +5129,7 @@ textarea::placeholder { color:var(--text-tertiary); }
   padding: 7px 9px; border: 1px solid var(--border); border-radius: var(--radius-md);
   background: var(--bg-primary); color: var(--text-primary); font: inherit; font-size: var(--fs-sm);
 }
-.wb-pane-compose textarea:focus { outline: none; border-color: var(--border-accent); }
+.wb-pane-compose textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
 .wb-pane-compose textarea:disabled { opacity: 0.6; }
 
 /* 交互式终端窗格：深底容器承载 xterm */
@@ -5169,7 +5200,7 @@ textarea::placeholder { color:var(--text-tertiary); }
   padding: 9px 11px; border: 1px solid var(--border); border-radius: var(--radius-md);
   background: var(--bg-primary); color: var(--text-primary); font: inherit; font-size: var(--fs-sm);
 }
-.external-live-compose textarea:focus { outline: none; border-color: var(--border-accent); }
+.external-live-compose textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
 .external-live-compose-actions { display: flex; align-items: center; gap: 8px; }
 .external-live-hint { font-size: var(--fs-xs); color: var(--text-tertiary); margin-right: auto; }
 
@@ -5202,7 +5233,7 @@ textarea::placeholder { color:var(--text-tertiary); }
   border: 1px solid var(--border); border-radius: var(--radius-md);
   background: var(--bg-primary); color: var(--text-primary);
 }
-.marketplace-remote-bar input:focus { outline: none; border-color: var(--border-accent); }
+.marketplace-remote-bar input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
 .marketplace-remote-results {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 8px; margin-top: 10px;

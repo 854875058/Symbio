@@ -209,7 +209,13 @@ const PAGE_TITLES = {
 
 async function switchPage(name) {
   state.page = name;
-  dom.navTabs.forEach(t => t.classList.toggle('active', t.dataset.page === name));
+  dom.navTabs.forEach(t => {
+    const on = t.dataset.page === name;
+    t.classList.toggle('active', on);
+    // 读屏用户靠 aria-current 知道"当前在哪一页"，.active 类只是视觉
+    if (on) t.setAttribute('aria-current', 'page');
+    else t.removeAttribute('aria-current');
+  });
   dom.pages.forEach(p => p.classList.toggle('active', p.id === `page-${name}`));
 
   // Update topbar title
@@ -787,6 +793,81 @@ dom.togglePanel?.addEventListener('click', () => {
   dom.panel.classList.toggle('hidden');
 });
 
+// ============ 模态框无障碍（角色标注 + 焦点管理 + Tab 捕获）============
+// 8 处弹窗各自 appendChild(overlay)，而 overlay.remove() 散落在 20 多个地方。
+// 与其改 30 处调用，这里在 body 上挂一个 MutationObserver 统一接管：
+// 新增 .modal-overlay 时补齐 role/aria-modal/aria-labelledby、记住触发元素并把
+// 焦点移进弹窗；最后一个弹窗移除时把焦点还给触发元素。
+const modalA11y = { opener: null, seq: 0 };
+
+const FOCUSABLE_SEL =
+  'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), ' +
+  'select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function focusablesIn(root) {
+  return Array.from(root.querySelectorAll(FOCUSABLE_SEL))
+    .filter(el => el.offsetWidth > 0 || el.offsetHeight > 0);
+}
+
+// 当前可见的弹窗容器（动态 .modal-overlay 或静态目录选择器）
+function activeModalBox() {
+  const dyn = document.querySelector('.modal-overlay:last-of-type .modal');
+  if (dyn) return dyn;
+  const dp = $('#dirpicker-overlay');
+  if (dp && dp.style.display !== 'none') return dp.querySelector('.dirpicker-modal');
+  return null;
+}
+
+function enhanceModal(box) {
+  if (!box || box.dataset.a11yReady === '1') {
+    if (box) focusIntoModal(box);
+    return;
+  }
+  box.dataset.a11yReady = '1';
+  box.setAttribute('role', 'dialog');
+  box.setAttribute('aria-modal', 'true');
+  box.tabIndex = -1;
+  const title = box.querySelector('.modal-header h3, .modal-header h2, .dirpicker-title');
+  if (title) {
+    if (!title.id) title.id = `modal-title-${++modalA11y.seq}`;
+    box.setAttribute('aria-labelledby', title.id);
+  } else {
+    box.setAttribute('aria-label', '对话框');
+  }
+  focusIntoModal(box);
+}
+
+function focusIntoModal(box) {
+  // 优先聚焦第一个"有内容意义"的控件，而不是右上角关闭按钮
+  const items = focusablesIn(box);
+  const target = items.find(el => !el.classList.contains('modal-close-btn')) || items[0] || box;
+  try { target.focus({ preventScroll: true }); } catch { /* 元素不可聚焦时忽略 */ }
+}
+
+function restoreModalFocus() {
+  const el = modalA11y.opener;
+  modalA11y.opener = null;
+  if (el && el.isConnected && typeof el.focus === 'function') {
+    try { el.focus({ preventScroll: true }); } catch { /* 忽略 */ }
+  }
+}
+
+new MutationObserver((records) => {
+  for (const r of records) {
+    for (const n of r.removedNodes) {
+      if (n.nodeType === 1 && n.classList?.contains('modal-overlay') && !activeModalBox()) {
+        restoreModalFocus();
+      }
+    }
+    for (const n of r.addedNodes) {
+      if (n.nodeType === 1 && n.classList?.contains('modal-overlay')) {
+        if (!modalA11y.opener) modalA11y.opener = document.activeElement;
+        enhanceModal(n.querySelector('.modal') || n.firstElementChild);
+      }
+    }
+  }
+}).observe(document.body, { childList: true });
+
 // ============ Keyboard Shortcuts ============
 document.addEventListener('keydown', (e) => {
   // Esc to close modals
@@ -795,6 +876,29 @@ document.addEventListener('keydown', (e) => {
     if (modal) {
       modal.remove();
       return;
+    }
+    const dp = $('#dirpicker-overlay');
+    if (dp && dp.style.display !== 'none') {
+      closeDirPicker();
+      return;
+    }
+  }
+
+  // 弹窗打开时把 Tab 圈在弹窗内，否则焦点会跑到背后不可见的页面上
+  if (e.key === 'Tab') {
+    const box = activeModalBox();
+    if (!box) return;
+    const items = focusablesIn(box);
+    if (!items.length) { e.preventDefault(); box.focus(); return; }
+    const first = items[0];
+    const last = items[items.length - 1];
+    if (!box.contains(document.activeElement)) {
+      e.preventDefault();
+      (e.shiftKey ? last : first).focus();
+    } else if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault(); last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault(); first.focus();
     }
   }
 });
@@ -930,10 +1034,10 @@ function renderModels() {
           <div class="model-card-provider">${esc(m.provider)} / ${esc(m.model_id)}</div>
         </div>
         <div class="model-card-actions">
-          <button class="btn-icon model-test-btn" data-id="${m.id}" title="测试连接">
+          <button class="btn-icon model-test-btn" data-id="${m.id}" title="测试连接" aria-label="测试 ${esc(m.name || m.id)} 的连接">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
           </button>
-          <button class="btn-icon btn-icon-danger model-delete-btn" data-id="${m.id}" title="删除">
+          <button class="btn-icon btn-icon-danger model-delete-btn" data-id="${m.id}" title="删除" aria-label="删除模型 ${esc(m.name || m.id)}">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
           </button>
         </div>
@@ -1020,7 +1124,7 @@ function showAddModelModal() {
     <div class="modal">
       <div class="modal-header">
         <h3>添加模型</h3>
-        <button class="icon-btn modal-close-btn">
+        <button class="icon-btn modal-close-btn" title="关闭" aria-label="关闭对话框">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
@@ -2246,7 +2350,7 @@ async function showTaskDetail(taskId) {
         <h3>${esc(task.name)}</h3>
         <div style="display:flex;align-items:center;gap:8px;">
           <span class="task-status task-status-${task.status}">${statusLabel(task.status)}</span>
-          <button class="icon-btn modal-close-btn">
+          <button class="icon-btn modal-close-btn" title="关闭" aria-label="关闭对话框">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
@@ -2422,7 +2526,7 @@ function showMemoryDetail(memoryId) {
     <div class="modal modal-wide">
       <div class="modal-header">
         <h3>${esc(mem.title)}</h3>
-        <button class="icon-btn modal-close-btn">
+        <button class="icon-btn modal-close-btn" title="关闭" aria-label="关闭对话框">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
@@ -3064,13 +3168,13 @@ function renderSkills(query) {
       </div>
       ${sk.relevance !== undefined ? `<div class="skill-relevance">匹配度 ${(sk.relevance * 100).toFixed(0)}%</div>` : ''}
       <div class="skill-card-actions" onclick="event.stopPropagation()">
-        <button class="skill-action-btn" onclick="showSkillDetail('${sk.id}')" title="查看详情">
+        <button class="skill-action-btn" onclick="showSkillDetail('${sk.id}')" title="查看详情" aria-label="查看技能 ${esc(sk.name || sk.id)} 详情">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
         </button>
-        <button class="skill-action-btn" onclick="editSkill('${sk.id}')" title="编辑">
+        <button class="skill-action-btn" onclick="editSkill('${sk.id}')" title="编辑" aria-label="编辑技能 ${esc(sk.name || sk.id)}">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
         </button>
-        <button class="skill-action-btn skill-action-danger" onclick="deleteSkill('${sk.id}')" title="删除">
+        <button class="skill-action-btn skill-action-danger" onclick="deleteSkill('${sk.id}')" title="删除" aria-label="删除技能 ${esc(sk.name || sk.id)}">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
         </button>
       </div>
@@ -3367,7 +3471,7 @@ function showImportDirModal() {
     <div class="modal">
       <div class="modal-header">
         <h3>从目录导入 Skills</h3>
-        <button class="icon-btn modal-close-btn">
+        <button class="icon-btn modal-close-btn" title="关闭" aria-label="关闭对话框">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
@@ -3426,7 +3530,7 @@ function showImportSkillModal() {
     <div class="modal">
       <div class="modal-header">
         <h3>导入 Skill</h3>
-        <button class="icon-btn modal-close-btn">
+        <button class="icon-btn modal-close-btn" title="关闭" aria-label="关闭对话框">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
@@ -3521,7 +3625,7 @@ function showSkillDetail(id) {
     <div class="modal modal-wide">
       <div class="modal-header">
         <h3>${esc(sk.name)}</h3>
-        <button class="icon-btn modal-close-btn">
+        <button class="icon-btn modal-close-btn" title="关闭" aria-label="关闭对话框">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
@@ -3564,7 +3668,7 @@ function editSkill(id) {
     <div class="modal">
       <div class="modal-header">
         <h3>编辑 Skill</h3>
-        <button class="icon-btn modal-close-btn">
+        <button class="icon-btn modal-close-btn" title="关闭" aria-label="关闭对话框">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
@@ -4030,10 +4134,12 @@ function esc(text) {
 }
 
 function showLoading(container, message = '加载中...') {
+  // aria-busy/role=status 挂在 loading-state 上而不是 container 上：
+  // 各调用方是用 innerHTML 整体替换来结束加载的，挂在内部节点才会自动消失。
   container.innerHTML = `
-    <div class="loading-state">
-      <div class="loading-spinner"></div>
-      <p>${message}</p>
+    <div class="loading-state" role="status" aria-live="polite" aria-busy="true">
+      <div class="loading-spinner" aria-hidden="true"></div>
+      <p>${esc(message)}</p>
     </div>
   `;
 }
@@ -6445,6 +6551,10 @@ function openDirPicker(onSelect) {
   dirPickerWireOnce();
   const overlay = $('#dirpicker-overlay');
   if (overlay) overlay.style.display = 'flex';
+  // 记住触发元素，关闭后把键盘焦点还回去（MutationObserver 只管动态弹窗）
+  if (!modalA11y.opener) modalA11y.opener = document.activeElement;
+  const box = overlay?.querySelector('.dirpicker-modal');
+  if (box) enhanceModal(box);
   // 从工作区输入框已有值所在目录起步；否则从盘符/根起步
   const start = ($('#wb-workspace')?.value || '').trim();
   dirPickerLoad(start && start !== '.' ? start : '');
@@ -6453,6 +6563,7 @@ function openDirPicker(onSelect) {
 function closeDirPicker() {
   const overlay = $('#dirpicker-overlay');
   if (overlay) overlay.style.display = 'none';
+  restoreModalFocus();
 }
 
 async function dirPickerLoad(path) {
