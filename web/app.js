@@ -217,6 +217,7 @@ async function switchPage(name) {
     else t.removeAttribute('aria-current');
   });
   dom.pages.forEach(p => p.classList.toggle('active', p.id === `page-${name}`));
+  revealActiveNavGroup();
 
   // Update topbar title
   if (dom.topbarTitle) dom.topbarTitle.textContent = PAGE_TITLES[name] || name;
@@ -251,6 +252,22 @@ async function switchPage(name) {
 
 dom.navTabs.forEach(tab => {
   tab.addEventListener('click', () => switchPage(tab.dataset.page));
+});
+
+// 侧栏内方向键在可见导航项之间移动焦点（跨分组连续），Home/End 跳首尾
+document.querySelector('.sidebar-nav')?.addEventListener('keydown', (e) => {
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+  const visible = Array.from(document.querySelectorAll('.sidebar-nav .nav-tab'))
+    .filter(el => el.offsetWidth || el.offsetHeight);
+  if (!visible.length) return;
+  const cur = visible.indexOf(document.activeElement);
+  let next;
+  if (e.key === 'Home') next = 0;
+  else if (e.key === 'End') next = visible.length - 1;
+  else if (cur === -1) next = 0;
+  else next = (cur + (e.key === 'ArrowDown' ? 1 : -1) + visible.length) % visible.length;
+  e.preventDefault();
+  visible[next].focus();
 });
 
 // ============ Sidebar Collapse ============
@@ -793,6 +810,181 @@ dom.togglePanel?.addEventListener('click', () => {
   dom.panel.classList.toggle('hidden');
 });
 
+// ============ 侧栏分组折叠 ============
+// 17 个页面挤在一列里要滚动才能看全。分组可折叠，状态存 localStorage；
+// 但当前页所在的分组强制展开，否则会出现"高亮项被折叠隐藏"的矛盾状态。
+const NAV_GROUPS_KEY = 'symbio-nav-collapsed';
+
+function collapsedGroups() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(NAV_GROUPS_KEY) || '[]');
+    return new Set(Array.isArray(raw) ? raw : []);
+  } catch { return new Set(); }
+}
+
+function setNavGroup(group, expanded, { persist = true } = {}) {
+  const wrap = document.querySelector(`.nav-group[data-group="${group}"]`);
+  if (!wrap) return;
+  wrap.querySelector('.nav-group-label')?.setAttribute('aria-expanded', String(expanded));
+  const items = wrap.querySelector('.nav-group-items');
+  if (items) items.hidden = !expanded;
+  if (!persist) return;
+  const set = collapsedGroups();
+  if (expanded) set.delete(group); else set.add(group);
+  localStorage.setItem(NAV_GROUPS_KEY, JSON.stringify([...set]));
+}
+
+function initNavGroups() {
+  const collapsed = collapsedGroups();
+  document.querySelectorAll('.nav-group[data-group]').forEach(wrap => {
+    const g = wrap.dataset.group;
+    setNavGroup(g, !collapsed.has(g), { persist: false });
+    wrap.querySelector('.nav-group-label')?.addEventListener('click', () => {
+      const label = wrap.querySelector('.nav-group-label');
+      setNavGroup(g, label.getAttribute('aria-expanded') !== 'true');
+    });
+  });
+  revealActiveNavGroup();
+}
+
+// 当前页所在分组必须可见（不写回 localStorage，用户的折叠偏好保留）
+function revealActiveNavGroup() {
+  const tab = document.querySelector('.nav-tab.active');
+  const wrap = tab?.closest('.nav-group[data-group]');
+  if (wrap) setNavGroup(wrap.dataset.group, true, { persist: false });
+}
+
+// ============ 命令面板（Ctrl/⌘+K）============
+const cmdk = { open: false, items: [], index: 0, opener: null };
+
+function cmdkSource() {
+  // 直接从导航 DOM 取，页面增减时不需要再维护一份清单
+  return Array.from(document.querySelectorAll('.nav-tab[data-page]')).map(tab => ({
+    page: tab.dataset.page,
+    label: tab.querySelector('.nav-label')?.textContent.trim() || tab.dataset.page,
+    hint: tab.getAttribute('title') || '',
+    group: tab.closest('.nav-group')?.querySelector('.nav-group-label span')?.textContent.trim() || '',
+  }));
+}
+
+// 子序列模糊匹配：'cu' 能命中 'Computer Use'，返回命中位置用于高亮
+function fuzzyMatch(text, query) {
+  if (!query) return [];
+  const t = text.toLowerCase();
+  const q = query.toLowerCase();
+  const hits = [];
+  let i = 0;
+  for (const ch of q) {
+    const at = t.indexOf(ch, i);
+    if (at === -1) return null;
+    hits.push(at);
+    i = at + 1;
+  }
+  return hits;
+}
+
+function highlight(text, hits) {
+  if (!hits || !hits.length) return esc(text);
+  const set = new Set(hits);
+  return [...text].map((ch, i) => (set.has(i) ? `<mark>${esc(ch)}</mark>` : esc(ch))).join('');
+}
+
+function cmdkRender(query) {
+  const q = query.trim();
+  const scored = [];
+  for (const it of cmdkSource()) {
+    const hay = `${it.label} ${it.page} ${it.hint}`;
+    const onLabel = fuzzyMatch(it.label, q);
+    const m = onLabel || fuzzyMatch(hay, q);
+    if (q && !m) continue;
+    // 标签命中优先，其次命中位置越靠前越好
+    scored.push({ ...it, hits: onLabel, rank: (onLabel ? 0 : 100) + (m?.[0] ?? 0) });
+  }
+  scored.sort((a, b) => a.rank - b.rank);
+  cmdk.items = scored;
+  cmdk.index = 0;
+
+  const list = $('#cmdk-list');
+  if (!list) return;
+  if (!scored.length) {
+    list.innerHTML = '<li class="cmdk-empty">没有匹配的页面</li>';
+    $('#cmdk-input')?.setAttribute('aria-activedescendant', '');
+    return;
+  }
+  list.innerHTML = scored.map((it, i) => `
+    <li class="cmdk-item" id="cmdk-opt-${i}" role="option" data-page="${esc(it.page)}"
+        aria-selected="${i === 0 ? 'true' : 'false'}">
+      <span>${highlight(it.label, it.hits)}</span>
+      <span class="cmdk-item-group">${esc(it.group)}</span>
+    </li>`).join('');
+  cmdkSelect(0);
+  list.querySelectorAll('.cmdk-item').forEach((li, i) => {
+    li.addEventListener('mouseenter', () => cmdkSelect(i));
+    li.addEventListener('click', () => cmdkConfirm(i));
+  });
+}
+
+function cmdkSelect(i) {
+  const list = $('#cmdk-list');
+  const opts = list?.querySelectorAll('.cmdk-item') || [];
+  if (!opts.length) return;
+  cmdk.index = (i + opts.length) % opts.length;
+  opts.forEach((li, n) => li.setAttribute('aria-selected', String(n === cmdk.index)));
+  const cur = opts[cmdk.index];
+  cur.scrollIntoView({ block: 'nearest' });
+  $('#cmdk-input')?.setAttribute('aria-activedescendant', cur.id);
+}
+
+function cmdkConfirm(i) {
+  const it = cmdk.items[i ?? cmdk.index];
+  if (!it) return;
+  cmdkClose();
+  switchPage(it.page);
+}
+
+function cmdkOpen() {
+  const overlay = $('#cmdk-overlay');
+  if (!overlay) return;
+  cmdk.opener = document.activeElement;
+  cmdk.open = true;
+  overlay.hidden = false;
+  const input = $('#cmdk-input');
+  if (input) { input.value = ''; input.focus(); }
+  cmdkRender('');
+}
+
+function cmdkClose() {
+  const overlay = $('#cmdk-overlay');
+  if (!overlay) return;
+  overlay.hidden = true;
+  cmdk.open = false;
+  const el = cmdk.opener;
+  cmdk.opener = null;
+  if (el?.isConnected && typeof el.focus === 'function') {
+    try { el.focus({ preventScroll: true }); } catch { /* 忽略 */ }
+  }
+}
+
+function initCmdk() {
+  $('#cmdk-trigger')?.addEventListener('click', cmdkOpen);
+  // macOS 显示 ⌘K，其他平台 Ctrl K
+  if (/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)) {
+    const kbd = $('#cmdk-trigger-kbd');
+    if (kbd) kbd.textContent = '⌘ K';
+  }
+  $('#cmdk-input')?.addEventListener('input', (e) => cmdkRender(e.target.value));
+  $('#cmdk-overlay')?.addEventListener('click', (e) => {
+    if (e.target.id === 'cmdk-overlay') cmdkClose();
+  });
+  $('#cmdk-input')?.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); cmdkSelect(cmdk.index + 1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); cmdkSelect(cmdk.index - 1); }
+    else if (e.key === 'Enter') { e.preventDefault(); cmdkConfirm(); }
+    else if (e.key === 'Escape') { e.preventDefault(); cmdkClose(); }
+    else if (e.key === 'Tab') e.preventDefault(); // 面板里只有一个输入框，别把焦点漏到背后
+  });
+}
+
 // ============ 模态框无障碍（角色标注 + 焦点管理 + Tab 捕获）============
 // 8 处弹窗各自 appendChild(overlay)，而 overlay.remove() 散落在 20 多个地方。
 // 与其改 30 处调用，这里在 body 上挂一个 MutationObserver 统一接管：
@@ -870,8 +1062,16 @@ new MutationObserver((records) => {
 
 // ============ Keyboard Shortcuts ============
 document.addEventListener('keydown', (e) => {
+  // Ctrl/⌘+K 打开命令面板（已打开时再按一次关闭）
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'k' || e.key === 'K')) {
+    e.preventDefault();
+    cmdk.open ? cmdkClose() : cmdkOpen();
+    return;
+  }
+
   // Esc to close modals
   if (e.key === 'Escape') {
+    if (cmdk.open) { cmdkClose(); return; }
     const modal = document.querySelector('.modal-overlay');
     if (modal) {
       modal.remove();
@@ -6904,6 +7104,9 @@ async function init() {
   setSidebarCollapsed(isMobileLayout() ? true : state.sidebarCollapsed, {
     persist: !isMobileLayout(),
   });
+
+  initNavGroups();
+  initCmdk();
 
   await loadSessions();
   await Promise.all([loadModels(), loadConfig()]);

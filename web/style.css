@@ -308,17 +308,45 @@ body {
   margin-bottom: 6px;
 }
 .nav-group-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
   font-size: var(--fs-xs);
   font-weight: 600;
   letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--text-tertiary);
   padding: 4px 10px 4px;
+  border-radius: var(--radius-sm);
   white-space: nowrap;
   overflow: hidden;
-  transition: opacity 200ms;
+  transition: opacity 200ms, color 120ms, background 120ms;
 }
-.app.sidebar-collapsed .nav-group-label { opacity: 0; height: 0; padding: 0; margin: 0; }
+.nav-group-label:hover { color: var(--text-secondary); background: var(--bg-hover); }
+.nav-group-caret {
+  flex-shrink: 0;
+  opacity: 0.7;
+  transition: transform 180ms var(--ease-out);
+}
+.nav-group-label[aria-expanded="false"] .nav-group-caret { transform: rotate(-90deg); }
+
+.nav-group-items {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.nav-group-items[hidden] { display: none; }
+
+/* 侧栏收起时只剩图标：分组标题无处可放，全部展开并隐藏标题 */
+.app.sidebar-collapsed .nav-group-label { opacity: 0; height: 0; padding: 0; margin: 0; pointer-events: none; }
+.app.sidebar-collapsed .nav-group-items { display: flex !important; }
 
 .nav-tab {
   display: flex;
@@ -1233,6 +1261,101 @@ textarea::placeholder { color:var(--text-tertiary); }
 .status-dot.online { background:var(--green); }
 .status-dot.offline { background:var(--red); }
 .sep { opacity:0.4; }
+
+/* ============ 命令面板（Ctrl/⌘+K）============ */
+.cmdk-trigger {
+  display: flex; align-items: center; gap: 8px;
+  height: 28px; padding: 0 8px 0 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-tertiary);
+  font-family: inherit; font-size: var(--fs-sm);
+  cursor: pointer;
+  transition: color 120ms, border-color 120ms;
+}
+.cmdk-trigger:hover { color: var(--text-secondary); border-color: var(--border-hover); }
+.cmdk-trigger-kbd, .cmdk-esc, .cmdk-foot kbd {
+  font-family: var(--font-mono); font-size: 11px;
+  padding: 1px 5px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-tertiary);
+}
+/* 窄屏只留放大镜 */
+@media (max-width: 860px) {
+  .cmdk-trigger-text, .cmdk-trigger-kbd { display: none; }
+  .cmdk-trigger { padding: 0 8px; }
+}
+
+.cmdk-overlay {
+  position: fixed; inset: 0; z-index: 5200;
+  background: rgba(0, 0, 0, 0.42);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 12vh 16px 16px;
+}
+.cmdk-overlay[hidden] { display: none; }
+.cmdk {
+  width: min(560px, 100%);
+  max-height: 60vh;
+  display: flex; flex-direction: column;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-hover);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+}
+.cmdk-input-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-tertiary);
+}
+.cmdk-input-row input {
+  flex: 1; min-width: 0;
+  background: none; border: none; outline: none;
+  color: var(--text-primary);
+  font-family: inherit; font-size: var(--fs-md);
+}
+.cmdk-input-row input::placeholder { color: var(--text-tertiary); }
+
+.cmdk-list {
+  list-style: none; margin: 0; padding: 6px;
+  overflow-y: auto; min-height: 0;
+}
+.cmdk-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: var(--fs-md);
+  cursor: pointer;
+}
+.cmdk-item .cmdk-item-group {
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+}
+.cmdk-item[aria-selected="true"] {
+  background: var(--bg-active);
+  color: var(--text-primary);
+}
+/* 选中行的强调色底叠上来后，三级文字只剩 4.46:1，提一档 */
+.cmdk-item[aria-selected="true"] .cmdk-item-group { color: var(--text-secondary); }
+.cmdk-item mark {
+  background: none;
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.cmdk-empty { padding: 20px 12px; text-align: center; color: var(--text-tertiary); font-size: var(--fs-sm); }
+.cmdk-foot {
+  display: flex; gap: 14px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+}
 
 /* ============ Toast ============ */
 .toast-container {
