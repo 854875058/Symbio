@@ -189,9 +189,6 @@ const dom = {
   sidebarEl: $('#sidebar'),
   appRoot: $('.app'),
   topbarTitle: $('#topbar-title'),
-  topbarTokens: $('#topbar-tokens'),
-  topbarCost: $('#topbar-cost'),
-  topbarConnLabel: $('#topbar-conn-label'),
   statusTokens: $('#status-tokens'),
   statusCost: $('#status-cost'),
   statusModelName: $('#status-model-name'),
@@ -216,6 +213,11 @@ async function switchPage(name) {
 
   // Update topbar title
   if (dom.topbarTitle) dom.topbarTitle.textContent = PAGE_TITLES[name] || name;
+
+  // 会话列表抽屉只属于对话页；切走时收起并隐藏入口
+  const sessBtn = $('#topbar-sessions-toggle');
+  if (sessBtn) sessBtn.dataset.available = name === 'chat' ? '1' : '0';
+  if (name !== 'chat') setSessionsOpen(false);
 
   // Lazy load: only load data on first visit per page (avoids re-fetching on tab switch)
   if (name === 'models' && !state.pagesLoaded.models) { state.pagesLoaded.models = true; await loadModels(); await loadConfig(); }
@@ -245,10 +247,21 @@ dom.navTabs.forEach(tab => {
 });
 
 // ============ Sidebar Collapse ============
-function setSidebarCollapsed(collapsed) {
+// 窄屏（<=600px）下侧边栏和会话列表都是浮层抽屉，由 .sidebar-expanded /
+// .sessions-open 两个类驱动；宽屏下 .sidebar-collapsed 控制图标条模式。
+const MOBILE_QUERY = '(max-width: 600px)';
+
+function isMobileLayout() {
+  return window.matchMedia(MOBILE_QUERY).matches;
+}
+
+function setSidebarCollapsed(collapsed, { persist = true } = {}) {
   state.sidebarCollapsed = collapsed;
-  localStorage.setItem('symbio-sidebar-collapsed', collapsed ? '1' : '0');
+  // 手机端的强制收起不写 localStorage，否则会覆盖桌面端的展开偏好
+  if (persist) localStorage.setItem('symbio-sidebar-collapsed', collapsed ? '1' : '0');
   dom.appRoot?.classList.toggle('sidebar-collapsed', collapsed);
+  // 抽屉的展开态与折叠态互为反面；宽屏下这个类不参与布局，加着无副作用。
+  dom.appRoot?.classList.toggle('sidebar-expanded', !collapsed);
   const btn = dom.sidebarCollapseBtn;
   if (btn) {
     btn.title = collapsed ? '展开侧边栏' : '收起侧边栏';
@@ -256,11 +269,50 @@ function setSidebarCollapsed(collapsed) {
     if (svg) svg.style.transform = collapsed ? 'rotate(180deg)' : '';
   }
   const menuToggle = $('#topbar-menu-toggle');
-  if (menuToggle) menuToggle.style.display = collapsed ? 'flex' : 'none';
+  // 手机端汉堡键常驻（抽屉收起后需要有入口再打开），宽屏保持原有行为。
+  if (menuToggle) {
+    menuToggle.style.display = collapsed || isMobileLayout() ? 'flex' : 'none';
+  }
+}
+
+function setSessionsOpen(open) {
+  dom.appRoot?.classList.toggle('sessions-open', open);
+}
+
+function closeMobileDrawers() {
+  setSessionsOpen(false);
+  if (isMobileLayout()) setSidebarCollapsed(true, { persist: false });
 }
 
 dom.sidebarCollapseBtn?.addEventListener('click', () => setSidebarCollapsed(!state.sidebarCollapsed));
-$('#topbar-menu-toggle')?.addEventListener('click', () => setSidebarCollapsed(false));
+$('#topbar-menu-toggle')?.addEventListener('click', () => {
+  setSessionsOpen(false);
+  setSidebarCollapsed(false, { persist: !isMobileLayout() });
+});
+$('#topbar-sessions-toggle')?.addEventListener('click', () => {
+  const willOpen = !dom.appRoot?.classList.contains('sessions-open');
+  setSidebarCollapsed(true, { persist: !isMobileLayout() });
+  setSessionsOpen(willOpen);
+});
+$('#sidebar-scrim')?.addEventListener('click', closeMobileDrawers);
+
+// 手机端点导航项后自动收起抽屉，否则内容被浮层挡住
+document.querySelectorAll('.nav-tab').forEach(item => {
+  item.addEventListener('click', () => {
+    if (isMobileLayout()) closeMobileDrawers();
+  });
+});
+
+// 视口跨过断点时同步一次，避免旋转屏幕后残留错误状态
+window.matchMedia(MOBILE_QUERY).addEventListener('change', (e) => {
+  setSessionsOpen(false);
+  if (e.matches) {
+    setSidebarCollapsed(true, { persist: false });
+  } else {
+    // 回到宽屏时恢复用户此前保存的偏好
+    setSidebarCollapsed(localStorage.getItem('symbio-sidebar-collapsed') === '1');
+  }
+});
 
 
 // ============ Sessions ============
@@ -596,27 +648,16 @@ function removeStreaming() {
 }
 
 function updateConnectionStatus(online) {
-  // Update topbar connection
-  if (dom.topbarConnLabel) {
-    dom.topbarConnLabel.textContent = online ? '已连接' : '断开';
-    dom.topbarConnLabel.style.color = online ? 'var(--green)' : 'var(--red)';
-  }
-  const dots = [dom.statusDot, document.getElementById('connection-dot')];
-  dots.forEach(dot => {
-    if (!dot) return;
-    dot.classList.toggle('online', online);
-    dot.classList.toggle('offline', !online);
-  });
-  const connText = document.getElementById('status-conn-text');
-  if (connText) connText.textContent = online ? '已连接' : '已断开';
-
-  const dot = document.querySelector('.status-dot');
+  // 连接状态只有底部状态栏一处（此前顶栏 + 底栏各显示一份，且文案还不一致：
+  // 顶栏"断开" / 底栏"已断开" / 再被下面一段改写成"未连接"）
+  const dot = dom.statusDot;
   if (dot) {
     dot.className = `status-dot ${online ? 'online' : 'offline'}`;
   }
-  const label = document.querySelector('.status-left span:last-child');
-  if (label) {
-    label.textContent = online ? '已连接' : '未连接';
+  const connText = document.getElementById('status-conn-text');
+  if (connText) {
+    connText.textContent = online ? '已连接' : '已断开';
+    connText.style.color = online ? 'var(--green)' : 'var(--red)';
   }
 }
 
@@ -780,20 +821,14 @@ applyTheme(state.theme);
 
 // ============ Status ============
 function updateStatus() {
-  // Update topbar tokens
-  if (dom.topbarTokens) dom.topbarTokens.textContent = formatNumber ? formatNumber(state.tokens.total) : state.tokens.total;
-  if (dom.topbarCost) dom.topbarCost.textContent = (state.cost || 0).toFixed(2);
-  if (dom.statusTokens) dom.statusTokens.textContent = formatNumber ? formatNumber(state.tokens.total) : state.tokens.total;
-  if (dom.statusCost) dom.statusCost.textContent = '$' + (state.cost || 0).toFixed(2);
-
-  const el = document.querySelector('.status-center');
-  if (el) {
-    el.innerHTML = `
-      <span>Token: <strong>${state.tokens.total}</strong></span>
-      <span class="sep">·</span>
-      <span>成本: <strong>$${state.cost.toFixed(2)}</strong></span>
-    `;
+  // 只写底部状态栏的两个 span。原先这里先写 #status-tokens / #status-cost，
+  // 紧接着又用 innerHTML 重建 .status-center 把它们整片替换掉——既丢了千分位
+  // 格式化，又让 dom 里的引用变成悬空节点。
+  const total = state.tokens?.total || 0;
+  if (dom.statusTokens) {
+    dom.statusTokens.textContent = typeof formatNumber === 'function' ? formatNumber(total) : String(total);
   }
+  if (dom.statusCost) dom.statusCost.textContent = '$' + (state.cost || 0).toFixed(2);
 }
 
 // ============ Health Check ============
@@ -6724,12 +6759,10 @@ async function init() {
   // Apply theme
   applyTheme(state.theme);
 
-  // Apply sidebar state
-  if (state.sidebarCollapsed) {
-    dom.appRoot?.classList.add('sidebar-collapsed');
-    const menuToggle = document.getElementById('topbar-menu-toggle');
-    if (menuToggle) menuToggle.style.display = 'flex';
-  }
+  // Apply sidebar state（手机端一律先收起，避免抽屉挡住首屏）
+  setSidebarCollapsed(isMobileLayout() ? true : state.sidebarCollapsed, {
+    persist: !isMobileLayout(),
+  });
 
   await loadSessions();
   await Promise.all([loadModels(), loadConfig()]);

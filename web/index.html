@@ -161,13 +161,19 @@
       </div>
     </aside>
 
+    <!-- 手机端抽屉遮罩：点击关闭侧边栏 / 会话列表 -->
+    <button class="sidebar-scrim" id="sidebar-scrim" aria-label="关闭侧边栏"></button>
+
     <!-- Main Area -->
     <div class="main-area">
       <!-- Top bar -->
       <header class="topbar">
         <div class="topbar-left">
-          <button class="icon-btn topbar-btn" id="topbar-menu-toggle" title="展开侧边栏" style="display:none">
+          <button class="icon-btn topbar-btn" id="topbar-menu-toggle" title="展开侧边栏" aria-label="展开侧边栏" style="display:none">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          </button>
+          <button class="icon-btn topbar-btn" id="topbar-sessions-toggle" title="会话列表" aria-label="会话列表" data-available="1" style="display:none">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
           </button>
           <span class="topbar-title" id="topbar-title">对话</span>
         </div>
@@ -176,12 +182,6 @@
             <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
             <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
           </button>
-          <span class="topbar-divider"></span>
-          <span class="status-dot online" id="connection-dot"></span>
-          <span class="topbar-conn" id="topbar-conn-label">已连接</span>
-          <span class="topbar-divider"></span>
-          <span class="topbar-tokens">Token: <strong id="topbar-tokens">0</strong></span>
-          <span class="topbar-cost">· $<strong id="topbar-cost">0.00</strong></span>
         </div>
       </header>
 

@@ -197,6 +197,9 @@ body {
 /* Status bar spans full width */
 .status-bar { grid-column: 1 / -1; }
 
+/* 抽屉遮罩：只在 <=600px 的抽屉模式下出现，宽屏必须彻底不参与 grid 布局 */
+.sidebar-scrim { display: none; }
+
 /* ============ Sidebar ============ */
 .sidebar {
   grid-row: 1;
@@ -435,8 +438,6 @@ body {
   font-family: var(--font-mono);
 }
 .topbar-divider { width: 1px; height: 12px; background: var(--border); }
-.topbar-conn { font-family: var(--font-body); font-size: 0.78rem; }
-.topbar-tokens strong, .topbar-cost strong { color: var(--text-secondary); }
 .topbar-btn {
   width: 32px; height: 32px;
   display: flex; align-items: center; justify-content: center;
@@ -3190,28 +3191,106 @@ textarea::placeholder { color:var(--text-tertiary); }
 }
 
 @media (max-width: 860px) {
-  .app {
+  /* 中等宽度：侧边栏恒为图标条；展开时浮起来盖住内容，不挤压主区 */
+  .app,
+  .app.sidebar-collapsed,
+  .app.sidebar-expanded {
     grid-template-columns: var(--sidebar-collapsed-width) 1fr;
   }
   .app .brand-text,
   .app .nav-label,
   .app .nav-group-label,
   .app .nav-badge-new { display: none; }
-  .app.sidebar-expanded {
-    grid-template-columns: var(--sidebar-width) 1fr;
+  .app.sidebar-expanded .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: var(--sidebar-width);
+    box-shadow: var(--shadow-md);
+    z-index: 160;
+  }
+  /* 侧边栏 fixed 后脱离 grid，主区必须显式占第 2 列，
+     否则会被自动放进第 1 列（58px）而塌掉 */
+  .app.sidebar-expanded .main-area {
+    grid-column: 2;
   }
   .app.sidebar-expanded .brand-text,
   .app.sidebar-expanded .nav-label,
   .app.sidebar-expanded .nav-group-label { display: flex; }
   .app.sidebar-expanded .nav-badge-new { display: inline-flex; }
+  /* 会话列表在中等宽度下收窄，给主区留出可读空间 */
+  .sessions-sidebar { width: 200px; }
+  /* 平板宽度下三栏（会话列表 + 对话 + 右侧上下文）会把输入框挤到 108px，
+     右侧上下文面板改为隐藏，对话区拿回空间 */
+  .context-panel { display: none; }
 }
 
 @media (max-width: 600px) {
   .topbar { padding: 0 12px; }
   .topbar-cost, .topbar-divider, .topbar-conn { display: none; }
-  .sessions-sidebar { width: 180px; }
   .context-panel { display: none; }
   #topbar-menu-toggle { display: flex !important; }
+
+  /* 手机端：侧边栏完全脱离 grid 变浮层抽屉，主内容区独占整个视口宽度。
+     此前三栏（58px 图标条 + 240px 会话列表 + 主区）挤在 375px 里，
+     主区只剩 137px、输入框塌成 16px，实际不可用。
+     必须连同 .sidebar-collapsed / .sidebar-expanded 一起写，否则被上面
+     0,2,0 的 `.app.sidebar-collapsed` 规则压过去。 */
+  .app,
+  .app.sidebar-collapsed,
+  .app.sidebar-expanded {
+    grid-template-columns: 1fr;
+  }
+  .app .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: var(--sidebar-width);
+    transform: translateX(-100%);
+    transition: transform 240ms var(--ease-out);
+    box-shadow: var(--shadow-md);
+    z-index: 160; /* 必须高于遮罩的 150 */
+  }
+  .app.sidebar-expanded .sidebar {
+    transform: translateX(0);
+  }
+  .app.sidebar-expanded .brand-text,
+  .app.sidebar-expanded .nav-label,
+  .app.sidebar-expanded .nav-group-label { display: flex; }
+  .app.sidebar-expanded .nav-badge-new { display: inline-flex; }
+
+  /* 抽屉打开时的遮罩，点击关闭 */
+  .sidebar-scrim {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 150;
+    border: 0;
+    padding: 0;
+  }
+  .app.sidebar-expanded .sidebar-scrim,
+  .app.sessions-open .sidebar-scrim { display: block; }
+
+  /* 会话列表同样改为抽屉，默认收起 */
+  .sessions-sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(80vw, 280px);
+    z-index: 160;
+    transform: translateX(-100%);
+    transition: transform 240ms var(--ease-out);
+  }
+  .app.sessions-open .sessions-sidebar {
+    transform: translateX(0);
+    box-shadow: var(--shadow-md);
+  }
+  /* 会话抽屉入口只在对话页出现（switchPage 维护 data-available） */
+  #topbar-sessions-toggle[data-available="1"] { display: flex !important; }
 }
 /* ============ Dashboard ============ */
 .dashboard-content {
