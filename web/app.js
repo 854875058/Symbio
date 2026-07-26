@@ -98,7 +98,8 @@ const state = {
   evolution: { export: null, suites: [] },
   sandbox: { policy: null, audit: [], lastResult: null },
   externalAgents: { providers: [], sessions: [], transcripts: [], audit: [], activeSessionId: '', lastResult: null },
-  theme: localStorage.getItem('symbio-theme') || 'light',
+  // 无显式选择时跟随系统（systemTheme 是函数声明，已提升，此处可调用）
+  theme: localStorage.getItem('symbio-theme') || systemTheme(),
   pagesLoaded: {},
   virtualScrollEnabled: false,
   executionCache: {},
@@ -799,9 +800,17 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ============ Theme Toggle ============
-function applyTheme(theme) {
+// 默认跟随系统 prefers-color-scheme；用户点过顶栏切换键后，
+// localStorage 里的显式选择优先，不再被系统偏好改写。
+const THEME_KEY = 'symbio-theme';
+
+function systemTheme() {
+  return window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+}
+
+function applyTheme(theme, { persist = true } = {}) {
   document.documentElement.setAttribute('data-theme', theme);
-  localStorage.setItem('symbio-theme', theme);
+  if (persist) localStorage.setItem(THEME_KEY, theme);
   state.theme = theme;
   // 图标反映当前主题：浅色显示月亮（点→去深色），深色显示太阳（点→去浅色）
   const light = theme === 'light';
@@ -816,8 +825,13 @@ function toggleTheme() {
 dom.themeToggle?.addEventListener('click', toggleTheme);
 document.getElementById('topbar-theme-toggle')?.addEventListener('click', toggleTheme);
 
-// Apply saved theme on load
-applyTheme(state.theme);
+// 没有显式选择时跟随系统，且系统偏好变化时实时同步
+window.matchMedia?.('(prefers-color-scheme: light)').addEventListener('change', () => {
+  if (!localStorage.getItem(THEME_KEY)) applyTheme(systemTheme(), { persist: false });
+});
+
+// Apply saved theme on load（无存储时用系统值，且不写回存储）
+applyTheme(state.theme, { persist: Boolean(localStorage.getItem(THEME_KEY)) });
 
 // ============ Status ============
 function updateStatus() {
@@ -3362,7 +3376,7 @@ function showImportDirModal() {
           <label>目录路径</label>
           <input type="text" id="modal-dir-path" placeholder="例: /home/user/.claude/skills 或 C:\Users\skills">
         </div>
-        <p style="font-size:0.75rem;color:var(--text-tertiary);margin-top:8px;">
+        <p style="font-size:var(--fs-xs);color:var(--text-tertiary);margin-top:8px;">
           支持导入 Claude Code、Codex 等工具的 Skills 目录
         </p>
       </div>
@@ -3994,8 +4008,8 @@ function toast(type, title, msg) {
   el.innerHTML = `
     <div class="toast-icon ${type}">${iconSvg[type] || iconSvg.info}</div>
     <div style="flex:1">
-      <div style="font-weight:600;font-size:0.85rem">${esc(title)}</div>
-      ${msg ? `<div style="font-size:0.75rem;color:var(--text-secondary);margin-top:2px">${esc(msg)}</div>` : ''}
+      <div style="font-weight:600;font-size:var(--fs-sm)">${esc(title)}</div>
+      ${msg ? `<div style="font-size:var(--fs-xs);color:var(--text-secondary);margin-top:2px">${esc(msg)}</div>` : ''}
     </div>
   `;
   dom.toast.appendChild(el);
@@ -4166,7 +4180,7 @@ function renderConfig() {
           <div class="config-group">
             <div class="config-section-title">Anthropic</div>
             <div class="form-group">
-              <label>API Key ${c.has_anthropic_key ? '<span style="color:#22c55e;font-size:12px">✓ 已配置</span>' : '<span style="color:#ef4444;font-size:12px">✗ 未配置</span>'}</label>
+              <label>API Key ${c.has_anthropic_key ? '<span style="color:var(--green);font-size:var(--fs-xs)">✓ 已配置</span>' : '<span style="color:var(--red);font-size:var(--fs-xs)">✗ 未配置</span>'}</label>
               <input type="password" id="config-anthropic-key" value="" placeholder="${c.has_anthropic_key ? '留空保持不变，输入新值覆盖' : 'sk-ant-...'}">
             </div>
             <div class="form-group">
@@ -4177,7 +4191,7 @@ function renderConfig() {
           <div class="config-group">
             <div class="config-section-title">OpenAI 兼容</div>
             <div class="form-group">
-              <label>API Key ${c.has_openai_key ? '<span style="color:#22c55e;font-size:12px">✓ 已配置</span>' : '<span style="color:#ef4444;font-size:12px">✗ 未配置</span>'}</label>
+              <label>API Key ${c.has_openai_key ? '<span style="color:var(--green);font-size:var(--fs-xs)">✓ 已配置</span>' : '<span style="color:var(--red);font-size:var(--fs-xs)">✗ 未配置</span>'}</label>
               <input type="password" id="config-openai-key" value="" placeholder="${c.has_openai_key ? '留空保持不变，输入新值覆盖' : 'sk-...'}">
             </div>
             <div class="form-group">
@@ -4471,9 +4485,16 @@ function renderTokenChart(sessions) {
     // Create canvas if needed
     container.innerHTML = '<canvas id="token-chart-canvas" style="max-height:160px"></canvas>';
     const canvas = container.querySelector('canvas');
+    // Chart.js 画在 canvas 上，读不到 CSS 变量，必须取计算值传字面色，
+    // 否则主题切换后图表配色会和界面脱节。
+    const cvar = (name, fallback) => {
+      const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+      return v || fallback;
+    };
     const isDark = state.theme !== 'light';
-    const gridColor = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
-    const labelColor = isDark ? '#8080a0' : '#52527a';
+    const gridColor = isDark ? 'rgba(255,250,240,0.08)' : 'rgba(60,50,35,0.10)';
+    const labelColor = cvar('--text-tertiary', '#948d80');
+    const barColor = cvar('--accent', '#e07a5a');
 
     _tokenChartInst = new Chart(canvas, {
       type: 'bar',
@@ -4482,8 +4503,8 @@ function renderTokenChart(sessions) {
         datasets: [{
           label: 'Tokens',
           data: data.map(d => d.value),
-          backgroundColor: 'rgba(91,156,246,0.5)',
-          borderColor: 'rgba(91,156,246,0.9)',
+          backgroundColor: barColor,
+          borderColor: barColor,
           borderWidth: 1,
           borderRadius: 4,
         }],
@@ -4535,11 +4556,11 @@ $('#btn-refresh-dashboard')?.addEventListener('click', loadDashboard);
 
 // ============ Security Page ============
 const THREAT_META = {
-  safe:     { label: '安全',   color: 'var(--green, #34d399)' },
-  low:      { label: '低危',   color: 'var(--accent, #60a5fa)' },
-  medium:   { label: '中危',   color: 'var(--amber, #fbbf24)' },
-  high:     { label: '高危',   color: '#fb923c' },
-  critical: { label: '严重',   color: '#f87171' },
+  safe:     { label: '安全',   color: 'var(--green)' },
+  low:      { label: '低危',   color: 'var(--teal)' },
+  medium:   { label: '中危',   color: 'var(--amber)' },
+  high:     { label: '高危',   color: 'var(--accent-text)' },
+  critical: { label: '严重',   color: 'var(--red)' },
 };
 
 async function loadSecurity() {
@@ -4657,7 +4678,7 @@ async function runSecuritySelftest() {
     const cats = Object.entries(data.by_category || {}).sort((a, b) => (b[1].blocked / b[1].total) - (a[1].blocked / a[1].total));
     const rows = cats.map(([cat, v]) => {
       const pct = Math.round((v.blocked / v.total) * 100);
-      const color = pct >= 70 ? 'var(--green,#34d399)' : pct >= 40 ? 'var(--amber,#fbbf24)' : '#f87171';
+      const color = pct >= 70 ? 'var(--green)' : pct >= 40 ? 'var(--amber)' : 'var(--red)';
       return `<div class="security-cat-row">
         <span class="security-cat-name">${esc(cat)}</span>
         <span class="security-cat-bar"><i style="width:${pct}%;background:${color}"></i></span>
@@ -5200,7 +5221,7 @@ async function loadFlywheelFailures() {
       container.innerHTML = '<div class="cost-table-empty">暂无失败记录 — 点击右上角"记录一条样例失败"体验闭环</div>';
       return;
     }
-    const sevColor = { low: 'var(--accent)', medium: 'var(--amber,#fbbf24)', high: '#fb923c', critical: '#f87171' };
+    const sevColor = { low: 'var(--teal)', medium: 'var(--amber)', high: 'var(--accent-text)', critical: 'var(--red)' };
     let html = '';
     if (causes.length) {
       html += '<div class="flywheel-subhead">根因 (Root Cause)</div>';
@@ -6310,7 +6331,16 @@ function wbMountTerminal(p) {
       cursorBlink: true,
       fontFamily: 'JetBrains Mono, Consolas, monospace',
       fontSize: 13,
-      theme: { background: '#1e1b18', foreground: '#e8e2d8', cursor: '#d97757' },
+      // xterm 也画在 canvas 上，取计算值而不是硬编码，跟随主题
+      theme: (() => {
+        const cs = getComputedStyle(document.documentElement);
+        const v = (n, f) => cs.getPropertyValue(n).trim() || f;
+        return {
+          background: v('--bg-void', '#16150f'),
+          foreground: v('--text-primary', '#edeae3'),
+          cursor: v('--accent', '#e07a5a'),
+        };
+      })(),
       scrollback: 4000,
     });
     if (typeof FitAddon !== 'undefined' && FitAddon.FitAddon) {
@@ -6756,8 +6786,8 @@ function setupVirtualScroll() {
 
 // ============ Init ============
 async function init() {
-  // Apply theme
-  applyTheme(state.theme);
+  // Apply theme（persist 跟随是否存在显式选择，否则会把系统默认值写成显式偏好）
+  applyTheme(state.theme, { persist: Boolean(localStorage.getItem(THEME_KEY)) });
 
   // Apply sidebar state（手机端一律先收起，避免抽屉挡住首屏）
   setSidebarCollapsed(isMobileLayout() ? true : state.sidebarCollapsed, {
@@ -6828,7 +6858,7 @@ function renderA2ACard(container, card) {
     <div class="a2a-card-grid">
       <div class="a2a-card-field"><label>名称</label><span>${esc(card.name || '—')}</span></div>
       <div class="a2a-card-field"><label>版本</label><span>${esc(card.version || '—')}</span></div>
-      <div class="a2a-card-field"><label>URL</label><span style="font-family:var(--font-mono);font-size:0.78rem;color:var(--accent)">${esc(card.url || '—')}</span></div>
+      <div class="a2a-card-field"><label>URL</label><span style="font-family:var(--font-mono);font-size:var(--fs-xs);color:var(--accent)">${esc(card.url || '—')}</span></div>
       <div class="a2a-card-field"><label>流式响应</label><span>${caps.streaming ? '✓ 支持' : '✗ 不支持'}</span></div>
       <div class="a2a-card-field"><label>推送通知</label><span>${caps.pushNotifications ? '✓ 支持' : '✗ 不支持'}</span></div>
       <div class="a2a-card-field"><label>状态历史</label><span>${caps.stateTransitionHistory ? '✓ 支持' : '✗ 不支持'}</span></div>
@@ -6910,7 +6940,7 @@ function renderA2AInboundTasks(container, tasks) {
     <div class="a2a-task-item">
       <div class="a2a-task-meta">
         <div class="a2a-task-prompt">${esc(prompt)}</div>
-        ${resultText ? `<div style="margin-top:4px;font-size:0.78rem;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">↳ ${esc(resultText.substring(0,100))}${resultText.length > 100 ? '…' : ''}</div>` : ''}
+        ${resultText ? `<div style="margin-top:4px;font-size:var(--fs-xs);color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">↳ ${esc(resultText.substring(0,100))}${resultText.length > 100 ? '…' : ''}</div>` : ''}
         <div class="a2a-task-time">${formatTime(t.created_at)} · ${esc(t.id.substring(0,20))}…</div>
       </div>
       <span class="a2a-state-badge a2a-state-${esc(t.state || 'submitted')}">${a2aStateLabel(t.state)}</span>
@@ -6969,9 +6999,9 @@ document.getElementById('btn-a2a-create-session')?.addEventListener('click', asy
       const remCard = data.remote_card;
       resultEl.innerHTML = `
         <div class="a2a-card-display" style="margin-top:0">
-          <div style="font-size:0.8rem;color:var(--green);margin-bottom:8px">✓ 会话创建成功 · ID: ${esc((data.session?.id || '').substring(0,24))}…</div>
-          ${remCard ? `<div style="font-size:0.8rem;color:var(--text-secondary)">远程 Agent: <strong>${esc(remCard.name || remoteName)}</strong> ${esc(remCard.version || '')}</div>` : ''}
-          ${data.send_error ? `<div style="font-size:0.8rem;color:var(--red);margin-top:6px">初始消息发送失败: ${esc(data.send_error)}</div>` : ''}
+          <div style="font-size:var(--fs-sm);color:var(--green);margin-bottom:8px">✓ 会话创建成功 · ID: ${esc((data.session?.id || '').substring(0,24))}…</div>
+          ${remCard ? `<div style="font-size:var(--fs-sm);color:var(--text-secondary)">远程 Agent: <strong>${esc(remCard.name || remoteName)}</strong> ${esc(remCard.version || '')}</div>` : ''}
+          ${data.send_error ? `<div style="font-size:var(--fs-sm);color:var(--red);margin-top:6px">初始消息发送失败: ${esc(data.send_error)}</div>` : ''}
         </div>`;
     }
     await loadA2ASessions();
@@ -7026,13 +7056,13 @@ function renderHitlChannels(container, channels) {
       <div class="hitl-channel-meta">
         <div class="hitl-channel-name">${esc(ch.display_name || ch.platform)}</div>
         <div class="hitl-channel-endpoint">${esc(ch.endpoint || ch.chat_id || '—')}</div>
-        <div style="font-size:0.72rem;color:var(--text-tertiary);margin-top:2px">
+        <div style="font-size:var(--fs-xs);color:var(--text-tertiary);margin-top:2px">
           ${ch.has_access_token ? '🔑 Token' : ''} ${ch.has_secret ? '🔒 Secret' : ''}
         </div>
       </div>
       <span class="hitl-channel-badge ${ch.enabled ? '' : 'disabled'}">${ch.enabled ? '启用' : '停用'}</span>
       <div class="hitl-channel-actions">
-        ${ch.deletable ? `<button class="btn-outline" style="padding:4px 10px;font-size:0.78rem" onclick="deleteHitlChannel('${esc(ch.id)}')">删除</button>` : ''}
+        ${ch.deletable ? `<button class="btn-outline" style="padding:4px 10px;font-size:var(--fs-xs)" onclick="deleteHitlChannel('${esc(ch.id)}')">删除</button>` : ''}
       </div>
     </div>
   `).join('');
@@ -7200,11 +7230,11 @@ function renderMCPServers(container, servers) {
         <div class="a2a-session-time">${esc(s.description || '')} ${s.source === 'yaml' ? '(来自 symbio.yaml)' : ''}</div>
       </div>
       <div style="display:flex;gap:6px;flex-shrink:0;align-items:center;flex-wrap:wrap;justify-content:flex-end">
-        <button class="btn-outline" style="padding:4px 10px;font-size:0.78rem" onclick="probeMCPTools('${esc(s.id || '')}', '${esc(s.name)}')">探测工具</button>
-        <button class="btn-outline" style="padding:4px 10px;font-size:0.78rem" onclick="probeMCPExtra('${esc(s.id || '')}', '${esc(s.name)}', 'resources')">资源</button>
-        <button class="btn-outline" style="padding:4px 10px;font-size:0.78rem" onclick="probeMCPExtra('${esc(s.id || '')}', '${esc(s.name)}', 'prompts')">Prompts</button>
-        <button class="btn-primary" style="padding:4px 10px;font-size:0.78rem" onclick="mountMCPServer('${esc(s.id || '')}', '${esc(s.name)}')">挂载到 Agent</button>
-        ${s.source !== 'yaml' ? `<button class="btn-outline" style="padding:4px 10px;font-size:0.78rem" onclick="deleteMCPServer('${esc(s.id || '')}')">删除</button>` : ''}
+        <button class="btn-outline" style="padding:4px 10px;font-size:var(--fs-xs)" onclick="probeMCPTools('${esc(s.id || '')}', '${esc(s.name)}')">探测工具</button>
+        <button class="btn-outline" style="padding:4px 10px;font-size:var(--fs-xs)" onclick="probeMCPExtra('${esc(s.id || '')}', '${esc(s.name)}', 'resources')">资源</button>
+        <button class="btn-outline" style="padding:4px 10px;font-size:var(--fs-xs)" onclick="probeMCPExtra('${esc(s.id || '')}', '${esc(s.name)}', 'prompts')">Prompts</button>
+        <button class="btn-primary" style="padding:4px 10px;font-size:var(--fs-xs)" onclick="mountMCPServer('${esc(s.id || '')}', '${esc(s.name)}')">挂载到 Agent</button>
+        ${s.source !== 'yaml' ? `<button class="btn-outline" style="padding:4px 10px;font-size:var(--fs-xs)" onclick="deleteMCPServer('${esc(s.id || '')}')">删除</button>` : ''}
       </div>
     </div>
   `).join('');
@@ -7229,7 +7259,7 @@ async function probeMCPTools(serverId, serverName) {
       <div class="a2a-task-item">
         <div class="a2a-task-meta">
           <div class="a2a-task-prompt" style="font-family:var(--font-mono);color:var(--accent)">${esc(t.name)}</div>
-          <div style="font-size:0.8rem;color:var(--text-secondary);margin-top:2px">${esc(t.description || '—')}</div>
+          <div style="font-size:var(--fs-sm);color:var(--text-secondary);margin-top:2px">${esc(t.description || '—')}</div>
         </div>
       </div>
     `).join('') || '<div class="empty-state-lg"><p>无可用工具</p></div>';
@@ -7258,7 +7288,7 @@ async function probeMCPExtra(serverId, serverName, kind) {
       <div class="a2a-task-item">
         <div class="a2a-task-meta">
           <div class="a2a-task-prompt" style="font-family:var(--font-mono);color:var(--accent)">${esc(it.name || it.uri || '—')}</div>
-          <div style="font-size:0.8rem;color:var(--text-secondary);margin-top:2px">${esc(it.description || it.uri || '—')}</div>
+          <div style="font-size:var(--fs-sm);color:var(--text-secondary);margin-top:2px">${esc(it.description || it.uri || '—')}</div>
         </div>
       </div>
     `).join('') || `<div class="empty-state-lg"><p>无${label}</p></div>`;

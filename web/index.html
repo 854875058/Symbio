@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v=2">
   <link rel="stylesheet" href="/static/xterm.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <script src="/static/qrcode.min.js"></script>
@@ -17,26 +17,18 @@
 </head>
 <body>
   <div class="app">
-    <!-- Ambient Background -->
-    <div class="ambient-bg">
-      <div class="orb orb-1"></div>
-      <div class="orb orb-2"></div>
-      <div class="orb orb-3"></div>
-    </div>
-
     <!-- Left Sidebar -->
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-brand">
         <div class="logo-mark">
-          <svg width="26" height="26" viewBox="0 0 28 28" fill="none">
-            <circle cx="14" cy="14" r="12" stroke="url(#slg)" stroke-width="1.5" opacity="0.5"/>
-            <circle cx="14" cy="14" r="7" stroke="url(#slg)" stroke-width="1.5"/>
-            <circle cx="14" cy="14" r="2.5" fill="url(#slg)"/>
-            <line x1="14" y1="2" x2="14" y2="8" stroke="url(#slg)" stroke-width="1.5"/>
-            <line x1="14" y1="20" x2="14" y2="26" stroke="url(#slg)" stroke-width="1.5"/>
-            <line x1="2" y1="14" x2="8" y2="14" stroke="url(#slg)" stroke-width="1.5"/>
-            <line x1="20" y1="14" x2="26" y2="14" stroke="url(#slg)" stroke-width="1.5"/>
-            <defs><linearGradient id="slg" x1="0" y1="0" x2="28" y2="28"><stop stop-color="#d97757"/><stop offset="1" stop-color="#e0a45c"/></linearGradient></defs>
+          <svg width="26" height="26" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+            <circle cx="14" cy="14" r="12" stroke="currentColor" stroke-width="1.5" opacity="0.45"/>
+            <circle cx="14" cy="14" r="7" stroke="currentColor" stroke-width="1.5"/>
+            <circle cx="14" cy="14" r="2.5" fill="currentColor"/>
+            <line x1="14" y1="2" x2="14" y2="8" stroke="currentColor" stroke-width="1.5"/>
+            <line x1="14" y1="20" x2="14" y2="26" stroke="currentColor" stroke-width="1.5"/>
+            <line x1="2" y1="14" x2="8" y2="14" stroke="currentColor" stroke-width="1.5"/>
+            <line x1="20" y1="14" x2="26" y2="14" stroke="currentColor" stroke-width="1.5"/>
           </svg>
         </div>
         <div class="brand-text">
@@ -210,13 +202,11 @@
         <main class="chat-area">
           <div class="messages-container" id="messages-container">
             <div class="welcome-screen" id="welcome-screen">
-              <div class="welcome-glow"></div>
               <div class="welcome-icon">
-                <svg width="56" height="56" viewBox="0 0 28 28" fill="none">
-                  <circle cx="14" cy="14" r="12" stroke="url(#wg)" stroke-width="1" opacity="0.3"/>
-                  <circle cx="14" cy="14" r="7" stroke="url(#wg)" stroke-width="1.5" opacity="0.6"/>
-                  <circle cx="14" cy="14" r="3" fill="url(#wg)"/>
-                  <defs><linearGradient id="wg" x1="0" y1="0" x2="28" y2="28"><stop stop-color="#d97757"/><stop offset="1" stop-color="#e0a45c"/></linearGradient></defs>
+                <svg width="56" height="56" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+                  <circle cx="14" cy="14" r="12" stroke="currentColor" stroke-width="1" opacity="0.28"/>
+                  <circle cx="14" cy="14" r="7" stroke="currentColor" stroke-width="1.5" opacity="0.55"/>
+                  <circle cx="14" cy="14" r="3" fill="currentColor"/>
                 </svg>
               </div>
               <h2 class="welcome-title">Symbio 准备就绪</h2>
@@ -231,7 +221,6 @@
           </div>
 
           <div class="input-area">
-            <div class="input-glow"></div>
             <div class="input-wrapper">
               <textarea id="message-input" placeholder="输入消息..." rows="1"></textarea>
               <div class="input-actions">
@@ -1019,7 +1008,7 @@
         <!-- Channel Management -->
         <div class="hitl-channels-section">
           <div class="page-header" style="padding:0 0 12px">
-            <h3 style="font-size:0.9rem">通知渠道管理</h3>
+            <h3 style="font-size:var(--fs-md)">通知渠道管理</h3>
             <div class="page-header-bar">
               <button class="btn-outline" id="btn-refresh-channels">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/><polyline points="21 3 21 9 15 9"/></svg>
@@ -1089,7 +1078,7 @@
         <!-- Timeout Control -->
         <div class="hitl-timeout-section">
           <div class="page-header" style="padding:12px 0 8px">
-            <h3 style="font-size:0.9rem">超时策略</h3>
+            <h3 style="font-size:var(--fs-md)">超时策略</h3>
             <span class="hitl-timeout-hint">审批超时后自动处置，避免任务无限挂起</span>
           </div>
           <div class="sandbox-form-grid">
@@ -1626,6 +1615,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=2"></script>
 </body>
 </html>
