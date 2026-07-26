@@ -320,7 +320,7 @@ CAPABILITY_ITEMS: tuple[CapabilityItem, ...] = (
     {
         "id": "federated_privacy",
         "module": "platform",
-        "claim": "Federated LoRA learning with FedAvg aggregation (clients train adapters on local data that never leaves; only weights are averaged by sample count) plus differential privacy (L2-clip + Gaussian noise, DP-SGD style) on uploaded weights. Verified on a single machine with multiple client dirs end-to-end; cross-machine secure transport, gradient-leakage defense, and Byzantine-robust aggregation are not yet implemented.",
+        "claim": "Federated LoRA learning with FedAvg aggregation (clients train adapters on local data that never leaves; only weights are averaged by sample count) plus differential privacy (L2-clip + Gaussian noise, DP-SGD style) on uploaded weights, with (epsilon, delta) budget accounting and audit records that refuse further rounds once the budget is exhausted. Verified on a single machine with multiple client dirs end-to-end; budget composition uses the basic (linear) theorem rather than RDP, and cross-machine secure transport, gradient-leakage defense, and Byzantine-robust aggregation are not yet implemented.",
         "status": "partial",
         "evidence": [
             "src/symbio/evolution/federated.py",

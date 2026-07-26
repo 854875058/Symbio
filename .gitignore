@@ -94,8 +94,10 @@ htmlcov/
 # Distribution
 *.tar.gz
 *.whl
-symbio.yaml
-*.yaml
-!config/**/*.yaml
+
+# Local instance config (contains API keys). Repo-tracked YAML under config/
+# and other committed manifests must stay visible — do NOT re-add a blanket
+# *.yaml rule, it silently swallows every new top-level config file.
+/symbio.yaml
 *.env
 .env*

@@ -18,9 +18,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
+from uuid import uuid4
 
 from symbio.utils.logger import get_logger
 
@@ -29,6 +32,10 @@ logger = get_logger("federated")
 
 class FederatedError(RuntimeError):
     """联邦学习相关错误（依赖缺失 / adapter 不匹配 / 无客户端等）。"""
+
+
+class PrivacyBudgetExhausted(FederatedError):
+    """隐私预算已耗尽 —— 再加噪也无法提供承诺的 (ε, δ) 保证。"""
 
 
 # ---------------------------------------------------------------------------
@@ -146,6 +153,158 @@ def state_dict_l2_norm(state_dict: dict[str, Any]) -> float:
         if torch.is_floating_point(t):
             total_sq += float(torch.sum(t.double() * t.double()))
     return total_sq**0.5
+
+
+# ---------------------------------------------------------------------------
+# 隐私预算记账与审计
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class PrivacyAuditRecord:
+    """一次 DP 处理的审计记录 —— 「加过噪」这件事本身必须可追溯、可复核。"""
+
+    round_id: int
+    epsilon_spent: float
+    delta: float
+    clip_norm: float
+    noise_multiplier: float
+    noise_std: float
+    norm_before: float
+    norm_after: float
+    client_id: str = ""
+    record_id: str = field(default_factory=lambda: str(uuid4()))
+    timestamp: datetime = field(default_factory=datetime.now)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "record_id": self.record_id,
+            "client_id": self.client_id,
+            "round_id": self.round_id,
+            "epsilon_spent": self.epsilon_spent,
+            "delta": self.delta,
+            "clip_norm": self.clip_norm,
+            "noise_multiplier": self.noise_multiplier,
+            "noise_std": self.noise_std,
+            "norm_before": self.norm_before,
+            "norm_after": self.norm_after,
+            "timestamp": self.timestamp.isoformat(),
+        }
+
+
+class PrivacyAccountant:
+    """差分隐私预算记账器。
+
+    ``apply_dp_noise`` 只做裁剪+加噪这一步的数学，本身不知道「一共花了多少隐私」。
+    但 DP 的保证是按累计预算算的：同一份数据被反复加噪上传，ε 会线性累加，
+    超出预算后所谓的隐私保证就不成立了。这个记账器负责：
+
+      - 把每轮花掉的 ε 累加起来，预算耗尽时直接拒绝（而不是继续假装安全）
+      - 按高斯机制换算噪声系数：σ = √(2·ln(1.25/δ)) / ε
+      - 留下审计记录，事后能证明每一轮到底加了多少噪
+
+    诚实边界：这里用的是最保守的基础组合定理（ε 线性累加），没有实现
+    RDP/moments accountant 那样更紧的组合界，因此报出的预算消耗偏悲观。
+    """
+
+    def __init__(
+        self,
+        *,
+        epsilon: float = 1.0,
+        delta: float = 1e-5,
+        clip_norm: float = 1.0,
+    ):
+        if epsilon <= 0:
+            raise ValueError("epsilon 必须为正")
+        if not 0 < delta < 1:
+            raise ValueError("delta 必须在 (0, 1) 区间内")
+        self.epsilon = epsilon
+        self.delta = delta
+        self.clip_norm = clip_norm
+        self._spent = 0.0
+        self._records: list[PrivacyAuditRecord] = []
+
+    @property
+    def total_spent(self) -> float:
+        """已消耗的隐私预算。"""
+        return self._spent
+
+    @property
+    def remaining_budget(self) -> float:
+        """剩余隐私预算。"""
+        return max(0.0, self.epsilon - self._spent)
+
+    def noise_multiplier_for(self, epsilon_per_round: float) -> float:
+        """高斯机制噪声系数：σ/clip = √(2·ln(1.25/δ)) / ε。"""
+        if epsilon_per_round <= 0:
+            raise ValueError("每轮 epsilon 必须为正")
+        return math.sqrt(2 * math.log(1.25 / self.delta)) / epsilon_per_round
+
+    def spend(self, epsilon_per_round: float) -> float:
+        """扣减预算，返回本轮应使用的噪声系数。预算不足时拒绝。"""
+        if epsilon_per_round <= 0:
+            raise ValueError("每轮 epsilon 必须为正")
+        if epsilon_per_round > self.remaining_budget + 1e-12:
+            raise PrivacyBudgetExhausted(
+                f"隐私预算不足: 需要 ε={epsilon_per_round}，剩余 ε={self.remaining_budget:.4f}"
+                f"（总预算 {self.epsilon}，已用 {self._spent:.4f}）"
+            )
+        self._spent += epsilon_per_round
+        return self.noise_multiplier_for(epsilon_per_round)
+
+    def privatize(
+        self,
+        state_dict: dict[str, Any],
+        *,
+        epsilon_per_round: float,
+        round_id: int = 0,
+        client_id: str = "",
+        generator: Optional[Any] = None,
+    ) -> tuple[dict[str, Any], PrivacyAuditRecord]:
+        """扣预算 → 裁剪+加噪 → 记审计。返回处理后的权重和审计记录。"""
+        noise_multiplier = self.spend(epsilon_per_round)
+        norm_before = state_dict_l2_norm(state_dict)
+        noised = apply_dp_noise(
+            state_dict,
+            clip_norm=self.clip_norm,
+            noise_multiplier=noise_multiplier,
+            generator=generator,
+        )
+        record = PrivacyAuditRecord(
+            client_id=client_id,
+            round_id=round_id,
+            epsilon_spent=epsilon_per_round,
+            delta=self.delta,
+            clip_norm=self.clip_norm,
+            noise_multiplier=noise_multiplier,
+            noise_std=noise_multiplier * self.clip_norm,
+            norm_before=norm_before,
+            norm_after=state_dict_l2_norm(noised),
+        )
+        self._records.append(record)
+        logger.info(
+            f"[DP] client={client_id or '-'} round={round_id} "
+            f"ε={epsilon_per_round} σ={record.noise_std:.4f} "
+            f"norm {norm_before:.4f} → {record.norm_after:.4f} "
+            f"（剩余预算 ε={self.remaining_budget:.4f}）"
+        )
+        return noised, record
+
+    def get_audit_records(self) -> list[PrivacyAuditRecord]:
+        """获取全部审计记录。"""
+        return list(self._records)
+
+    def audit_report(self) -> dict[str, Any]:
+        """汇总审计报告。"""
+        return {
+            "epsilon_budget": self.epsilon,
+            "epsilon_spent": self._spent,
+            "epsilon_remaining": self.remaining_budget,
+            "delta": self.delta,
+            "clip_norm": self.clip_norm,
+            "num_records": len(self._records),
+            "records": [r.to_dict() for r in self._records],
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -301,10 +460,17 @@ class FederatedClient:
 class FederatedCoordinator:
     """编排一轮联邦学习：各客户端本地训练 → （可选 DP）→ FedAvg 聚合。"""
 
-    def __init__(self, clients: list[FederatedClient]):
+    def __init__(
+        self,
+        clients: list[FederatedClient],
+        accountant: Optional[PrivacyAccountant] = None,
+    ):
         if not clients:
             raise FederatedError("至少需要一个联邦客户端")
         self.clients = clients
+        # 可选：带预算记账的 DP。传了 accountant 就按预算走，超支直接拒绝聚合。
+        self.accountant = accountant
+        self._round_id = 0
 
     def run_round(
         self,
@@ -315,9 +481,17 @@ class FederatedCoordinator:
         lora_rank: int = 8,
         dp_clip_norm: float = 0.0,
         dp_noise_multiplier: float = 0.0,
+        dp_epsilon_per_round: float = 0.0,
         **train_kwargs: Any,
     ) -> dict[str, Any]:
-        """跑一整轮联邦：训练所有客户端并聚合出全局 adapter。"""
+        """跑一整轮联邦：训练所有客户端并聚合出全局 adapter。
+
+        DP 有两种用法，二选一：
+          - 直接给 dp_clip_norm / dp_noise_multiplier：一次性加噪，不记账。
+          - 构造时传 accountant 并给 dp_epsilon_per_round：按 (ε, δ) 预算换算噪声、
+            扣减预算、留审计记录；预算耗尽时抛 PrivacyBudgetExhausted。
+        """
+        self._round_id += 1
         for client in self.clients:
             if not client.adapter_dir:
                 client.train_local(
@@ -331,13 +505,41 @@ class FederatedCoordinator:
         adapters = [c.adapter_dir for c in self.clients]
         weights = [float(c.num_samples or 1) for c in self.clients]
         global_dir = str(Path(output_root) / "global_adapter")
-        report = fedavg_aggregate(
-            adapters,
-            weights=weights,
-            output_dir=global_dir,
-            dp_clip_norm=dp_clip_norm,
-            dp_noise_multiplier=dp_noise_multiplier,
-        )
+
+        if self.accountant is not None and dp_epsilon_per_round > 0:
+            # 逐客户端扣预算加噪，再对已加噪的权重做 FedAvg
+            state_dicts = []
+            for client in self.clients:
+                sd = _load_state_dict(client.adapter_dir)
+                sd, _ = self.accountant.privatize(
+                    sd,
+                    epsilon_per_round=dp_epsilon_per_round,
+                    round_id=self._round_id,
+                    client_id=client.client_id,
+                )
+                state_dicts.append(sd)
+            agg = fedavg_state_dicts(state_dicts, weights)
+            written = _save_state_dict(agg, global_dir, template_dir=adapters[0])
+            report: dict[str, Any] = {
+                "num_clients": len(adapters),
+                "weights": list(weights),
+                "dp_applied": True,
+                "output_dir": global_dir,
+                "output_files": written,
+                "aggregated_l2_norm": state_dict_l2_norm(agg),
+                "num_tensors": len(agg),
+                "privacy": self.accountant.audit_report(),
+            }
+        else:
+            report = fedavg_aggregate(
+                adapters,
+                weights=weights,
+                output_dir=global_dir,
+                dp_clip_norm=dp_clip_norm,
+                dp_noise_multiplier=dp_noise_multiplier,
+            )
+
+        report["round_id"] = self._round_id
         report["clients"] = [
             {"client_id": c.client_id, "num_samples": c.num_samples, "adapter_dir": c.adapter_dir}
             for c in self.clients

@@ -21,6 +21,11 @@ from symbio.utils.logger import get_logger
 logger = get_logger("semantic_cache")
 
 
+def _escape_sql_literal(value: str) -> str:
+    """转义字符串字面量中的单引号，避免拼接 LanceDB where 子句时语法出错或注入。"""
+    return str(value).replace("'", "''")
+
+
 # ---------------------------------------------------------------------------
 # Pydantic 数据模型
 # ---------------------------------------------------------------------------
@@ -542,7 +547,9 @@ class SemanticCacheEngine:
             await self.initialize()
 
         try:
-            await asyncio.to_thread(self._table.delete, f"entry_id = '{entry_id}'")
+            await asyncio.to_thread(
+                self._table.delete, f"entry_id = '{_escape_sql_literal(entry_id)}'"
+            )
             logger.info(f"手动失效缓存: {entry_id}")
             return True
         except Exception as e:
@@ -566,7 +573,9 @@ class SemanticCacheEngine:
         try:
             # 先查出要删除的数量
             count_before = await asyncio.to_thread(self._table.count_rows)
-            await asyncio.to_thread(self._table.delete, f"version = '{version}'")
+            await asyncio.to_thread(
+                self._table.delete, f"version = '{_escape_sql_literal(version)}'"
+            )
             count_after = await asyncio.to_thread(self._table.count_rows)
             deleted = count_before - count_after
             if deleted > 0:
@@ -592,7 +601,9 @@ class SemanticCacheEngine:
 
         try:
             count_before = await asyncio.to_thread(self._table.count_rows)
-            await asyncio.to_thread(self._table.delete, f"context_hash = '{context_hash}'")
+            await asyncio.to_thread(
+                self._table.delete, f"context_hash = '{_escape_sql_literal(context_hash)}'"
+            )
             count_after = await asyncio.to_thread(self._table.count_rows)
             deleted = count_before - count_after
             if deleted > 0:
@@ -698,11 +709,9 @@ class SemanticCacheEngine:
             await self.initialize()
 
         try:
-            results = await asyncio.to_thread(
-                self._table.query,
-                where=f"prompt_prefix_hash = '{prompt_prefix_hash}'",
+            rows = await self._scan_rows(
+                where=f"prompt_prefix_hash = '{_escape_sql_literal(prompt_prefix_hash)}'",
             )
-            rows = await asyncio.to_thread(results.to_list)
             entries = []
             for row in rows:
                 entry = self._row_to_entry(row)
@@ -726,11 +735,10 @@ class SemanticCacheEngine:
             await self.initialize()
 
         try:
-            all_rows = await asyncio.to_thread(
-                self._table.query,
+            rows = await self._scan_rows(
                 where="prompt_prefix_hash IS NOT NULL AND prompt_prefix_hash != ''",
+                columns=["prompt_prefix_hash"],
             )
-            rows = await asyncio.to_thread(all_rows.to_list)
 
             # 按 prefix_hash 分组统计
             prefix_groups: dict[str, int] = {}
@@ -910,6 +918,29 @@ class SemanticCacheEngine:
     # 行 <-> Entry 转换
     # ------------------------------------------------------------------
 
+    async def _scan_rows(
+        self,
+        where: Optional[str] = None,
+        columns: Optional[list[str]] = None,
+        limit: Optional[int] = None,
+    ) -> list[dict[str, Any]]:
+        """全表扫描（非向量检索），返回行 dict 列表。
+
+        LanceDB 的表对象没有 ``query()`` 方法；无查询向量的标量扫描要用
+        ``search(None)`` 拿到 query builder 再链式加条件。``limit(0)`` 表示不限量。
+        """
+
+        def _run() -> list[dict[str, Any]]:
+            builder = self._table.search(None)
+            if where:
+                builder = builder.where(where)
+            if columns:
+                builder = builder.select(columns)
+            builder = builder.limit(limit if limit is not None else 0)
+            return builder.to_list()
+
+        return await asyncio.to_thread(_run)
+
     def _entry_to_row(self, entry: CacheEntry) -> dict[str, Any]:
         """CacheEntry -> LanceDB row dict"""
         dim = self._effective_dim or self._config.embedding_dim or 1536
@@ -960,20 +991,16 @@ class SemanticCacheEngine:
         )
 
     async def _update_entry_hits(self, entry_id: str, new_hit_count: int) -> None:
-        """更新条目的命中计数（删除后重新插入）"""
+        """更新条目的命中计数与最近命中时间"""
         try:
-            # LanceDB 不支持原生 update，用 delete + add 实现
-            results = await asyncio.to_thread(
-                self._table.query,
-                where=f"entry_id = '{entry_id}'",
+            await asyncio.to_thread(
+                self._table.update,
+                where=f"entry_id = '{_escape_sql_literal(entry_id)}'",
+                values={
+                    "hit_count": new_hit_count,
+                    "last_hit_at": datetime.now().isoformat(),
+                },
             )
-            rows = await asyncio.to_thread(results.to_list)
-            if rows:
-                row = rows[0]
-                row["hit_count"] = new_hit_count
-                row["last_hit_at"] = datetime.now().isoformat()
-                await asyncio.to_thread(self._table.delete, f"entry_id = '{entry_id}'")
-                await asyncio.to_thread(self._table.add, [row])
         except Exception as e:
             logger.debug(f"更新命中计数失败（非致命）: {e}")
 
@@ -987,14 +1014,8 @@ class SemanticCacheEngine:
             excess = count - self._config.max_entries
             logger.info(f"缓存条目超限: {count}/{self._config.max_entries}, 淘汰 {excess} 条")
 
-            # 查询所有条目，按 last_hit_at 排序后取前 excess 条淘汰
-            try:
-                # 尝试使用 select 仅获取需要的列（减少内存占用）
-                query_obj = self._table.query().select(["entry_id", "last_hit_at"])
-                results = await asyncio.to_thread(query_obj.to_list)
-            except Exception:
-                # 回退：加载全量行
-                results = await asyncio.to_thread(self._table.to_list)
+            # 只取排序所需的列，避免把向量全量载入内存
+            results = await self._scan_rows(columns=["entry_id", "last_hit_at"])
 
             if not results:
                 return
@@ -1005,9 +1026,12 @@ class SemanticCacheEngine:
 
             for evict_row in to_evict:
                 evict_id = evict_row["entry_id"]
-                await asyncio.to_thread(self._table.delete, f"entry_id = '{evict_id}'")
+                await asyncio.to_thread(
+                    self._table.delete,
+                    f"entry_id = '{_escape_sql_literal(evict_id)}'",
+                )
 
-            logger.info(f"LRU 淘汰完成: {excess} 条")
+            logger.info(f"LRU 淘汰完成: {len(to_evict)} 条")
         except Exception as e:
             logger.error(f"容量控制失败: {e}")
 
@@ -1024,12 +1048,7 @@ class SemanticCacheEngine:
             await self.initialize()
 
         try:
-            results = await asyncio.to_thread(
-                self._table.query,
-                where="1=1",
-            )
-            results = await asyncio.to_thread(results.limit, limit)
-            rows = await asyncio.to_thread(results.to_list)
+            rows = await self._scan_rows(limit=limit)
             entries = [self._row_to_entry(row) for row in rows]
             logger.debug(f"获取全部缓存条目: {len(entries)} 条")
             return entries

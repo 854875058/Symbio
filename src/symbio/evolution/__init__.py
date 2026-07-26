@@ -114,9 +114,13 @@ from symbio.evolution.federated import (
     FederatedClient,
     FederatedCoordinator,
     FederatedError,
+    PrivacyAccountant,
+    PrivacyAuditRecord,
+    PrivacyBudgetExhausted,
     apply_dp_noise,
     fedavg_aggregate,
     fedavg_state_dicts,
+    state_dict_l2_norm,
 )
 
 __all__ = [
@@ -212,7 +216,11 @@ __all__ = [
     "FederatedClient",
     "FederatedCoordinator",
     "FederatedError",
+    "PrivacyAccountant",
+    "PrivacyAuditRecord",
+    "PrivacyBudgetExhausted",
     "apply_dp_noise",
     "fedavg_aggregate",
     "fedavg_state_dicts",
+    "state_dict_l2_norm",
 ]

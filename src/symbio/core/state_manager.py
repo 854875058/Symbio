@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -381,6 +381,33 @@ class StateManager:
         logger.info(f"状态恢复成功: task_id={task_id}, version={self._state.version}")
         return self._state.model_copy(deep=True)
 
+    async def restore_version(self, task_id: str, version: int) -> Optional[GlobalState]:
+        """恢复指定版本的状态快照（断点续传回到某一步，而不只是最新一步）
+
+        Args:
+            task_id: 任务唯一标识
+            version: 快照版本号
+
+        Returns:
+            恢复的全局状态，如果不存在返回 None
+        """
+        if self._db is None:
+            await self._init_db()
+
+        cursor = await self._db.execute(
+            "SELECT state_json FROM state_snapshots WHERE task_id = ? AND version = ?",
+            (task_id, version),
+        )
+        row = await cursor.fetchone()
+
+        if not row:
+            logger.warning(f"未找到指定版本的状态: task_id={task_id}, version={version}")
+            return None
+
+        self._state = GlobalState.model_validate_json(row[0])
+        logger.info(f"状态恢复成功: task_id={task_id}, version={version}")
+        return self._state.model_copy(deep=True)
+
     async def list_snapshots(
         self,
         task_id: str,
@@ -405,6 +432,70 @@ class StateManager:
         )
         rows = await cursor.fetchall()
         return [{"version": row[0], "created_at": row[1]} for row in rows]
+
+    async def cleanup_old_snapshots(
+        self,
+        *,
+        days: Optional[int] = None,
+        keep_last: Optional[int] = None,
+        task_id: str = "",
+    ) -> int:
+        """清理历史快照，防止 state_snapshots 表无界增长。
+
+        每次 update 都会写一个新版本，长跑任务的快照会持续累积；这里提供两种保留
+        策略（可同时使用）：
+
+        Args:
+            days: 只删除早于 N 天的快照。
+            keep_last: 每个任务保留最近 N 个版本。
+            task_id: 限定单个任务；为空则作用于所有任务。
+
+        Returns:
+            删除的快照数量。
+        """
+        if days is None and keep_last is None:
+            raise ValueError("必须指定 days 或 keep_last 之一")
+        if self._db is None:
+            await self._init_db()
+
+        deleted = 0
+
+        if days is not None:
+            cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+            if task_id:
+                cursor = await self._db.execute(
+                    "DELETE FROM state_snapshots WHERE created_at < ? AND task_id = ?",
+                    (cutoff, task_id),
+                )
+            else:
+                cursor = await self._db.execute(
+                    "DELETE FROM state_snapshots WHERE created_at < ?",
+                    (cutoff,),
+                )
+            deleted += cursor.rowcount or 0
+
+        if keep_last is not None:
+            if keep_last < 1:
+                raise ValueError("keep_last 必须 >= 1")
+            if task_id:
+                task_ids = [task_id]
+            else:
+                cursor = await self._db.execute("SELECT DISTINCT task_id FROM state_snapshots")
+                task_ids = [row[0] for row in await cursor.fetchall()]
+            for tid in task_ids:
+                cursor = await self._db.execute(
+                    "DELETE FROM state_snapshots WHERE task_id = ? AND version NOT IN ("
+                    "  SELECT version FROM state_snapshots "
+                    "  WHERE task_id = ? ORDER BY version DESC LIMIT ?"
+                    ")",
+                    (tid, tid, keep_last),
+                )
+                deleted += cursor.rowcount or 0
+
+        await self._db.commit()
+        if deleted > 0:
+            logger.info(f"清理历史状态快照: {deleted} 个")
+        return deleted
 
 
 # ---------------------------------------------------------------------------

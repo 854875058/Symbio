@@ -407,6 +407,155 @@ def memory(
         raise typer.Exit(code)
 
 
+def _render_project_memories(items: list[Any]) -> None:
+    table = Table(title="Project Memories")
+    table.add_column("ID", style="cyan", no_wrap=True)
+    table.add_column("Type")
+    table.add_column("Importance", justify="right")
+    table.add_column("Content")
+    table.add_column("Tags")
+    for item in items:
+        table.add_row(
+            _clip(item.memory_id, 14),
+            item.memory_type,
+            f"{item.importance:.2f}",
+            _clip(item.content, 46),
+            ",".join(item.tags),
+        )
+    console.print(table)
+
+
+@app.command()
+def project(
+    action: str = typer.Argument(
+        ...,
+        help="Action: create/list/add/search/memories/transfer/stats",
+    ),
+    project_id: str = typer.Option("", "--project", "-p", help="Project ID"),
+    name: str = typer.Option("", "--name", help="Project name (create)"),
+    description: str = typer.Option("", "--description", help="Project description (create)"),
+    content: str = typer.Option("", "--content", help="Memory content (add)"),
+    memory_type: str = typer.Option("semantic", "--type", help="Memory type (add)"),
+    importance: float = typer.Option(0.5, "--importance", help="Memory importance (add)"),
+    query: Optional[str] = typer.Option(None, "--query", "-q", help="Search query"),
+    target: str = typer.Option("", "--target", help="Target project ID (transfer)"),
+    memory_id: list[str] = typer.Option([], "--memory-id", help="Memory ID (transfer)"),
+    reason: str = typer.Option("", "--reason", help="Transfer reason"),
+    tag: list[str] = typer.Option([], "--tag", help="Tag"),
+) -> None:
+    """Manage project-scoped memories and cross-project knowledge transfer."""
+    from symbio.memory import ProjectMemoryManager
+
+    async def run_project() -> int:
+        manager = ProjectMemoryManager()
+        await manager.initialize()
+        try:
+            if action == "create":
+                if not project_id:
+                    console.print("[bold red]Missing --project[/bold red]")
+                    return 1
+                scope = await manager.create_project_async(
+                    project_id,
+                    project_name=name,
+                    description=description,
+                    tags=list(tag),
+                )
+                console.print(f"[bold green]Project created:[/bold green] {scope.project_id}")
+                return 0
+
+            if action == "list":
+                table = Table(title="Projects")
+                table.add_column("ID", style="cyan")
+                table.add_column("Name")
+                table.add_column("Memories", justify="right")
+                for scope in manager.list_projects():
+                    count = len(await manager.list_memories(scope.project_id))
+                    table.add_row(scope.project_id, scope.project_name or "-", str(count))
+                console.print(table)
+                return 0
+
+            if action == "add":
+                if not project_id or not content:
+                    console.print("[bold red]Missing --project or --content[/bold red]")
+                    return 1
+                if manager.get_project(project_id) is None:
+                    manager.create_project(project_id)
+                item = await manager.add_memory(
+                    project_id,
+                    content,
+                    memory_type,
+                    importance=importance,
+                    tags=list(tag),
+                    source="cli",
+                )
+                console.print(f"[bold green]Memory added:[/bold green] {item.memory_id}")
+                return 0
+
+            if action == "memories":
+                if not project_id:
+                    console.print("[bold red]Missing --project[/bold red]")
+                    return 1
+                _render_project_memories(
+                    await manager.list_memories(project_id, tags=list(tag) or None)
+                )
+                return 0
+
+            if action == "search":
+                if not query:
+                    console.print("[bold red]Missing --query[/bold red]")
+                    return 1
+                results = await manager.search(query, project_id=project_id or None)
+                table = Table(title="Search Results")
+                table.add_column("Project", style="cyan")
+                table.add_column("Score", justify="right")
+                table.add_column("Content")
+                for row in results:
+                    table.add_row(
+                        row.get("project_id", "-"),
+                        f"{float(row.get('similarity', 0.0)):.3f}",
+                        _clip(row.get("content", ""), 56),
+                    )
+                console.print(table)
+                return 0
+
+            if action == "transfer":
+                if not project_id or not target or not memory_id:
+                    console.print(
+                        "[bold red]Need --project, --target and at least one --memory-id[/bold red]"
+                    )
+                    return 1
+                record = await manager.transfer_knowledge(
+                    project_id, target, list(memory_id), reason=reason
+                )
+                console.print(
+                    f"[bold green]Transferred:[/bold green] "
+                    f"{len(record.memory_ids)} memories {project_id} -> {target}"
+                )
+                return 0
+
+            if action == "stats":
+                stats = manager.get_statistics()
+                table = Table(title="Project Memory Stats")
+                table.add_column("Metric")
+                table.add_column("Value", justify="right")
+                for key, value in stats.items():
+                    table.add_row(key, _clip(value, 40))
+                console.print(table)
+                return 0
+
+            console.print(
+                "[bold red]Unknown action. "
+                "Use create/list/add/search/memories/transfer/stats.[/bold red]"
+            )
+            return 1
+        finally:
+            await manager.close()
+
+    code = _run(run_project())
+    if code:
+        raise typer.Exit(code)
+
+
 @app.command()
 def serve(
     host: str = typer.Option("0.0.0.0", "--host", help="Host"),

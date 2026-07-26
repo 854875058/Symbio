@@ -67,6 +67,12 @@ from .audit import (
     MemoryAuditor,
     Severity,
 )
+from .project_memory import (
+    ProjectMemoryItem,
+    ProjectMemoryManager,
+    ProjectScope,
+    TransferRecord,
+)
 
 __all__ = [
     # Memory Manager
@@ -130,4 +136,9 @@ __all__ = [
     "CleanupResult",
     "MemoryAuditor",
     "Severity",
+    # Project-scoped Memory
+    "ProjectMemoryItem",
+    "ProjectMemoryManager",
+    "ProjectScope",
+    "TransferRecord",
 ]

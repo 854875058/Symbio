@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import threading
 from datetime import datetime
@@ -12,9 +13,15 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 from symbio.config.settings import get_settings
+from symbio.utils.embedding import LocalEmbedder
 from symbio.utils.logger import get_logger
 
 logger = get_logger("memory.project")
+
+
+def _escape_sql_literal(value: str) -> str:
+    """转义 where 子句字符串字面量中的单引号。"""
+    return str(value).replace("'", "''")
 
 
 # ---------------------------------------------------------------------------
@@ -103,7 +110,6 @@ class ProjectMemoryManager:
     def __init__(self, storage_dir: str | Path | None = None):
         settings = get_settings()
         self._storage_dir = Path(storage_dir or settings.memory.lancedb_path) / "projects"
-        self._storage_dir.mkdir(parents=True, exist_ok=True)
 
         # 内存存储：project_id -> {memory_id -> ProjectMemoryItem}
         self._projects: dict[str, ProjectScope] = {}
@@ -113,7 +119,11 @@ class ProjectMemoryManager:
         # 向量索引
         self._db = None
         self._table = None
+        self._projects_table = None
         self._initialized = False
+
+        # 无 API Key 时的本地降级 embedding（构造不加载模型，首次使用才 load）
+        self._local_embedder = LocalEmbedder()
 
         self._lock = threading.RLock()
 
@@ -135,15 +145,13 @@ class ProjectMemoryManager:
             db_path = self._storage_dir / "lancedb"
             db_path.mkdir(parents=True, exist_ok=True)
 
-            self._db = await __import__("asyncio").to_thread(lancedb.connect, str(db_path))
+            self._db = await asyncio.to_thread(lancedb.connect, str(db_path))
             logger.info(f"LanceDB 连接成功: {db_path}")
 
             # 检查或创建表
-            table_names = await __import__("asyncio").to_thread(self._db.table_names)
+            table_names = await asyncio.to_thread(self._db.table_names)
             if "project_memories" in table_names:
-                self._table = await __import__("asyncio").to_thread(
-                    self._db.open_table, "project_memories"
-                )
+                self._table = await asyncio.to_thread(self._db.open_table, "project_memories")
             else:
                 schema = pa.schema(
                     [
@@ -161,11 +169,30 @@ class ProjectMemoryManager:
                         pa.field("metadata_json", pa.string()),
                     ]
                 )
-                self._table = await __import__("asyncio").to_thread(
+                self._table = await asyncio.to_thread(
                     self._db.create_table, "project_memories", schema=schema
                 )
 
+            # 项目元数据独立成表：没有记忆的项目也必须能在重启后列出
+            if "projects" in table_names:
+                self._projects_table = await asyncio.to_thread(self._db.open_table, "projects")
+            else:
+                projects_schema = pa.schema(
+                    [
+                        pa.field("project_id", pa.string()),
+                        pa.field("project_name", pa.string()),
+                        pa.field("description", pa.string()),
+                        pa.field("tags_json", pa.string()),
+                        pa.field("created_at", pa.string()),
+                        pa.field("metadata_json", pa.string()),
+                    ]
+                )
+                self._projects_table = await asyncio.to_thread(
+                    self._db.create_table, "projects", schema=projects_schema
+                )
+
             self._initialized = True
+            await self._load_from_disk()
 
         except ImportError:
             logger.warning("lancedb 未安装，项目记忆将使用纯内存模式")
@@ -173,6 +200,120 @@ class ProjectMemoryManager:
         except Exception as e:
             logger.error(f"项目记忆管理器初始化失败: {e}")
             raise
+
+    async def _load_from_disk(self) -> None:
+        """从 LanceDB 回填内存索引。
+
+        检索/枚举全部走内存字典，若不回填，重启后已持久化的记忆将不可见。
+        """
+        await self._load_projects_from_disk()
+
+        if self._table is None:
+            return
+
+        try:
+            rows = await asyncio.to_thread(lambda: self._table.search(None).limit(0).to_list())
+        except Exception as e:
+            logger.error(f"项目记忆加载失败: {e}")
+            return
+
+        loaded = 0
+        with self._lock:
+            for row in rows:
+                try:
+                    item = self._row_to_item(row)
+                except Exception as e:  # 单行损坏不应阻断整体加载
+                    logger.warning(f"跳过损坏的记忆行: {e}")
+                    continue
+                if item.project_id not in self._projects:
+                    self.create_project(item.project_id)
+                self._memories[item.project_id][item.memory_id] = item
+                loaded += 1
+
+        if loaded:
+            logger.info(f"从磁盘加载项目记忆: {loaded} 条, 项目 {len(self._projects)} 个")
+
+    async def _load_projects_from_disk(self) -> None:
+        """回填项目元数据，使没有记忆的空项目重启后依然可见。"""
+        if self._projects_table is None:
+            return
+
+        try:
+            rows = await asyncio.to_thread(
+                lambda: self._projects_table.search(None).limit(0).to_list()
+            )
+        except Exception as e:
+            logger.error(f"项目列表加载失败: {e}")
+            return
+
+        with self._lock:
+            for row in rows:
+                project_id = row.get("project_id", "")
+                if not project_id or project_id in self._projects:
+                    continue
+                created_at = row.get("created_at") or ""
+                try:
+                    scope = ProjectScope(
+                        project_id=project_id,
+                        project_name=row.get("project_name", ""),
+                        description=row.get("description", ""),
+                        tags=json.loads(row.get("tags_json") or "[]"),
+                        created_at=(
+                            datetime.fromisoformat(created_at) if created_at else datetime.now()
+                        ),
+                        metadata=json.loads(row.get("metadata_json") or "{}"),
+                    )
+                except Exception as e:
+                    logger.warning(f"跳过损坏的项目行: project={project_id}, error={e}")
+                    continue
+                self._projects[project_id] = scope
+                self._memories.setdefault(project_id, {})
+
+    async def _persist_project(self, scope: ProjectScope) -> None:
+        """持久化项目元数据（同 project_id 先删后插，保证幂等）。"""
+        if self._projects_table is None:
+            return
+
+        row = {
+            "project_id": scope.project_id,
+            "project_name": scope.project_name,
+            "description": scope.description,
+            "tags_json": json.dumps(scope.tags, ensure_ascii=False),
+            "created_at": scope.created_at.isoformat(),
+            "metadata_json": json.dumps(scope.metadata, ensure_ascii=False),
+        }
+        where = f"project_id = '{_escape_sql_literal(scope.project_id)}'"
+        try:
+            await asyncio.to_thread(self._projects_table.delete, where)
+            await asyncio.to_thread(self._projects_table.add, [row])
+        except Exception as e:
+            logger.error(f"项目元数据持久化失败: project={scope.project_id}, error={e}")
+
+    @staticmethod
+    def _row_to_item(row: dict[str, Any]) -> ProjectMemoryItem:
+        """LanceDB row -> ProjectMemoryItem"""
+        tags_json = row.get("tags_json") or "[]"
+        metadata_json = row.get("metadata_json") or "{}"
+        created_at = row.get("created_at") or ""
+        last_accessed = row.get("last_accessed") or ""
+        vector = row.get("vector") or []
+
+        return ProjectMemoryItem(
+            memory_id=row.get("memory_id", ""),
+            project_id=row.get("project_id", ""),
+            content=row.get("content", ""),
+            memory_type=row.get("memory_type", "semantic"),
+            importance=float(row.get("importance", 0.5)),
+            tags=json.loads(tags_json),
+            source=row.get("source", ""),
+            embedding=[float(x) for x in vector],
+            created_at=datetime.fromisoformat(created_at) if created_at else datetime.now(),
+            last_accessed=(
+                datetime.fromisoformat(last_accessed) if last_accessed else datetime.now()
+            ),
+            access_count=int(row.get("access_count", 0)),
+            metadata=json.loads(metadata_json),
+        )
 
     # ------------------------------------------------------------------
     # 项目管理
@@ -222,7 +363,10 @@ class ProjectMemoryManager:
         return list(self._projects.values())
 
     def delete_project(self, project_id: str) -> bool:
-        """删除项目及其所有记忆
+        """删除项目及其所有记忆（仅内存索引）
+
+        注意：这是同步方法，不触碰持久化层。需要连带清除已落盘的记忆时，
+        改用 :meth:`delete_project_async`。
 
         Args:
             project_id: 项目 ID
@@ -239,6 +383,41 @@ class ProjectMemoryManager:
 
             logger.info(f"删除项目: {project_id}")
             return True
+
+    async def create_project_async(
+        self,
+        project_id: str,
+        project_name: str = "",
+        description: str = "",
+        tags: list[str] | None = None,
+    ) -> ProjectScope:
+        """创建项目并落盘。
+
+        :meth:`create_project` 是同步方法，只更新内存索引；需要项目在重启后
+        依然可见时（例如 CLI / API 入口）应改用本方法。
+        """
+        scope = self.create_project(
+            project_id,
+            project_name=project_name,
+            description=description,
+            tags=tags,
+        )
+        await self._persist_project(scope)
+        return scope
+
+    async def delete_project_async(self, project_id: str) -> bool:
+        """删除项目及其所有记忆，并同步清除持久化数据。"""
+        if not self.delete_project(project_id):
+            return False
+
+        where = f"project_id = '{_escape_sql_literal(project_id)}'"
+        await self._delete_persisted(where)
+        if self._projects_table is not None:
+            try:
+                await asyncio.to_thread(self._projects_table.delete, where)
+            except Exception as e:
+                logger.error(f"项目元数据删除失败: project={project_id}, error={e}")
+        return True
 
     # ------------------------------------------------------------------
     # 记忆操作
@@ -274,8 +453,13 @@ class ProjectMemoryManager:
 
         with self._lock:
             # 确保项目存在
+            created_scope = None
             if project_id not in self._projects:
-                self.create_project(project_id)
+                created_scope = self.create_project(project_id)
+
+        # 隐式创建的项目也要落盘，否则重启后项目列表缺失
+        if created_scope is not None:
+            await self._persist_project(created_scope)
 
         # 生成 embedding
         embedding = await self._get_embedding(content)
@@ -294,8 +478,10 @@ class ProjectMemoryManager:
         with self._lock:
             self._memories[project_id][item.memory_id] = item
 
-        # 持久化
-        if self._table:
+        # 持久化。注意必须用 `is not None`：LanceTable 实现了 __len__ 而没有
+        # __bool__，空表的布尔值为 False，写成 `if self._table:` 会让第一条记忆
+        # 永远写不进去，此后表恒为空 —— 持久化整体静默失效。
+        if self._table is not None:
             await self._persist_memory(item)
 
         logger.info(
@@ -311,7 +497,7 @@ class ProjectMemoryManager:
             return project_memories.get(memory_id)
 
     async def delete_memory(self, project_id: str, memory_id: str) -> bool:
-        """删除记忆"""
+        """删除记忆（内存索引与持久化同时删除）"""
         with self._lock:
             project_memories = self._memories.get(project_id)
             if not project_memories or memory_id not in project_memories:
@@ -319,6 +505,7 @@ class ProjectMemoryManager:
 
             del project_memories[memory_id]
 
+        await self._delete_persisted(f"memory_id = '{_escape_sql_literal(memory_id)}'")
         logger.info(f"删除记忆: project={project_id}, memory={memory_id}")
         return True
 
@@ -495,6 +682,7 @@ class ProjectMemoryManager:
             target_memories = self._memories[target_project]
 
             transferred: list[str] = []
+            new_items: list[ProjectMemoryItem] = []
             for mid in memory_ids:
                 if mid in source_memories:
                     # 复制记忆到目标项目
@@ -514,7 +702,12 @@ class ProjectMemoryManager:
                         },
                     )
                     target_memories[new_item.memory_id] = new_item
+                    new_items.append(new_item)
                     transferred.append(mid)
+
+        # 迁移产生的副本同样要落盘，否则重启后迁移结果丢失
+        for item in new_items:
+            await self._persist_memory(item)
 
         record = TransferRecord(
             source_project=source_project,
@@ -581,15 +774,18 @@ class ProjectMemoryManager:
     # ------------------------------------------------------------------
 
     async def _get_embedding(self, text: str) -> list[float]:
-        """生成文本的向量表示"""
+        """生成文本的向量表示。
+
+        无 API Key 或调用失败时降级为本地 embedding（sentence-transformers →
+        字符哈希），保证语义检索始终可用而不是静默退化成纯关键词匹配。
+        """
         settings = get_settings()
         api_key = settings.model.openai_api_key
         base_url = settings.model.openai_base_url
         model = settings.memory.embedding_model
 
         if not api_key:
-            logger.warning("未配置 API Key，无法生成 embedding")
-            return []
+            return await asyncio.to_thread(self._local_embedder.embed, text)
 
         try:
             import httpx
@@ -607,18 +803,18 @@ class ProjectMemoryManager:
                 data = resp.json()
                 return data["data"][0]["embedding"]
         except Exception as e:
-            logger.error(f"Embedding API 调用失败: {e}")
-            return []
+            logger.warning(f"Embedding API 调用失败，降级为本地 embedding: {e}")
+            return await asyncio.to_thread(self._local_embedder.embed, text)
 
     async def _persist_memory(self, memory: ProjectMemoryItem) -> None:
         """持久化记忆到 LanceDB"""
-        if not self._table:
+        if self._table is None:
             return
 
         try:
-            import asyncio
-
-            dim = get_settings().memory.embedding_dim or 1536
+            # 占位维度取实际生效的 embedder 维度：schema 是变长 list，混入
+            # 1536 维全零占位会让后续余弦相似度计算维度不匹配而整条跳过。
+            dim = self._local_embedder.dim
             row = {
                 "memory_id": memory.memory_id,
                 "project_id": memory.project_id,
@@ -636,6 +832,22 @@ class ProjectMemoryManager:
             await asyncio.to_thread(self._table.add, [row])
         except Exception as e:
             logger.error(f"记忆持久化失败: {e}")
+
+    async def _delete_persisted(self, where: str) -> None:
+        """按 where 条件删除持久化行（表不存在时静默跳过）。"""
+        if self._table is None:
+            return
+
+        try:
+            await asyncio.to_thread(self._table.delete, where)
+        except Exception as e:
+            logger.error(f"记忆持久化删除失败: where={where}, error={e}")
+
+    async def close(self) -> None:
+        """释放持久化句柄。"""
+        self._table = None
+        self._db = None
+        self._initialized = False
 
     @staticmethod
     def _cosine_similarity(a: list[float], b: list[float]) -> float:

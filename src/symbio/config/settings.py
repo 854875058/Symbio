@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
@@ -272,7 +273,12 @@ class Settings(BaseSettings):
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> Settings:
-        """Load settings from YAML file."""
+        """Load settings from YAML file.
+
+        YAML 只作为默认值的基础层：环境变量（``SYMBIO_*``）优先级更高，会覆盖
+        YAML 中的同名字段。这样 ``symbio.yaml`` 存在时也不会吞掉部署环境或测试
+        通过环境变量做的定向覆盖。
+        """
         path = Path(path)
         if not path.exists():
             return cls()
@@ -292,7 +298,9 @@ class Settings(BaseSettings):
         with open(path, "r", encoding="utf-8") as f:
             data = yaml.load(f, Loader=_SettingsSafeLoader) or {}
 
-        return cls(**data)
+        # 环境变量优先：把已由环境变量提供的字段从 YAML 数据里摘掉，
+        # 让 pydantic-settings 自己的 env 源来填充这些字段。
+        return cls(**_drop_env_overridden(cls, data))
 
     def to_yaml(self, path: str | Path) -> None:
         """Save settings to YAML file."""
@@ -313,6 +321,39 @@ _CONFIG_SEARCH_PATHS = [
     Path("symbio.yaml"),
     Path.home() / ".symbio" / "config.yaml",
 ]
+
+
+def _drop_env_overridden(model_cls: type[BaseSettings], data: dict[str, Any]) -> dict[str, Any]:
+    """剔除 YAML 数据中已被环境变量指定的字段。
+
+    ``BaseSettings`` 的初始化参数优先级高于环境变量源，所以把整份 YAML 直接传进
+    构造器会让 ``SYMBIO_*`` 环境变量彻底失效。这里按各层的 ``env_prefix`` 反查
+    ``os.environ``（与 pydantic-settings 默认的大小写不敏感行为一致），把命中的键
+    从 YAML 数据里移除，交还给环境变量源填充。
+    """
+    if not isinstance(data, dict):
+        return data
+
+    env_keys = {key.upper() for key in os.environ}
+    prefix = str(model_cls.model_config.get("env_prefix", "") or "")
+    result: dict[str, Any] = {}
+
+    for name, value in data.items():
+        field = model_cls.model_fields.get(name)
+        annotation = field.annotation if field is not None else None
+
+        if isinstance(annotation, type) and issubclass(annotation, BaseSettings):
+            nested = _drop_env_overridden(annotation, value)
+            # 整个子配置都被环境变量覆盖时留空，让 default_factory 从环境变量重建
+            if nested or not isinstance(value, dict):
+                result[name] = nested
+            continue
+
+        if f"{prefix}{name}".upper() in env_keys:
+            continue
+        result[name] = value
+
+    return result
 
 
 @lru_cache

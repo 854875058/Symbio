@@ -30,6 +30,20 @@ OPTIONAL_VECTOR_BACKEND_ERROR_HINTS = (
 )
 
 
+def _escape_sql_literal(value: str) -> str:
+    """转义字符串字面量中的单引号，避免拼接 LanceDB where 子句时语法出错或注入。"""
+    return str(value).replace("'", "''")
+
+
+class MemoryWriteRejected(Exception):
+    """写入门禁拒绝了这条记忆（注入攻击或噪音）。"""
+
+    def __init__(self, reason: str, *, reasons: Optional[list[str]] = None):
+        super().__init__(reason)
+        self.reason = reason
+        self.reasons = reasons or [reason]
+
+
 # ---------------------------------------------------------------------------
 # Pydantic 数据模型
 # ---------------------------------------------------------------------------
@@ -192,6 +206,10 @@ class MemoryManagerConfig(BaseModel):
     enable_decay: bool = True  # 启用记忆衰减
     decay_check_interval_hours: int = 6  # 衰减检查间隔
 
+    # 写入门禁
+    enable_security_gateway: bool = True  # 写入前做注入检测 + PII 脱敏
+    enable_noise_filter: bool = False  # 写入前过滤噪音（问候语/过短/低质量）
+
     # 持久化
     lancedb_path: str = ""  # LanceDB 存储路径
     table_name: str = "memories"
@@ -276,6 +294,10 @@ class MemoryManager:
 
         # 后台任务
         self._decay_task: Optional[asyncio.Task] = None
+
+        # 写入门禁（惰性创建，避免无谓的模型/规则初始化开销）
+        self._security_gateway: Any = None
+        self._noise_filter: Any = None
 
         logger.info(
             f"MemoryManager 创建: short_term_window={self._config.short_term_window}, "
@@ -483,9 +505,15 @@ class MemoryManager:
 
         Returns:
             创建的记忆条目
+
+        Raises:
+            MemoryWriteRejected: 内容被安全网关或噪音过滤拦截
         """
         if not self._initialized:
             await self.initialize()
+
+        # 写入门禁：注入拦截 / PII 脱敏 / 噪音过滤
+        content = self._screen_write(content)
 
         # 计算过期时间
         expires_at = None
@@ -522,8 +550,12 @@ class MemoryManager:
             # 长期记忆容量控制
             await self._enforce_long_term_capacity()
 
-        # 持久化到 LanceDB
-        if self._table:
+        # 持久化到 LanceDB。必须用 `is not None`：LanceTable 实现了 __len__ 而没有
+        # __bool__，空表布尔值为 False，写成 `if self._table:` 会让第一条记忆永远
+        # 写不进去，此后表恒为空 —— 持久化整体静默失效。
+        # 上面的窗口/容量控制可能刚好把这条新记忆本身淘汰掉，那就不该再写盘。
+        still_present = item.memory_id in self._short_term or item.memory_id in self._long_term
+        if self._table is not None and still_present:
             await self._persist_memory(item)
 
         logger.info(
@@ -726,7 +758,7 @@ class MemoryManager:
         results: list[SearchResult] = []
 
         # 从 LanceDB 检索
-        if self._table:
+        if self._table is not None:
             try:
                 search_results = await asyncio.to_thread(
                     self._table.search,
@@ -891,7 +923,7 @@ class MemoryManager:
             self._long_term[memory.memory_id] = memory
 
             # 更新持久化
-            if self._table:
+            if self._table is not None:
                 await self._update_memory(memory)
 
             consolidated += 1
@@ -933,27 +965,101 @@ class MemoryManager:
         logger.debug(f"会话自动摘要: session={session.session_id}")
 
     # ------------------------------------------------------------------
+    # 写入门禁
+    # ------------------------------------------------------------------
+
+    def _get_security_gateway(self):
+        """惰性创建安全网关（注入检测 + PII 脱敏）。"""
+        if self._security_gateway is None:
+            from symbio.security.gateway import MemorySecurityGateway
+
+            self._security_gateway = MemorySecurityGateway()
+        return self._security_gateway
+
+    def _get_noise_filter(self):
+        """惰性创建噪音过滤器（规则 + 启发式分类）。"""
+        if self._noise_filter is None:
+            from symbio.memory.noise_filter import CombinedNoiseFilter
+
+            self._noise_filter = CombinedNoiseFilter()
+        return self._noise_filter
+
+    def _screen_write(self, content: str) -> str:
+        """写入前门禁：拦注入、脱敏 PII、可选过滤噪音。
+
+        返回实际应当写入的内容（PII 命中时为脱敏后的文本）。
+        拒绝写入时抛 MemoryWriteRejected —— 静默丢弃会让调用方以为写成功了。
+        """
+        screened = content
+
+        if self._config.enable_noise_filter:
+            try:
+                verdict = self._get_noise_filter().check(content)
+            except Exception as e:  # 过滤器异常不应阻断写入
+                logger.warning(f"噪音过滤异常，放行本次写入: {e}")
+            else:
+                if verdict.is_noise:
+                    noise_type = verdict.noise_type.value if verdict.noise_type else "unknown"
+                    raise MemoryWriteRejected(
+                        f"噪音记忆被过滤 ({noise_type}): {verdict.reason}",
+                        reasons=[verdict.reason],
+                    )
+
+        if self._config.enable_security_gateway:
+            try:
+                check = self._get_security_gateway().check(content)
+            except Exception as e:  # 网关异常不应阻断写入
+                logger.warning(f"安全检查异常，放行本次写入: {e}")
+                return screened
+
+            if not check.is_safe:
+                raise MemoryWriteRejected(
+                    f"记忆写入被安全网关拦截: {'; '.join(check.reasons)}",
+                    reasons=check.reasons,
+                )
+            if check.sanitized_content and check.sanitized_content != content:
+                screened = check.sanitized_content
+                logger.info(f"记忆内容已脱敏写入: {'; '.join(check.reasons)}")
+
+        return screened
+
+    # ------------------------------------------------------------------
     # 记忆衰减
     # ------------------------------------------------------------------
+
+    async def _delete_persisted(self, memory_ids: list[str]) -> None:
+        """从 LanceDB 删除已遗忘/淘汰的记忆。
+
+        遗忘只 del 内存字典是不够的：_restore_from_persistence 会在下次启动时把
+        磁盘上的行全部读回来，被遗忘的记忆会"复活"。
+        """
+        if self._table is None or not memory_ids:
+            return
+
+        try:
+            quoted = ", ".join(f"'{_escape_sql_literal(mid)}'" for mid in memory_ids)
+            await asyncio.to_thread(self._table.delete, f"memory_id IN ({quoted})")
+        except Exception as e:
+            logger.error(f"遗忘记忆的持久化删除失败: {e}")
 
     async def _apply_decay(self) -> None:
         """应用记忆衰减"""
         decayed = 0
-        forgotten = 0
+        forgotten: list[str] = []
 
         # 处理短期记忆
         for memory_id in list(self._short_term.keys()):
             memory = self._short_term[memory_id]
             if memory.is_expired():
                 del self._short_term[memory_id]
-                forgotten += 1
+                forgotten.append(memory_id)
                 continue
 
             relevance = memory.calculate_relevance()
             if relevance < 0.1:
                 memory.status = MemoryStatus.FORGOTTEN
                 del self._short_term[memory_id]
-                forgotten += 1
+                forgotten.append(memory_id)
 
         # 处理长期记忆（衰减但不删除）
         for memory in self._long_term.values():
@@ -962,8 +1068,11 @@ class MemoryManager:
                 memory.status = MemoryStatus.ARCHIVED
                 decayed += 1
 
-        if decayed > 0 or forgotten > 0:
-            logger.info(f"记忆衰减: decayed={decayed}, forgotten={forgotten}")
+        # 遗忘的记忆同步从磁盘删除，否则重启后会复活
+        await self._delete_persisted(forgotten)
+
+        if decayed > 0 or forgotten:
+            logger.info(f"记忆衰减: decayed={decayed}, forgotten={len(forgotten)}")
 
     async def _enforce_short_term_window(self) -> None:
         """强制短期记忆窗口大小"""
@@ -977,8 +1086,12 @@ class MemoryManager:
         )
 
         excess = len(self._short_term) - self._config.short_term_window
+        evicted: list[str] = []
         for memory in sorted_memories[:excess]:
             del self._short_term[memory.memory_id]
+            evicted.append(memory.memory_id)
+
+        await self._delete_persisted(evicted)
 
     async def _enforce_long_term_capacity(self) -> None:
         """强制长期记忆容量"""
@@ -1099,7 +1212,7 @@ class MemoryManager:
 
     async def _persist_memory(self, memory: MemoryItem) -> None:
         """持久化记忆到 LanceDB"""
-        if not self._table:
+        if self._table is None:
             return
 
         try:
@@ -1128,12 +1241,13 @@ class MemoryManager:
 
     async def _update_memory(self, memory: MemoryItem) -> None:
         """更新持久化的记忆"""
-        if not self._table:
+        if self._table is None:
             return
 
         try:
             # 删除旧记录
-            await asyncio.to_thread(self._table.delete, f"memory_id = '{memory.memory_id}'")
+            memory_id = _escape_sql_literal(memory.memory_id)
+            await asyncio.to_thread(self._table.delete, f"memory_id = '{memory_id}'")
             # 插入新记录
             await self._persist_memory(memory)
         except Exception as e:

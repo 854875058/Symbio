@@ -16,11 +16,94 @@ torch = pytest.importorskip("torch")
 
 from symbio.evolution.federated import (
     FederatedError,
+    PrivacyAccountant,
+    PrivacyBudgetExhausted,
     apply_dp_noise,
     fedavg_aggregate,
     fedavg_state_dicts,
     state_dict_l2_norm,
 )
+
+
+# ---------- 隐私预算记账与审计（不依赖训练）----------
+
+
+def test_accountant_spends_and_reports_remaining_budget():
+    acc = PrivacyAccountant(epsilon=1.0, delta=1e-5, clip_norm=1.0)
+    assert acc.remaining_budget == pytest.approx(1.0)
+
+    acc.spend(0.4)
+    assert acc.total_spent == pytest.approx(0.4)
+    assert acc.remaining_budget == pytest.approx(0.6)
+
+
+def test_accountant_refuses_to_overspend():
+    """预算耗尽后必须拒绝，而不是继续加噪却假装仍有 (ε, δ) 保证。"""
+    acc = PrivacyAccountant(epsilon=0.5, delta=1e-5)
+    acc.spend(0.4)
+    with pytest.raises(PrivacyBudgetExhausted):
+        acc.spend(0.2)
+    # 拒绝的那次不应扣减预算
+    assert acc.total_spent == pytest.approx(0.4)
+
+
+def test_noise_multiplier_shrinks_as_epsilon_grows():
+    """ε 越大隐私要求越松，所需噪声越小。"""
+    acc = PrivacyAccountant(epsilon=10.0, delta=1e-5)
+    assert acc.noise_multiplier_for(0.1) > acc.noise_multiplier_for(1.0)
+
+
+def test_privatize_clips_and_records_audit():
+    acc = PrivacyAccountant(epsilon=2.0, delta=1e-5, clip_norm=1.0)
+    sd = {"w": torch.ones(4, 4) * 2.0}  # L2 范数 = 8
+    assert state_dict_l2_norm(sd) == pytest.approx(8.0)
+
+    # noise_multiplier 由 ε 决定，这里只验证裁剪与审计；用大 ε 压低噪声
+    out, record = acc.privatize(sd, epsilon_per_round=1.0, round_id=1, client_id="c1")
+
+    assert record.client_id == "c1"
+    assert record.round_id == 1
+    assert record.epsilon_spent == pytest.approx(1.0)
+    assert record.norm_before == pytest.approx(8.0)
+    assert record.noise_std == pytest.approx(acc.noise_multiplier_for(1.0))
+    assert out["w"].shape == sd["w"].shape
+    assert acc.remaining_budget == pytest.approx(1.0)
+    assert len(acc.get_audit_records()) == 1
+
+
+def test_privatize_without_noise_only_clips():
+    """noise_multiplier 极小时结果应接近纯裁剪：范数 ≈ clip_norm。"""
+    acc = PrivacyAccountant(epsilon=1e6, delta=1e-5, clip_norm=1.0)
+    sd = {"w": torch.ones(4, 4) * 2.0}
+    out, _ = acc.privatize(sd, epsilon_per_round=1e6)
+    assert state_dict_l2_norm(out) == pytest.approx(1.0, abs=1e-3)
+
+
+def test_privatize_preserves_non_float_tensors():
+    acc = PrivacyAccountant(epsilon=1.0, delta=1e-5)
+    sd = {"w": torch.ones(2, 2), "scale": torch.tensor([3, 4], dtype=torch.int64)}
+    out, _ = acc.privatize(sd, epsilon_per_round=0.5)
+    assert torch.equal(out["scale"], sd["scale"])
+
+
+def test_audit_report_is_serializable():
+    acc = PrivacyAccountant(epsilon=1.0, delta=1e-5)
+    acc.privatize({"w": torch.ones(2, 2)}, epsilon_per_round=0.5, client_id="c1")
+    report = acc.audit_report()
+
+    assert report["epsilon_spent"] == pytest.approx(0.5)
+    assert report["num_records"] == 1
+    # 审计记录要能直接落盘/上报
+    json.dumps(report)
+
+
+def test_accountant_rejects_invalid_params():
+    with pytest.raises(ValueError):
+        PrivacyAccountant(epsilon=0.0)
+    with pytest.raises(ValueError):
+        PrivacyAccountant(epsilon=1.0, delta=1.0)
+    with pytest.raises(ValueError):
+        PrivacyAccountant(epsilon=1.0).spend(0.0)
 
 
 # ---------- FedAvg 数学（不依赖训练）----------
