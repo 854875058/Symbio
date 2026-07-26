@@ -7,7 +7,7 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Any, Optional
 import asyncio
@@ -16,6 +16,7 @@ import json
 import os
 import re
 import inspect
+import secrets
 import threading
 import uuid
 import time
@@ -115,6 +116,106 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ============ 全局鉴权 ============
+#
+# API 暴露了沙箱命令执行、PTY 终端和配置写入，一旦绑到 0.0.0.0 就等于把这些
+# 能力开放给整个局域网。配置了 token 就强制校验；没配置则保持开放（默认只监听
+# 127.0.0.1，本机单用户场景不该被鉴权挡住）。
+
+# 不需要鉴权的路径：健康检查用于探活，AgentCard 是 A2A 发现协议要求公开的，
+# UI 静态资源本身不含数据（其调用的 /api/* 仍然受保护）。
+_AUTH_EXEMPT_PATHS = frozenset(
+    {
+        "/",
+        "/health",
+        "/api/health",
+        "/.well-known/agent.json",
+        "/ui",
+        "/docs",
+        "/redoc",
+        "/openapi.json",
+    }
+)
+_AUTH_EXEMPT_PREFIXES = ("/static/",)
+
+
+def _expected_api_token() -> str:
+    """全局 API token：app.state 优先（便于测试注入），其次环境变量，最后配置文件。"""
+    configured = getattr(app.state, "api_token", None)
+    if configured is not None:
+        return str(configured).strip()
+
+    from_env = os.environ.get("SYMBIO_API_TOKEN", "").strip()
+    if from_env:
+        return from_env
+
+    try:
+        from symbio.config.settings import get_settings
+
+        return str(getattr(get_settings().server, "api_token", "")).strip()
+    except Exception:
+        return ""
+
+
+def _is_auth_exempt(path: str) -> bool:
+    if path in _AUTH_EXEMPT_PATHS:
+        return True
+    return any(path.startswith(prefix) for prefix in _AUTH_EXEMPT_PREFIXES)
+
+
+async def _reject_unauthed_ws(websocket: WebSocket) -> bool:
+    """WebSocket 鉴权。HTTP 中间件不覆盖 WS 握手，必须在处理器里显式校验。
+
+    浏览器的 WebSocket API 不能设置自定义头，因此这里也接受 `?token=` 查询参数。
+    返回 True 表示已拒绝并关闭连接，调用方应立即返回。
+    """
+    expected = _expected_api_token()
+    if not expected:
+        return False
+
+    presented = _token_from_headers(websocket.headers)
+    if not presented:
+        presented = (websocket.query_params.get("token") or "").strip()
+
+    if secrets.compare_digest(presented, expected):
+        return False
+
+    # 1008 = policy violation
+    await websocket.close(code=1008, reason="Missing or invalid API token")
+    return True
+
+
+def _token_from_headers(headers: Any) -> str:
+    """从 Authorization 头取 Bearer token，退回 X-API-Token（WebSocket 客户端常用）。"""
+    auth_header = headers.get("Authorization") or headers.get("authorization") or ""
+    if auth_header.startswith("Bearer "):
+        return auth_header[len("Bearer ") :].strip()
+    return (headers.get("X-API-Token") or headers.get("x-api-token") or "").strip()
+
+
+@app.middleware("http")
+async def _require_api_token(request: Request, call_next):
+    """未带正确 token 时拒绝请求；未配置 token 时直接放行。"""
+    expected = _expected_api_token()
+    if not expected or _is_auth_exempt(request.url.path):
+        return await call_next(request)
+
+    # CORS 预检不带 Authorization 头，放行后由真实请求再校验。
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
+    presented = _token_from_headers(request.headers)
+    if not presented:
+        presented = (request.query_params.get("token") or "").strip()
+
+    if not secrets.compare_digest(presented, expected):
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Missing or invalid API token"},
+        )
+    return await call_next(request)
 
 
 def _build_hitl_gateway() -> ApprovalGateway:
@@ -4066,6 +4167,8 @@ async def get_approval_request(request_id: str):
 async def websocket_chat(websocket: WebSocket):
     """WebSocket 对话 - 支持真实 LLM 流式输出"""
     await websocket.accept()
+    if await _reject_unauthed_ws(websocket):
+        return
     logger.info("WebSocket 连接建立")
 
     try:
@@ -4339,6 +4442,8 @@ async def websocket_terminal(websocket: WebSocket):
     from symbio.tools.terminal_session import TerminalSession, resolve_terminal_command
 
     await websocket.accept()
+    if await _reject_unauthed_ws(websocket):
+        return
     if not _terminal_client_allowed(websocket):
         await websocket.send_text(
             json.dumps(

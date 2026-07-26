@@ -588,63 +588,40 @@ class ResourceManager:
         }
 ```
 
-### 12. 状态检查点 (Checkpoint)
+### 12. 状态快照与断点恢复 (StateManager)
 
 **职责：** 任务状态持久化与断点续传
 
+> 早期规划里这里是独立的 `CheckpointManager`，实现时发现它和 `StateManager`
+> 的快照表完全重复，已合并到 `src/symbio/core/state_manager.py`（单一 SQLite
+> `state_snapshots` 表）。以下是实际实现的接口。
+
 ```python
-class CheckpointManager:
-    """任务状态检查点管理"""
+class StateManager:
+    """全局状态管理 + 版本化快照（src/symbio/core/state_manager.py）"""
 
-    def __init__(self, db_path: str = "./data/checkpoints.db"):
-        self.db = sqlite3.connect(db_path)
-        self._init_schema()
+    async def update(self, updater: Callable[[GlobalState], GlobalState]) -> GlobalState:
+        """原子更新状态（传入纯函数，而不是 dict），并写入一个新版本快照"""
 
-    async def save_checkpoint(self, task_dag: TaskDAG) -> str:
-        """保存当前任务 DAG 状态"""
-        checkpoint_id = str(uuid4())
-        snapshot = {
-            "checkpoint_id": checkpoint_id,
-            "task_dag": task_dag.to_dict(),
-            "short_term_memory": task_dag.agent.memory.short_term.export(),
-            "execution_log": task_dag.get_execution_log(),
-            "timestamp": datetime.now().isoformat()
-        }
-        self.db.execute(
-            "INSERT INTO checkpoints (id, data) VALUES (?, ?)",
-            (checkpoint_id, json.dumps(snapshot))
-        )
-        self.db.commit()
-        return checkpoint_id
+    async def list_snapshots(self, task_id: str, limit: int = 50) -> list[dict[str, Any]]:
+        """列出指定任务的状态快照版本（版本号倒序）"""
 
-    async def load_checkpoint(self, checkpoint_id: str) -> TaskDAG:
-        """从检查点恢复任务状态"""
-        row = self.db.execute(
-            "SELECT data FROM checkpoints WHERE id = ?", (checkpoint_id,)
-        ).fetchone()
-        if not row:
-            raise CheckpointNotFoundError(checkpoint_id)
+    async def restore_version(self, task_id: str, version: int) -> Optional[GlobalState]:
+        """恢复到指定版本；版本不存在时返回 None 并告警"""
 
-        snapshot = json.loads(row[0])
-        task_dag = TaskDAG.from_dict(snapshot["task_dag"])
-        task_dag.agent.memory.short_term.import_(snapshot["short_term_memory"])
-        return task_dag
+    async def cleanup_old_snapshots(
+        self, *, days: int | None = None, keep_last: int | None = None, task_id: str = ""
+    ) -> int:
+        """按保留策略清理旧快照，返回删除行数。
 
-    async def list_checkpoints(self, task_id: str = None) -> list[dict]:
-        """列出可用检查点"""
-        if task_id:
-            rows = self.db.execute(
-                "SELECT id, timestamp FROM checkpoints WHERE task_id = ? ORDER BY timestamp DESC",
-                (task_id,)
-            ).fetchall()
-        else:
-            rows = self.db.execute(
-                "SELECT id, timestamp FROM checkpoints ORDER BY timestamp DESC LIMIT 50"
-            ).fetchall()
-        return [{"id": r[0], "timestamp": r[1]} for r in rows]
+        days 与 keep_last 可单独或组合使用；keep_last 按 task 分别计数。
+        两者都不给会抛 ValueError —— 避免"什么都没指定"被误解成清空全部。
+        """
 ```
 
-### 12. 评测管道 (EvalPipeline)
+相关执行图状态另见 `src/symbio/core/execution_state_store.py`。
+
+### 13. 评测管道 (EvalPipeline)
 
 **职责：** 自动化评测，防止系统退化
 
@@ -705,7 +682,7 @@ class EvalPipeline:
 
 ## 骨灰级高阶模块详解
 
-### 13. 动态 DAG 引擎 (DAGEngine)
+### 14. 动态 DAG 引擎 (DAGEngine)
 
 **职责：** 运行时动态重构任务拓扑，实现"兵无常势，水无常形"
 
@@ -773,7 +750,7 @@ class DAGEngine:
         pass
 ```
 
-### 14. 上下文智能剪枝器 (ContextPruner)
+### 15. 上下文智能剪枝器 (ContextPruner)
 
 **职责：** 语义级上下文压缩，而非粗暴滑动窗口
 
@@ -825,7 +802,7 @@ class ContextPruner:
         return pruned
 ```
 
-### 15. Prompt Cache 对齐器 (CacheAligner)
+### 16. Prompt Cache 对齐器 (CacheAligner)
 
 **职责：** 按模型缓存规则优化记忆布局，最大化缓存命中
 
@@ -867,7 +844,7 @@ class CacheAligner:
         }
 ```
 
-### 16. 多代理共识辩论 (MultiAgentDebate)
+### 17. 多代理共识辩论 (MultiAgentDebate)
 
 **职责：** 高精度任务的多轮辩论与交叉验证
 
@@ -947,7 +924,7 @@ class MultiAgentDebate:
         )
 ```
 
-### 17. 本体引擎 (OntologyEngine)
+### 18. 本体引擎 (OntologyEngine)
 
 **职责：** 向量+本体(Ontology)双驱动记忆，赋予 Agent 领域语义理解与推理能力
 

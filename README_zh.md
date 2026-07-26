@@ -292,8 +292,9 @@ model:
   model_high: "claude-opus-4-20250514"
 
 server:
-  host: "0.0.0.0"
+  host: "127.0.0.1"            # 改成 0.0.0.0 对外暴露前，务必先设 api_token
   port: 9090
+  api_token: ""                # 非空则所有 /api/* 与 WebSocket 需 Bearer token
 
 hitl:
   enabled: true

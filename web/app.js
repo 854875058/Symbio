@@ -3,6 +3,64 @@
    ============================================ */
 
 const API = `${window.location.origin}/api`;
+
+/* ============ API 鉴权 ============
+   服务端配置了 SYMBIO_API_TOKEN 时，所有 /api 请求都需要 Bearer token。
+   这里一次性拦截 window.fetch，避免逐个改上百处调用点。
+   token 存在 localStorage：首次收到 401 时提示用户输入。 */
+const TOKEN_KEY = 'symbio-api-token';
+
+function getApiToken() {
+  return localStorage.getItem(TOKEN_KEY) || '';
+}
+
+function setApiToken(token) {
+  if (token) localStorage.setItem(TOKEN_KEY, token);
+  else localStorage.removeItem(TOKEN_KEY);
+}
+
+function withToken(url) {
+  const token = getApiToken();
+  if (!token) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}token=${encodeURIComponent(token)}`;
+}
+
+(function installAuthFetch() {
+  const nativeFetch = window.fetch.bind(window);
+  let prompting = false;
+
+  window.fetch = async (input, init = {}) => {
+    const token = getApiToken();
+    if (token) {
+      const headers = new Headers(
+        init.headers || (input instanceof Request ? input.headers : undefined)
+      );
+      headers.set('Authorization', `Bearer ${token}`);
+      init = { ...init, headers };
+    }
+
+    const resp = await nativeFetch(input, init);
+
+    if (resp.status === 401 && !prompting) {
+      prompting = true;
+      try {
+        const entered = window.prompt(
+          'API 需要鉴权。请输入服务端配置的 API token（SYMBIO_API_TOKEN）：',
+          ''
+        );
+        if (entered && entered.trim()) {
+          setApiToken(entered.trim());
+          window.location.reload();
+        }
+      } finally {
+        prompting = false;
+      }
+    }
+    return resp;
+  };
+})();
+
 const WS_URL = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/chat`;
 
 // ============ State ============
@@ -440,7 +498,7 @@ function connectWebSocket() {
   }
 
   try {
-    state.ws = new WebSocket(WS_URL);
+    state.ws = new WebSocket(withToken(WS_URL));
 
     state.ws.onopen = () => {
       state.connected = true;
@@ -6247,7 +6305,7 @@ function wbFitTerminal(p) {
 
 function wbConnectTerminal(p) {
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  const ws = new WebSocket(`${proto}://${window.location.host}/ws/terminal`);
+  const ws = new WebSocket(withToken(`${proto}://${window.location.host}/ws/terminal`));
   p.ws = ws;
   ws.onopen = () => {
     ws.send(JSON.stringify({

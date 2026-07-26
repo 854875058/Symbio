@@ -9,7 +9,7 @@
 
 | 状态 | 数量 | 说明 |
 | --- | ---: | --- |
-| `[x]` 已实现 | 18 | DAG-first、规划/审查、HITL IM 审批、本体图谱、模型路由、外部 Agent 接管、成本优化、注入防火墙、Skills 市场、MCP 网关、OTel 可观测、数据飞轮、A2A 协议、多模态视觉、微信机器人、外部后端 Agent、Ray Actor 分布式、Computer Use 视觉闭环（VLM 截图→坐标动作） |
+| `[x]` 已实现 | 19 | DAG-first、规划/审查、HITL IM 审批、本体图谱、模型路由、外部 Agent 接管、成本优化、注入防火墙、API 全局鉴权、Skills 市场、MCP 网关、OTel 可观测、数据飞轮、A2A 协议、多模态视觉、微信机器人、外部后端 Agent、Ray Actor 分布式、Computer Use 视觉闭环（VLM 截图→坐标动作） |
 | `[~]` 部分实现 | 2 | 沙箱/K8s（K8s pod 仍为桩）、联邦学习+差分隐私（FedAvg+DP 单机多客户端已验证，跨机安全传输待补） |
 | `[ ]` 未实现 | 0 | —（账本所有承诺已全部落地或部分落地） |
 
@@ -38,7 +38,7 @@
 - [x] Orchestrator 高风险任务可挂起并在审批后恢复 - `src/symbio/core/orchestrator.py`
 - [x] Web/IM 审批卡片、文本命令回调、短码审批、outbound notification 审计 payload 已实现 - `src/symbio/core/hitl_notifier.py`, `tests/test_hitl_notifier.py`
 - [x] QQ OneBot/Lagrange、企业微信 webhook、飞书签名机器人发送已接入；Wechaty bridge 保留为兼容目标
-- [~] 审批超时策略仍未形成产品闭环：自动拒绝、降级执行、转交管理员待补
+- [x] 审批超时升级策略已实现：按风险等级设置超时，支持 reject/approve/escalate 三种到期动作 - `src/symbio/core/hitl_gateway.py`, `/api/hitl/timeout/policy`, `tests/test_hitl_timeout_policy.py`
 
 ### 模型配置 / 路由
 
@@ -70,14 +70,14 @@
 - [x] MCP stdio JSON-RPC 客户端和工具桥 - `src/symbio/tools/mcp.py`
 - [~] MCP 配置发现已支持 dict/JSON/YAML 和 `mcpServers` schema - `tests/test_mcp_config.py`
 - [~] 长连接池、resources/prompts 协议、完整认证、市场分发和 UI 挂载仍未完成
-- [ ] A2A 协议适配未实现
+- [x] A2A 协议已实现：动态 AgentCard、入站任务走编排器管线、出站 poll 闭环、跨进程真 HTTP 往返、SSE 流式、webhook 推送、可选 Bearer 鉴权 - `src/symbio/interfaces/a2a.py`, `/.well-known/agent.json`, `/api/a2a/tasks`, `tests/test_a2a_protocol.py`, `tests/test_a2a_orchestrator_roundtrip.py`, `tests/test_a2a_streaming_push_auth.py`
 
 ### Browser / Computer Use
 
 - [x] BrowserTool fetch 能力 - `src/symbio/tools/registry.py`
 - [x] BrowserTool screenshot 在 Playwright 可用时截图，缺依赖时返回明确错误 - `src/symbio/tools/registry.py`
-- [~] Computer Use 最小闭环已实现：浏览器会话控制、动作集（navigate/screenshot/click/type/scroll/extract_text）、启发式动作规划、审计轨迹与回放；Playwright 不可用时降级为 dry-run record-only 模式 - `src/symbio/tools/computer_use.py`, `/api/computer-use/*`, `web/app.js`, `tests/test_computer_use.py`
-- [ ] 待补：截图视觉理解（VLM 定位坐标）、LLM 规划器接管、多标签/多会话生命周期硬化
+- [x] Computer Use 视觉闭环已实现：浏览器会话控制、动作集（navigate/screenshot/click/type/scroll/extract_text）、截图像素喂给 VLM 返回坐标动作、三级回退（视觉→文本 LLM→启发式）、审计轨迹与回放；Playwright 不可用时降级为 dry-run record-only 模式 - `src/symbio/tools/computer_use.py`, `/api/computer-use/*`, `web/app.js`, `tests/test_computer_use.py`
+- [~] 待硬化：多标签/多会话生命周期管理；真实 GUI 任务成功率取决于模型视觉定位能力
 
 ### 安全 / 沙箱 / 资源
 
@@ -86,6 +86,7 @@
 - [x] 本地 SandboxExecutor - `src/symbio/tools/sandbox.py`
 - [x] Codex-like sandbox policy 已接入本地代码执行：`read-only`/`workspace-write`/`danger-full-access`、`on-request`/`on-failure`/`never`/`always` approval policy、工作区边界、网络命令拦截、审计记录和 Web UI - `src/symbio/tools/sandbox.py`, `/api/sandbox/execute`, `web/app.js`, `tests/test_sandbox_runtime.py`
 - [x] K8s/Docker 安全资源 YAML 生成器 - `src/symbio/tools/k8s_sandbox.py`
+- [x] API 全局可选 Bearer 鉴权：配置 `SYMBIO_API_TOKEN`（或 `server.api_token`）后所有 `/api/*` 与 WebSocket 都需带 token，仅健康检查/AgentCard/静态资源豁免；CLI 默认只绑 `127.0.0.1`，显式对外绑定且未配 token 时打印警告 - `src/symbio/interfaces/api.py`, `src/symbio/cli.py`, `tests/test_api_auth.py`
 - [~] 生产级“动态拉起 Pod 执行并销毁”的 K8s executor 未完成
 - [~] 安全攻击样本库存在，但规模和 CI 接入还达不到 README 宣传口径 - `src/symbio/security/attack_samples.py`
 
@@ -93,7 +94,7 @@
 
 - [x] Tracer、Span、Token heatmap、memory snapshot、metric record 底座 - `src/symbio/core/tracer.py`
 - [x] 前端 DAG/Trace 交互式可视化已支持 Graph/Timeline/Artifacts 切换、节点定位、筛选、payload 展开和 artifact 过滤 - `web/app.js`
-- [~] OpenTelemetry 是可选依赖 fallback，默认 OTLP/Jaeger/Grafana/Prometheus 部署和看板仍需补齐
+- [x] OTel 部署包已具备：`docker-compose.observability.yml` + Grafana 面板与 provisioning 配置；OpenTelemetry 本身仍是可选依赖，缺失时回退内置 tracer - `docker-compose.observability.yml`, `config/grafana/provisioning/dashboards/symbio.json`
 
 ## P2 平台化 / 自我进化
 
@@ -108,7 +109,8 @@
 
 ### 分布式 / 边缘 / 企业能力
 
-- [~] Ray-Native SubAgent 目前本地 asyncio 为主，Ray Actor 投递仍待产品化 - `src/symbio/agents/subagent.py`
+- [x] Ray Actor 运行时已实现：真 Ray Actor 池跨进程执行子任务（提交/收集/取消/关闭），配置开关接进 SubAgentManager，Ray 缺失或关闭时自动回退 asyncio；本机真集群实测任务落在不同 worker 进程 - `src/symbio/distributed/ray_runtime.py`, `src/symbio/agents/subagent.py`, `tests/test_ray_runtime.py`
+- [~] 多机 Ray 集群部署仍待验证（当前仅本机多进程实测）
 - [~] Edge/mobile/IoT 管理模块存在，但仍是平台适配底座，不是完整产品入口 - `src/symbio/interfaces/edge/*`
 - [~] 联邦学习 + 差分隐私：联邦 LoRA（客户端本地训 adapter、数据不出本地）+ FedAvg 加权聚合 + 差分隐私（L2 裁剪+高斯噪声）已落地，单机多客户端端到端验证；跨机安全传输、抗梯度泄露、拜占庭鲁棒聚合待补 - `src/symbio/evolution/federated.py`
 
@@ -132,11 +134,14 @@
 - [x] 2026-06-08: 新增数据飞轮 UI，展示 Dataset Export 预览/写出和 Evaluation Suites 解析结果
 - [x] 2026-06-08: 新增 Skills Marketplace API/UI，支持市场搜索、卡片展示、安装按钮和已安装状态刷新
 - [x] 2026-06-09: 新增 Sandbox Execution API/UI，支持工作区写入边界、审批策略、命令执行结果和审计轨迹
+- [x] 2026-07-26: 新增 API 全局可选 Bearer 鉴权（HTTP + WebSocket），CLI 默认绑定收紧为 `127.0.0.1`，Web UI 自动携带 token
+- [x] 2026-07-26: 本账本与 `capabilities.py` 重新对齐，修正 A2A / Computer Use VLM / HITL 超时 / Ray Actor / OTel 部署包五处过期状态
 
 ## 下一批建议按这个顺序补
 
-1. Eval/Dataset 页面：把已存在的数据飞轮能力暴露到 UI，形成可点击产品闭环。
-2. MCP 工具挂载页面：展示 MCP 配置、连接测试、工具列表和启停。
-3. OTel 部署包：补 `docker-compose.observability.yml`、Jaeger/Grafana 默认配置和健康检查。
-4. A2A 最小协议适配：schema、handshake、message bridge、测试。
-5. Computer Use 最小闭环：浏览器 session、截图、动作计划接口、审计回放。
+1. K8s executor：把"动态拉起 Pod 执行并销毁"从 YAML 生成器推进到真实执行路径。
+2. 联邦学习跨机安全传输：抗梯度泄露、拜占庭鲁棒聚合；DP 预算组合从基础线性定理升级到 RDP/moments accountant。
+3. 沙箱审计跨重启持久化。
+4. 多机 Ray 集群部署验证。
+5. Eval pipeline 闭环：执行报告、回归对比、失败根因分析。
+6. 路由决策解释写入 execution artifact。

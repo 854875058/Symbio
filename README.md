@@ -67,6 +67,10 @@ symbio serve --port 9090
 
 打开 Web UI：`http://localhost:9090/ui`
 
+> 默认只监听 `127.0.0.1`。要让局域网或公网访问，先设置 `SYMBIO_API_TOKEN`
+> 再加 `--host 0.0.0.0` —— API 含沙箱命令执行和 PTY 终端，无 token 对外暴露
+> 等于开放本机命令执行权限。详见 [SECURITY.md](SECURITY.md)。
+
 从源码开发：
 
 ```bash
@@ -129,6 +133,7 @@ symbio export --format sharegpt --output data/exports/train.jsonl
 | 个人微信扫码绑定机器人 | ✅ 已实现 | 内置 iLink Bot 直连，扫码登录 + 双向收发 + 审批/对话分流 |
 | **Token 成本五层优化** | ✅ 已实现 | 语义缓存 + 上下文剪枝 + 成本监控接入对话链路 + 成本仪表盘；可复现基准见 `benchmarks/`（分层路由 LLM 避免率 85%、上下文剪枝压缩到 25%、语义缓存改写命中率 30%） |
 | **Prompt Injection 三层防火墙** | ✅ 已实现 | 接入对话入口，攻击样本自检拦截率 65%，编程话题零误伤 |
+| API 全局鉴权 | ✅ 已实现 | 可选 Bearer token 覆盖全部 `/api/*` 与 WebSocket；默认只绑 `127.0.0.1`，对外暴露且未设 token 时启动告警 |
 | Skills 市场 | ✅ 已实现 | 浏览/搜索 + 安装真实落盘 + 从 GitHub 仓库导入真实 Agent Skills |
 | MCP 工具网关 | ✅ 已实现 | 原生 MCP stdio JSON-RPC 工具桥接 + 配置发现 |
 | OpenTelemetry 可观测 | ✅ 已实现 | trace/metrics/token 热力图 + Grafana 面板 + OTel Compose 部署包 |
@@ -193,7 +198,10 @@ model:
   model_medium: "claude-sonnet-4-20250514"
   model_high: "claude-opus-4-20250514"
 
-server: { host: "0.0.0.0", port: 9090 }
+server:
+  host: "127.0.0.1"            # 改成 0.0.0.0 对外暴露前，务必先设 api_token
+  port: 9090
+  api_token: ""                # 非空则所有 /api/* 与 WebSocket 需 Bearer token
 
 hitl:
   enabled: true

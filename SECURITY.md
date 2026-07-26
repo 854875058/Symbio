@@ -45,12 +45,27 @@
    - 使用环境变量或密钥管理服务
    - 定期轮换 API Key
 
-2. **网络安全**
+2. **API 鉴权（对外暴露前必做）**
+   - Symbio 的 API 默认**不启用**鉴权，因为默认只监听 `127.0.0.1`（单机本地使用）。
+   - 一旦绑定到 `0.0.0.0` 或放到反向代理后面，**必须**先设置 token：
+
+     ```bash
+     export SYMBIO_API_TOKEN="$(python -c 'import secrets;print(secrets.token_urlsafe(32))')"
+     ```
+
+     也可在 `symbio.yaml` 里配 `server.api_token`。设置后所有 `/api/*` 与
+     WebSocket 都需要 `Authorization: Bearer <token>`（浏览器 WebSocket 用
+     `?token=`）；仅健康检查、`/.well-known/agent.json` 和 UI 静态资源公开。
+   - 未配 token 就绑定所有网卡时，启动会打印红色告警 —— 不要忽略它。
+     此时 `POST /api/sandbox/execute` 和 `WS /ws/terminal` 等于把命令执行权
+     开放给同网段的任何人。
+
+3. **网络安全**
    - 使用 HTTPS 进行所有通信
-   - 配置适当的 CORS 策略
+   - 配置适当的 CORS 策略（默认仅 localhost；`cors_origins` 设为 `*` 时会自动关闭 credentials）
    - 使用防火墙限制访问
 
-3. **数据安全**
+4. **数据安全**
    - 敏感数据加密存储
    - 定期备份数据
    - 遵循数据最小化原则

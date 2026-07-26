@@ -330,6 +330,21 @@ CAPABILITY_ITEMS: tuple[CapabilityItem, ...] = (
         "docs": ["docs/feature-checklist.md", "docs/roadmap.md"],
         "next_step": "Add secure cross-machine weight transport, gradient-leakage defenses, Byzantine-robust aggregation, and wire federated rounds to an API/UI.",
     },
+    {
+        "id": "api_authentication",
+        "module": "security",
+        "claim": "Optional global bearer-token authentication over every HTTP route and WebSocket endpoint. When a token is configured, only health checks, the A2A AgentCard, and UI static assets stay public; the CLI binds to 127.0.0.1 by default and warns loudly when bound to all interfaces without a token.",
+        "status": "implemented",
+        "evidence": [
+            "src/symbio/interfaces/api.py",
+            "src/symbio/cli.py",
+            "src/symbio/config/settings.py",
+            "web/app.js",
+            "tests/test_api_auth.py",
+        ],
+        "docs": ["README.md", "SECURITY.md", "docs/feature-checklist.md"],
+        "next_step": "Add per-user accounts, scoped tokens, and rotation instead of one shared token.",
+    },
 )
 
 

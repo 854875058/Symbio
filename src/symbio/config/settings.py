@@ -101,6 +101,13 @@ class ServerConfig(BaseSettings):
     port: int = Field(default=9090, description="Server port")
     debug: bool = Field(default=False, description="Debug mode")
 
+    # 全局 API 鉴权。空串表示不启用（仅适合绑定 127.0.0.1 的本机使用）。
+    # 一旦设置，除少数公开端点外所有请求都需要 `Authorization: Bearer <token>`。
+    api_token: str = Field(
+        default="",
+        description="Global API bearer token. Empty disables auth (localhost-only use).",
+    )
+
     # CORS - comma-separated origins, e.g. "http://localhost:3000,https://app.example.com"
     cors_origins: str = Field(
         default="http://localhost:9090,http://127.0.0.1:9090",

@@ -48,7 +48,38 @@ def main(
         os.environ["SYMBIO_CONFIG_FILE"] = config
 
     if ctx.invoked_subcommand is None:
-        _start_web(host="0.0.0.0", port=9090, reload=False)
+        # 裸跑 `symbio` 时读配置层，而不是硬编码 0.0.0.0：API 没有默认鉴权，
+        # 绑到所有网卡等于把沙箱执行和 PTY 终端暴露给整个局域网。
+        host, port = _configured_bind()
+        _start_web(host=host, port=port, reload=False)
+
+
+_PUBLIC_BINDS = {"0.0.0.0", "::", ""}
+
+
+def _configured_bind() -> tuple[str, int]:
+    """从配置层读取监听地址，失败时退回仅本机。"""
+    try:
+        from symbio.config.settings import get_settings
+
+        server = get_settings().server
+        return str(server.host), int(server.port)
+    except Exception:
+        return "127.0.0.1", 9090
+
+
+def _auth_token_configured() -> bool:
+    """是否已配置全局 API token（配置层或环境变量）。"""
+    import os
+
+    if os.environ.get("SYMBIO_API_TOKEN", "").strip():
+        return True
+    try:
+        from symbio.config.settings import get_settings
+
+        return bool(str(getattr(get_settings().server, "api_token", "")).strip())
+    except Exception:
+        return False
 
 
 def _run(coro):
@@ -558,12 +589,19 @@ def project(
 
 @app.command()
 def serve(
-    host: str = typer.Option("0.0.0.0", "--host", help="Host"),
-    port: int = typer.Option(9090, "--port", "-p", help="Port"),
+    host: Optional[str] = typer.Option(
+        None, "--host", help="Bind address (default: config, else 127.0.0.1)"
+    ),
+    port: Optional[int] = typer.Option(None, "--port", "-p", help="Port"),
     reload: bool = typer.Option(False, "--reload", help="Reload on changes"),
 ) -> None:
     """Start the FastAPI web service (default when no command is given)."""
-    _start_web(host=host, port=port, reload=reload)
+    default_host, default_port = _configured_bind()
+    _start_web(
+        host=host if host is not None else default_host,
+        port=port if port is not None else default_port,
+        reload=reload,
+    )
 
 
 def _start_web(host: str, port: int, reload: bool) -> None:
@@ -572,7 +610,7 @@ def _start_web(host: str, port: int, reload: bool) -> None:
 
     # Bind address may be 0.0.0.0 (all interfaces) but that is not a usable URL
     # to click. Show a reachable local address while still binding as requested.
-    display_host = "127.0.0.1" if host in {"0.0.0.0", "::", ""} else host
+    display_host = "127.0.0.1" if host in _PUBLIC_BINDS else host
     lines = [
         "[bold green]Starting Symbio Web[/bold green]\n",
         f"API: http://{display_host}:{port}",
@@ -581,6 +619,19 @@ def _start_web(host: str, port: int, reload: bool) -> None:
     if display_host != host:
         lines.append(f"\n[dim]Bound to {host} — also reachable on your LAN.[/dim]")
     console.print(Panel("\n".join(lines), title="Symbio Server"))
+
+    # 对外绑定 + 无鉴权 = 局域网内任何人都能调沙箱执行和 PTY 终端。必须显式告警。
+    if host in _PUBLIC_BINDS and not _auth_token_configured():
+        console.print(
+            Panel(
+                "[bold red]警告：正在监听所有网卡，且 API 未配置鉴权。[/bold red]\n\n"
+                "同网段内任何人都可调用沙箱执行、PTY 终端和配置接口。\n"
+                "请设置 [bold]SYMBIO_API_TOKEN[/bold]（或 server.api_token），"
+                "或改用 [bold]--host 127.0.0.1[/bold]。",
+                title="[bold red]Security[/bold red]",
+                border_style="red",
+            )
+        )
 
     uvicorn.run("symbio.interfaces.api:app", host=host, port=port, reload=reload)
 

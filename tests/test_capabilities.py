@@ -34,11 +34,31 @@ def test_capability_report_marks_claim_statuses_and_evidence():
     assert items["federated_privacy"]["status"] == "partial"
     assert "src/symbio/evolution/federated.py" in items["federated_privacy"]["evidence"]
 
+    assert items["api_authentication"]["status"] == "implemented"
+    assert "tests/test_api_auth.py" in items["api_authentication"]["evidence"]
+
     for item in report["items"]:
         assert item["claim"]
         assert item["module"]
         assert item["next_step"]
         assert item["docs"]
+
+
+def test_capability_evidence_paths_all_exist():
+    """账本引用的每个证据/文档路径都必须真实存在。
+
+    这是防文档漂移的机器化闭环：删掉或改名模块时，账本会立刻在 CI 里失败，
+    而不是悄悄留下指向不存在文件的假承诺。
+    """
+    project_root = Path(__file__).parent.parent
+    dangling: list[str] = []
+
+    for item in get_capability_report()["items"]:
+        for path in list(item["evidence"]) + list(item["docs"]):
+            if not (project_root / path).exists():
+                dangling.append(f"{item['id']} -> {path}")
+
+    assert not dangling, "账本引用了不存在的路径: " + ", ".join(dangling)
 
 
 @pytest.mark.asyncio
