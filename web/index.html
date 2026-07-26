@@ -4,14 +4,17 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Symbio — AI Infra Multi-Agent Platform</title>
+  <!-- Web 字体是渐进增强：离线/内网时不阻塞首屏，直接落到系统字体
+       （--font-body / --font-mono 里已排好 Segoe UI、PingFang SC、Consolas 等回退） -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap"
+        rel="stylesheet" media="print" onload="this.media='all'">
   <link rel="stylesheet" href="/static/style.css?v=5">
   <link rel="stylesheet" href="/static/xterm.min.css">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <!-- 三方库全部本地打包，不走 CDN：离线 / 内网隔离环境可用 -->
+  <script src="/static/chart.umd.min.js"></script>
   <script src="/static/qrcode.min.js"></script>
-  <!-- xterm.js 本地打包（不走 CDN，离线/内网可用） -->
   <script src="/static/xterm.min.js"></script>
   <script src="/static/xterm-addon-fit.min.js"></script>
 </head>

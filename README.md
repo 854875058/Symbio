@@ -228,7 +228,7 @@ security:
 | 记忆 | LanceDB、NetworkX、本体图谱、SQLite 持久化 |
 | 安全 / 成本 | InjectionGuard、SemanticCache、ContextPruner、CostMonitor |
 | 工具 | MCP、Sandbox、Playwright、External Agent adapters |
-| 前端 | 原生 Web UI、HTML/CSS/JS、WebSocket、Chart.js |
+| 前端 | 原生 Web UI（无构建工具）、HTML/CSS/JS、WebSocket；Chart.js / xterm.js / qrcode 均本地打包，脚本零 CDN 依赖，Web 字体缺失时自动回退系统字体 |
 | 观测 | OpenTelemetry、Jaeger、Prometheus、Grafana |
 
 ---
