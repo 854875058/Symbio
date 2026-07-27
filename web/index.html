@@ -1675,6 +1675,29 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=5"></script>
+  <!-- 前端脚本按页面拆分（原先是一个 7600 行的 app.js）。
+       都是经典脚本、共享同一个全局作用域，所以加载顺序有意义：
+       00 基础层 → 10 外壳 → 20~7x 各页面 → 99 收尾（init 与 DOMContentLoaded 必须最后）。
+       没有构建工具，改完直接刷新即可。 -->
+  <script src="/static/js/00-core.js?v=6"></script>
+  <script src="/static/js/10-shell.js?v=6"></script>
+  <script src="/static/js/20-chat.js?v=6"></script>
+  <script src="/static/js/30-tasks.js?v=6"></script>
+  <script src="/static/js/31-hitl.js?v=6"></script>
+  <script src="/static/js/32-workbench.js?v=6"></script>
+  <script src="/static/js/33-external-agents.js?v=6"></script>
+  <script src="/static/js/34-a2a.js?v=6"></script>
+  <script src="/static/js/35-wechat.js?v=6"></script>
+  <script src="/static/js/40-skills.js?v=6"></script>
+  <script src="/static/js/41-sandbox.js?v=6"></script>
+  <script src="/static/js/42-mcp.js?v=6"></script>
+  <script src="/static/js/43-security.js?v=6"></script>
+  <script src="/static/js/44-computer-use.js?v=6"></script>
+  <script src="/static/js/50-memory.js?v=6"></script>
+  <script src="/static/js/60-dashboard.js?v=6"></script>
+  <script src="/static/js/61-evolution.js?v=6"></script>
+  <script src="/static/js/62-capabilities.js?v=6"></script>
+  <script src="/static/js/70-models.js?v=6"></script>
+  <script src="/static/js/99-init.js?v=6"></script>
 </body>
 </html>

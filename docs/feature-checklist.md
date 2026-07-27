@@ -30,7 +30,7 @@
 
 - [x] 规划优先、审查门禁、完成前验证策略已接入 Orchestrator - `src/symbio/core/planner_reviewer.py`, `src/symbio/core/workflow_policy.py`
 - [x] `submit_task`、Checklist、Testing Agent 形成防过早完成闭环底座 - `src/symbio/tools/submit_task.py`, `src/symbio/agents/checklist.py`, `src/symbio/agents/testing_agent.py`
-- [x] Web UI 已展示 workflow policy、verification evidence、approval context、planner/reviewer controls - `web/app.js`, `web/style.css`
+- [x] Web UI 已展示 workflow policy、verification evidence、approval context、planner/reviewer controls - `web/js/30-tasks.js`, `web/style.css`
 
 ### HITL / 人类审批
 
@@ -42,7 +42,7 @@
 
 ### 模型配置 / 路由
 
-- [x] Web UI 可配置模型池和 LLM 配置 - `web/app.js`, `/api/models`, `/api/config`
+- [x] Web UI 可配置模型池和 LLM 配置 - `web/js/70-models.js`, `/api/models`, `/api/config`
 - [x] 模型连接测试会优先使用当前 `symbio.yaml` 配置凭证，避免读到旧库记录 - `src/symbio/interfaces/api.py`
 - [x] 模型列表和创建接口不再向前端泄露 `api_key`，仅返回 `has_api_key` - `src/symbio/interfaces/api.py`, `tests/test_integration.py`
 - [~] 路由决策解释还没有系统写入 execution artifact
@@ -53,16 +53,16 @@
 
 - [x] 记忆压缩、版本化、冲突处理、噪声过滤底座 - `src/symbio/memory/*`
 - [x] 本体化记忆和零 Token 图推理底座 - `src/symbio/memory/ontology.py`
-- [x] 独立本体图谱接口和 UI 页面已实现 - `/api/ontology`, `web/index.html`, `web/app.js`, `web/style.css`
+- [x] 独立本体图谱接口和 UI 页面已实现 - `/api/ontology`, `web/index.html`, `web/js/50-memory.js`, `web/style.css`
 - [x] 空本体首次展示可从已有 memories 自动 bootstrap - `src/symbio/interfaces/api.py`
 - [~] 多模态记忆模块存在，但生产级解析质量和索引链路仍需集成验证
 
 ### Skills
 
 - [x] Skills 列表、搜索、导入、启停、删除、自动检测、目录导入接口已实现 - `/api/skills/*`
-- [x] Skill 详情页支持文件树、README、manifest、prompt/test 文件查看和编辑 - `web/app.js`
+- [x] Skill 详情页支持文件树、README、manifest、prompt/test 文件查看和编辑 - `web/js/40-skills.js`
 - [x] 默认数据确定性和 trigger keywords 补齐已验证 - `tests/test_integration.py`
-- [x] Skills Marketplace API/UI 支持浏览、搜索、已安装状态和本地安装记录 - `/api/skills/marketplace`, `web/app.js`, `tests/test_marketplace_api.py`
+- [x] Skills Marketplace API/UI 支持浏览、搜索、已安装状态和本地安装记录 - `/api/skills/marketplace`, `web/js/40-skills.js`, `tests/test_marketplace_api.py`
 - [~] 远程/私有市场、依赖安装流水线、运行沙箱和版本发布流程仍需产品化
 
 ### MCP / 外部工具
@@ -76,7 +76,7 @@
 
 - [x] BrowserTool fetch 能力 - `src/symbio/tools/registry.py`
 - [x] BrowserTool screenshot 在 Playwright 可用时截图，缺依赖时返回明确错误 - `src/symbio/tools/registry.py`
-- [x] Computer Use 视觉闭环已实现：浏览器会话控制、动作集（navigate/screenshot/click/type/scroll/extract_text）、截图像素喂给 VLM 返回坐标动作、三级回退（视觉→文本 LLM→启发式）、审计轨迹与回放；Playwright 不可用时降级为 dry-run record-only 模式 - `src/symbio/tools/computer_use.py`, `/api/computer-use/*`, `web/app.js`, `tests/test_computer_use.py`
+- [x] Computer Use 视觉闭环已实现：浏览器会话控制、动作集（navigate/screenshot/click/type/scroll/extract_text）、截图像素喂给 VLM 返回坐标动作、三级回退（视觉→文本 LLM→启发式）、审计轨迹与回放；Playwright 不可用时降级为 dry-run record-only 模式 - `src/symbio/tools/computer_use.py`, `/api/computer-use/*`, `web/js/44-computer-use.js`, `tests/test_computer_use.py`
 - [~] 待硬化：多标签/多会话生命周期管理；真实 GUI 任务成功率取决于模型视觉定位能力
 
 ### 安全 / 沙箱 / 资源
@@ -84,7 +84,7 @@
 - [x] Guardrail、RateLimiter、ResourceManager 底座存在 - `src/symbio/core/guardrail.py`, `src/symbio/core/rate_limiter.py`, `src/symbio/core/resource_manager.py`
 - [x] 工具权限分级和高危操作审批元数据 - `src/symbio/tools/registry.py`
 - [x] 本地 SandboxExecutor - `src/symbio/tools/sandbox.py`
-- [x] Codex-like sandbox policy 已接入本地代码执行：`read-only`/`workspace-write`/`danger-full-access`、`on-request`/`on-failure`/`never`/`always` approval policy、工作区边界、网络命令拦截、审计记录和 Web UI - `src/symbio/tools/sandbox.py`, `/api/sandbox/execute`, `web/app.js`, `tests/test_sandbox_runtime.py`
+- [x] Codex-like sandbox policy 已接入本地代码执行：`read-only`/`workspace-write`/`danger-full-access`、`on-request`/`on-failure`/`never`/`always` approval policy、工作区边界、网络命令拦截、审计记录和 Web UI - `src/symbio/tools/sandbox.py`, `/api/sandbox/execute`, `web/js/41-sandbox.js`, `tests/test_sandbox_runtime.py`
 - [x] K8s/Docker 安全资源 YAML 生成器 - `src/symbio/tools/k8s_sandbox.py`
 - [x] API 全局可选 Bearer 鉴权：配置 `SYMBIO_API_TOKEN`（或 `server.api_token`）后所有 `/api/*` 与 WebSocket 都需带 token，仅健康检查/AgentCard/静态资源豁免；CLI 默认只绑 `127.0.0.1`，显式对外绑定且未配 token 时打印警告 - `src/symbio/interfaces/api.py`, `src/symbio/cli.py`, `tests/test_api_auth.py`
 - [~] 生产级“动态拉起 Pod 执行并销毁”的 K8s executor 未完成
@@ -93,7 +93,7 @@
 ### 可观测
 
 - [x] Tracer、Span、Token heatmap、memory snapshot、metric record 底座 - `src/symbio/core/tracer.py`
-- [x] 前端 DAG/Trace 交互式可视化已支持 Graph/Timeline/Artifacts 切换、节点定位、筛选、payload 展开和 artifact 过滤 - `web/app.js`
+- [x] 前端 DAG/Trace 交互式可视化已支持 Graph/Timeline/Artifacts 切换、节点定位、筛选、payload 展开和 artifact 过滤 - `web/js/30-tasks.js`
 - [x] OTel 部署包已具备：`docker-compose.observability.yml` + Grafana 面板与 provisioning 配置；OpenTelemetry 本身仍是可选依赖，缺失时回退内置 tracer - `docker-compose.observability.yml`, `config/grafana/provisioning/dashboards/symbio.json`
 
 ## P2 平台化 / 自我进化
@@ -103,7 +103,7 @@
 - [x] SOP 蒸馏、异步轨迹捕获、DatasetExporter - `src/symbio/evolution/sop_distiller.py`, `src/symbio/evolution/dataset_exporter.py`
 - [x] CLI export 支持 ShareGPT/Alpaca/OpenAI/raw JSONL - `src/symbio/cli.py`
 - [x] Conversation export API 支持 ShareGPT/Alpaca/OpenAI/raw 预览和 JSONL 写出 - `/api/export/conversations`
-- [x] Evaluation suite discovery API 和 Web UI 可视化已接入 - `/api/evaluation/suites`, `web/app.js`, `data/eval_suites/smoke.json`
+- [x] Evaluation suite discovery API 和 Web UI 可视化已接入 - `/api/evaluation/suites`, `web/js/61-evolution.js`, `data/eval_suites/smoke.json`
 - [~] FineTuner 目前是训练作业管理 + 本地/Ray 桩，不是真实训练循环 - `src/symbio/evolution/fine_tuner.py`
 - [~] Eval pipeline 已可见，但执行报告、回归对比和失败根因分析闭环仍需补
 

@@ -19,7 +19,7 @@ Status: implemented as of 2026-06-09.
 - `src/symbio/tools/external_transcripts.py`
 - `src/symbio/interfaces/api.py`
 - `web/index.html`
-- `web/app.js`
+- `web/js/33-external-agents.js`
 - `web/style.css`
 - `tests/test_external_agents.py`
 - `tests/test_external_transcript_import.py`
