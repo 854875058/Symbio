@@ -23,12 +23,24 @@ async function loadA2AOwnCard() {
     state.a2a.ownCard = card;
     renderA2ACard(el, card);
   } catch (e) {
-    el.innerHTML = `<div class="empty-state-lg"><p>加载失败: ${esc(e.message)}</p></div>`;
+    el.innerHTML = `
+      <div class="empty-block is-inline is-error">
+        <p class="empty-block-title">无法读取本机 Agent Card</p>
+        <p class="empty-block-hint">${esc(e.message)}</p>
+        <p class="empty-block-hint">Agent Card 是 /.well-known/agent.json，别的 Agent 靠它发现 Symbio 的能力。读不到说明外部协作暂时无法建立。</p>
+      </div>`;
   }
 }
 
 function renderA2ACard(container, card) {
-  if (!card) { container.innerHTML = '<div class="empty-state-lg"><p>无数据</p></div>'; return; }
+  if (!card) {
+    container.innerHTML = `
+      <div class="empty-block is-inline">
+        <p class="empty-block-title">Agent Card 为空</p>
+        <p class="empty-block-hint">服务端返回了空内容。本机没有对外声明任何能力，其他 Agent 将无法判断能把什么任务交给 Symbio。</p>
+      </div>`;
+    return;
+  }
   const caps = card.capabilities || {};
   const skills = card.skills || [];
   container.innerHTML = `
@@ -64,13 +76,24 @@ async function loadA2ASessions(limit = 30) {
     state.a2a.sessions = data.sessions || [];
     renderA2ASessions(el, data.sessions || []);
   } catch (e) {
-    el.innerHTML = `<div class="empty-state-lg"><p>加载失败: ${esc(e.message)}</p></div>`;
+    el.innerHTML = `
+      <div class="empty-block is-inline is-error">
+        <p class="empty-block-title">无法加载出站会话</p>
+        <p class="empty-block-hint">${esc(e.message)}</p>
+        <div class="empty-block-actions">
+          <button class="btn-outline" type="button" onclick="loadA2ASessions()">重试</button>
+        </div>
+      </div>`;
   }
 }
 
 function renderA2ASessions(container, sessions) {
   if (!sessions.length) {
-    container.innerHTML = '<div class="empty-state-lg"><p>暂无出站会话</p></div>';
+    container.innerHTML = `
+      <div class="empty-block is-inline">
+        <p class="empty-block-title">还没有向外部 Agent 发起过会话</p>
+        <p class="empty-block-hint">出站会话是 Symbio 主动把任务委派给别的 Agent。在上方填入对方地址「探测」，确认它的能力后即可建立连接并派活。</p>
+      </div>`;
     return;
   }
   container.innerHTML = sessions.map(s => `
@@ -84,7 +107,7 @@ function renderA2ASessions(container, sessions) {
         <span class="a2a-state-badge a2a-state-${esc(s.state || 'submitted')}">${a2aStateLabel(s.state)}</span>
         <div class="a2a-send-row" style="margin:0">
           <input class="text-input a2a-send-input" id="a2a-send-msg-${esc(s.id)}" placeholder="继续发送消息...">
-          <button class="btn-outline" onclick="sendA2AMessage('${esc(s.id)}')">发送</button>
+          <button class="btn-outline" onclick="sendA2AMessage('${escJs(s.id)}')">发送</button>
         </div>
       </div>
     </div>
@@ -101,13 +124,24 @@ async function loadA2AInboundTasks(limit = 30) {
     state.a2a.inboundTasks = data.tasks || [];
     renderA2AInboundTasks(el, data.tasks || []);
   } catch (e) {
-    el.innerHTML = `<div class="empty-state-lg"><p>加载失败: ${esc(e.message)}</p></div>`;
+    el.innerHTML = `
+      <div class="empty-block is-inline is-error">
+        <p class="empty-block-title">无法加载入站任务</p>
+        <p class="empty-block-hint">${esc(e.message)}</p>
+        <div class="empty-block-actions">
+          <button class="btn-outline" type="button" onclick="loadA2AInboundTasks()">重试</button>
+        </div>
+      </div>`;
   }
 }
 
 function renderA2AInboundTasks(container, tasks) {
   if (!tasks.length) {
-    container.innerHTML = '<div class="empty-state-lg"><p>暂无入站任务</p></div>';
+    container.innerHTML = `
+      <div class="empty-block is-inline">
+        <p class="empty-block-title">还没有外部 Agent 给本机派过任务</p>
+        <p class="empty-block-hint">这是反方向：别的 Agent 读到本机的 Agent Card 后，可以把任务交给 Symbio 执行，记录会出现在这里。要让这条路可用，本机需要能被对方网络访问到。</p>
+      </div>`;
     return;
   }
   container.innerHTML = tasks.map(t => {
@@ -139,7 +173,7 @@ document.getElementById('btn-a2a-probe')?.addEventListener('click', async () => 
   const url = document.getElementById('a2a-probe-url')?.value?.trim();
   const resultEl = document.getElementById('a2a-probe-result');
   if (!url || !resultEl) return;
-  resultEl.innerHTML = '<div class="empty-state-lg"><p>探测中...</p></div>';
+  showLoading(resultEl, '正在探测远程 Agent...');
   try {
     const res = await fetch(`${API}/a2a/probe?url=${encodeURIComponent(url)}`);
     const data = await res.json();
@@ -147,7 +181,12 @@ document.getElementById('btn-a2a-probe')?.addEventListener('click', async () => 
     renderA2ACard(resultEl, data);
     toast('success', '探测成功', data.name || url);
   } catch (e) {
-    resultEl.innerHTML = `<div class="empty-state-lg"><p>探测失败: ${esc(e.message)}</p></div>`;
+    resultEl.innerHTML = `
+      <div class="empty-block is-inline is-error">
+        <p class="empty-block-title">探测失败</p>
+        <p class="empty-block-hint">${esc(e.message)}</p>
+        <p class="empty-block-hint">探测会去读对方的 <code>/.well-known/agent.json</code>。失败通常意味着地址写错、对方没有实现 A2A 协议，或网络不可达。</p>
+      </div>`;
     toast('error', '探测失败', e.message);
   }
 });
@@ -162,7 +201,7 @@ document.getElementById('btn-a2a-create-session')?.addEventListener('click', asy
   const initMsg = document.getElementById('a2a-session-init-msg')?.value?.trim();
   const resultEl = document.getElementById('a2a-session-result');
   if (!remoteUrl) { toast('error', '请输入远程 Agent URL', ''); return; }
-  if (resultEl) resultEl.innerHTML = '<div class="empty-state-lg"><p>建立连接中...</p></div>';
+  if (resultEl) showLoading(resultEl, '正在建立连接...');
   try {
     const res = await fetch(`${API}/a2a/sessions`, {
       method: 'POST',
@@ -183,7 +222,14 @@ document.getElementById('btn-a2a-create-session')?.addEventListener('click', asy
     }
     await loadA2ASessions();
   } catch (e) {
-    if (resultEl) resultEl.innerHTML = `<div class="empty-state-lg"><p>失败: ${esc(e.message)}</p></div>`;
+    if (resultEl) {
+      resultEl.innerHTML = `
+        <div class="empty-block is-inline is-error">
+          <p class="empty-block-title">建立会话失败</p>
+          <p class="empty-block-hint">${esc(e.message)}</p>
+          <p class="empty-block-hint">建议先用上方的「探测」确认这个地址确实是一个可用的 A2A Agent，再建立会话。</p>
+        </div>`;
+    }
     toast('error', '建立会话失败', e.message);
   }
 });

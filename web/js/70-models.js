@@ -15,7 +15,14 @@ async function loadModels() {
     renderModels();
   } catch (e) {
     toast('error', '加载模型失败', e.message);
-    dom.modelsGrid.innerHTML = `<div class="empty-state-lg"><p>加载失败，请重试</p></div>`;
+    dom.modelsGrid.innerHTML = `
+      <div class="empty-block is-error">
+        <p class="empty-block-title">无法加载模型列表</p>
+        <p class="empty-block-hint">${esc(e.message)}</p>
+        <div class="empty-block-actions">
+          <button class="btn-outline" type="button" onclick="loadModels()">重试</button>
+        </div>
+      </div>`;
   }
 }
 
@@ -55,11 +62,12 @@ function loadChatModelOptions() {
 function renderModels() {
   if (state.models.length === 0) {
     dom.modelsGrid.innerHTML = `
-      <div class="empty-state-lg">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.2">
-          <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
-        </svg>
-        <p>尚未添加任何模型</p>
+      <div class="empty-block">
+        <p class="empty-block-title">还没有添加任何模型</p>
+        <p class="empty-block-hint">模型是 Symbio 的动力来源，没有模型就无法对话。添加多个之后，可以在下方「模型路由」里按任务难度分档：简单任务走便宜的小模型，复杂任务才用贵的大模型——这是控制成本的主要手段。</p>
+        <div class="empty-block-actions">
+          <button class="btn-primary" type="button" onclick="document.getElementById('btn-add-model')?.click()">添加模型</button>
+        </div>
       </div>
     `;
     return;
@@ -264,6 +272,7 @@ function showAddModelModal() {
 async function loadConfig() {
   try {
     const res = await fetch(`${API}/config`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     state.config = data;
     loadChatModelOptions();
@@ -271,10 +280,29 @@ async function loadConfig() {
   } catch (e) {
     console.warn('加载 LLM 配置失败:', e.message);
     toast('error', '加载配置失败', e.message);
+    // 不能只弹 toast 就留下一片空白：用户会以为这一页本来就没内容，
+    // 而此时点「保存」会把空表单写回后端。
+    if (dom.configSection) {
+      dom.configSection.innerHTML = `
+        <div class="empty-block is-error">
+          <p class="empty-block-title">配置读取失败</p>
+          <p class="empty-block-hint">${esc(e.message)} · 服务可能未运行或鉴权失败。修复后点下方按钮重试；<strong>在加载成功之前不要保存</strong>，否则会覆盖现有配置。</p>
+          <div class="empty-block-actions">
+            <button class="btn-outline" type="button" onclick="loadConfig()">重新加载配置</button>
+          </div>
+        </div>`;
+    }
   }
 }
 
 async function saveConfig() {
+  // 表单未渲染时绝不能保存：所有 ?.value / ?.checked 都会回落成空值或 false，
+  // 尤其 hitl.enabled 会被静默写成 false —— 把人类审批这道闸门关掉。
+  if (!state.config || !document.getElementById('config-hitl-enabled')) {
+    toast('error', '无法保存', '配置尚未加载成功，保存会清空现有设置。请先点右上角刷新重新加载配置。');
+    return;
+  }
+
   const anthropicKey = document.getElementById('config-anthropic-key')?.value?.trim() || '';
   const anthropicUrl = document.getElementById('config-anthropic-url')?.value?.trim() || '';
   const openaiKey = document.getElementById('config-openai-key')?.value?.trim() || '';
@@ -300,9 +328,6 @@ async function saveConfig() {
     const body = {
       anthropic_base_url: anthropicUrl,
       openai_base_url: openaiUrl,
-      model_low: modelLow,
-      model_medium: modelMedium,
-      model_high: modelHigh,
       hitl: {
         enabled: document.getElementById('config-hitl-enabled')?.checked || false,
         high_risk_auto_suspend: document.getElementById('config-hitl-high-risk')?.checked || false,
@@ -316,6 +341,13 @@ async function saveConfig() {
     // Only send API keys if user entered new values (non-empty)
     if (anthropicKey) body.anthropic_api_key = anthropicKey;
     if (openaiKey) body.openai_api_key = openaiKey;
+
+    // 一个模型都没配时，三个路由下拉框是 disabled 的空值。
+    // 空值照样提交，会把后端现有的路由配置清成空串——
+    // 表单"没得选"不等于用户"想清空"，所以只在真有值时才带上这三个字段。
+    if (modelLow) body.model_low = modelLow;
+    if (modelMedium) body.model_medium = modelMedium;
+    if (modelHigh) body.model_high = modelHigh;
 
     const res = await fetch(`${API}/config`, {
       method: 'POST',
@@ -354,26 +386,37 @@ function renderConfig() {
 
   // Helper to create a <select> with pre-selected value
   function tierSelect(id, selectedValue, label) {
-    const defaultOptions = [
-      { value: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku' },
-      { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
-      { value: 'claude-opus-4-20250514', label: 'Claude Opus 4' },
-    ];
-
-    // Merge: default options + models from state, deduplicated by model_id
+    // 候选只来自真实配置的模型。此前这里硬编码了三个 Claude 型号做兜底，
+    // 于是一个模型都没配的机器上，路由下拉框照样列着 Haiku/Sonnet/Opus，
+    // 看起来像是"已经能用了"——选中并保存后，调用时才在别处报错。
+    // 真相是：没有模型就没有可选项，这一点必须在这里就说出来。
     const seen = new Set();
     const allOptions = [];
-    for (const opt of defaultOptions) {
-      if (!seen.has(opt.value)) {
-        seen.add(opt.value);
-        allOptions.push(opt);
-      }
-    }
     for (const m of state.models) {
       if (!seen.has(m.model_id)) {
         seen.add(m.model_id);
         allOptions.push({ value: m.model_id, label: m.display_name || m.model_id });
       }
+    }
+
+    // 已保存的值不在候选里时，必须显式补一项并选中。
+    // 否则 select 静默落到第一项，界面显示的模型和后端存的不是一回事，
+    // 下一次保存就把这个错误值写回去。
+    const orphan = selectedValue && !seen.has(selectedValue);
+    if (orphan) {
+      allOptions.unshift({ value: selectedValue, label: `${selectedValue}（未在模型列表中）` });
+    }
+
+    if (!allOptions.length) {
+      return `
+        <div class="form-group">
+          <label>${label}</label>
+          <select id="${id}" disabled>
+            <option value="">尚无可选模型</option>
+          </select>
+          <p class="form-hint form-hint-warn">还没有配置任何模型，这一档无从指派。请先在上方「模型」区添加模型（填好 API Key 后点「添加模型」），这里才会出现候选。</p>
+        </div>
+      `;
     }
 
     const optionsHtml = allOptions.map(opt =>
@@ -384,18 +427,29 @@ function renderConfig() {
       <div class="form-group">
         <label>${label}</label>
         <select id="${id}">${optionsHtml}</select>
+        ${orphan ? `<p class="form-hint form-hint-warn">当前值 <code>${esc(selectedValue)}</code> 不在已配置的模型中，调用时会失败。请重新选择或先添加该模型。</p>` : ''}
       </div>
     `;
   }
 
   dom.configSection.innerHTML = `
+    <!-- 只有一个保存按钮。此前两张卡各有一个按钮（「保存配置」/「保存审批配置」），
+         但它们绑的是同一个 saveConfig()，一次 POST 写入两张卡的全部字段——
+         按钮的措辞暗示了它不存在的独立范围：改了审批却点上面那个，
+         也会把下面的一起写进去，反之亦然。范围既然是"全部"，就只留一个按钮说清楚。 -->
+    <div class="config-save-bar">
+      <div class="config-save-bar-text">
+        <strong>下面两张卡是一份配置</strong>
+        <span>保存会一次性提交 LLM 与审批的全部字段（API Key 留空表示保持原值不变）。</span>
+      </div>
+      <button class="btn-primary" id="btn-save-config" data-save-config>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+        保存全部配置
+      </button>
+    </div>
     <div class="config-card">
       <div class="config-card-header">
         <h3>LLM 配置</h3>
-        <button class="btn-primary" id="btn-save-config" data-save-config>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-          保存配置
-        </button>
       </div>
       <div class="config-card-body">
         <div class="config-row">
@@ -433,10 +487,6 @@ function renderConfig() {
     <div class="config-card">
       <div class="config-card-header">
         <h3>外部审批配置</h3>
-        <button class="btn-primary" data-save-config>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-          保存审批配置
-        </button>
       </div>
       <div class="config-card-body">
         <div class="config-row">

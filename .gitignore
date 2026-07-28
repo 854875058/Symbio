@@ -101,3 +101,7 @@ htmlcov/
 /symbio.yaml
 *.env
 .env*
+
+# impeccable skill 的工作区（侦察笔记、批注、设计快照）。属于做这次改动时的
+# 过程稿，结论已经落进 DESIGN.md 和 docs/pages.md，不需要入库。
+/.impeccable/

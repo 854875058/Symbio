@@ -24,7 +24,7 @@ async function loadExternalAgentProviders() {
     renderExternalAgentProviders();
     return data;
   } catch (e) {
-    toast('error', 'External agent providers failed', e.message);
+    toast('error', '加载提供方失败', e.message);
     return null;
   }
 }
@@ -34,14 +34,14 @@ function renderExternalAgentProviders() {
   if (dom.externalAgentProviderBadges) {
     dom.externalAgentProviderBadges.innerHTML = providers.map(provider => `
       <span class="sandbox-badge ${provider.installed ? 'external-agent-installed' : 'external-agent-missing'}" title="${esc(provider.path || provider.notes || '')}">
-        ${esc(provider.provider_id)}:${provider.installed ? 'ready' : 'missing'}
+        ${esc(provider.provider_id)}:${provider.installed ? '已就绪' : '未安装'}
       </span>
     `).join('');
   }
   if (dom.externalAgentProvider && providers.length) {
     const current = dom.externalAgentProvider.value;
     dom.externalAgentProvider.innerHTML = providers.map(provider => `
-      <option value="${esc(provider.provider_id)}">${esc(provider.display_name)} ${provider.installed ? '' : '(missing)'}</option>
+      <option value="${esc(provider.provider_id)}">${esc(provider.display_name)} ${provider.installed ? '' : '（未安装）'}</option>
     `).join('');
     if (providers.some(provider => provider.provider_id === current)) {
       dom.externalAgentProvider.value = current;
@@ -50,7 +50,7 @@ function renderExternalAgentProviders() {
 }
 
 async function loadExternalAgentSessions() {
-  if (dom.externalAgentSessions) showLoading(dom.externalAgentSessions, 'Loading sessions...');
+  if (dom.externalAgentSessions) showLoading(dom.externalAgentSessions, '正在加载会话...');
   try {
     const res = await fetch(`${API}/external-agents/sessions`);
     const data = await res.json();
@@ -62,8 +62,17 @@ async function loadExternalAgentSessions() {
     renderExternalAgentSessions();
     return data;
   } catch (e) {
-    toast('error', 'External agent sessions failed', e.message);
-    if (dom.externalAgentSessions) dom.externalAgentSessions.innerHTML = `<div class="empty-state-lg"><p>${esc(e.message)}</p></div>`;
+    toast('error', '加载会话失败', e.message);
+    if (dom.externalAgentSessions) {
+      dom.externalAgentSessions.innerHTML = `
+        <div class="empty-block is-inline is-error">
+          <p class="empty-block-title">无法加载会话列表</p>
+          <p class="empty-block-hint">${esc(e.message)}</p>
+          <div class="empty-block-actions">
+            <button class="btn-outline" type="button" onclick="loadExternalAgentSessions()">重试</button>
+          </div>
+        </div>`;
+    }
     return null;
   }
 }
@@ -72,15 +81,19 @@ function renderExternalAgentSessions() {
   if (!dom.externalAgentSessions) return;
   const sessions = state.externalAgents.sessions || [];
   if (!sessions.length) {
-    dom.externalAgentSessions.innerHTML = `<div class="empty-state-lg"><p>No sessions registered.</p></div>`;
+    dom.externalAgentSessions.innerHTML = `
+      <div class="empty-block is-inline">
+        <p class="empty-block-title">还没有登记任何会话</p>
+        <p class="empty-block-hint">「登记会话」只是把一个已存在的外部 Agent 会话纳入 Symbio 管理，不会新建或改动它。填好上方表单后点「登记会话」。</p>
+      </div>`;
     return;
   }
   dom.externalAgentSessions.innerHTML = sessions.map(session => `
     <button class="external-agent-session ${session.session_id === state.externalAgents.activeSessionId ? 'active' : ''}" data-session-id="${esc(session.session_id)}">
       <span class="external-agent-session-main">${esc(session.label || session.provider)}</span>
       <span>${esc(session.provider)}</span>
-      <span>${esc(session.external_session_id || 'new handle')}</span>
-      <span>${esc(session.sandbox_mode || session.permission_mode || 'default')}</span>
+      <span>${esc(session.external_session_id || '新建句柄')}</span>
+      <span>${esc(session.sandbox_mode || session.permission_mode || '默认')}</span>
     </button>
   `).join('');
 }
@@ -109,10 +122,10 @@ async function createExternalAgentSession() {
     if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
     state.externalAgents.activeSessionId = data.session.session_id;
     await loadExternalAgentSessions();
-    toast('success', 'External session registered', data.session.label || data.session.provider);
+    toast('success', '会话已登记', data.session.label || data.session.provider);
     return data.session;
   } catch (e) {
-    toast('error', 'Register external session failed', e.message);
+    toast('error', '登记会话失败', e.message);
     return null;
   }
 }
@@ -125,14 +138,14 @@ function activeExternalAgentSession() {
 
 async function runExternalAgent(dryRun = false) {
   if (dom.externalAgentResult) {
-    dom.externalAgentResult.innerHTML = `<div class="empty-state-lg"><p>${dryRun ? 'Building command preview...' : 'Running external agent...'}</p></div>`;
+    showLoading(dom.externalAgentResult, dryRun ? '正在生成命令预览...' : '正在执行外部 Agent...');
   }
   try {
     let session = activeExternalAgentSession();
     if (!session) session = await createExternalAgentSession();
-    if (!session) throw new Error('No external session available');
+    if (!session) throw new Error('没有可用的外部会话，请先登记一个');
     const prompt = dom.externalAgentPrompt?.value || '';
-    if (!prompt.trim()) throw new Error('Prompt is required');
+    if (!prompt.trim()) throw new Error('指令不能为空');
     const res = await fetch(`${API}/external-agents/sessions/${encodeURIComponent(session.session_id)}/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -149,10 +162,16 @@ async function runExternalAgent(dryRun = false) {
     state.externalAgents.lastResult = data.result;
     renderExternalAgentResult(data.result);
     await Promise.all([loadExternalAgentSessions(), loadExternalAgentAudit()]);
-    toast(data.result.success ? 'success' : 'error', dryRun ? 'Command preview ready' : 'External agent finished', data.result.error || `exit=${data.result.exit_code}`);
+    toast(data.result.success ? 'success' : 'error', dryRun ? '命令预览已生成' : '外部 Agent 执行完毕', data.result.error || `退出码 ${data.result.exit_code}`);
   } catch (e) {
-    toast('error', 'External agent run failed', e.message);
-    if (dom.externalAgentResult) dom.externalAgentResult.innerHTML = `<div class="empty-state-lg"><p>${esc(e.message)}</p></div>`;
+    toast('error', '执行失败', e.message);
+    if (dom.externalAgentResult) {
+      dom.externalAgentResult.innerHTML = `
+        <div class="empty-block is-inline is-error">
+          <p class="empty-block-title">${dryRun ? '无法生成命令预览' : '外部 Agent 执行失败'}</p>
+          <p class="empty-block-hint">${esc(e.message)}</p>
+        </div>`;
+    }
   }
 }
 
@@ -162,13 +181,13 @@ function renderExternalAgentResult(result) {
   const statusClass = result.success ? 'success' : 'failed';
   dom.externalAgentResult.innerHTML = `
     <div class="sandbox-result-head">
-      <span class="sandbox-result-status ${statusClass}">${result.dry_run ? 'preview' : (result.success ? 'success' : 'failed')}</span>
+      <span class="sandbox-result-status ${statusClass}">${result.dry_run ? '仅预览' : (result.success ? '成功' : '失败')}</span>
       <span>${esc(result.provider || '')}</span>
-      <span>exit=${esc(result.exit_code)}</span>
+      <span>退出码 ${esc(result.exit_code)}</span>
       <span>${Math.round(result.duration_ms || 0)}ms</span>
     </div>
     ${result.error ? `<div class="sandbox-error">${esc(result.error)}</div>` : ''}
-    <div class="sandbox-output-label">command</div>
+    <div class="sandbox-output-label">实际执行的命令</div>
     <pre class="sandbox-output">${esc(command)}</pre>
     <div class="sandbox-output-grid">
       <div>
@@ -194,7 +213,16 @@ async function loadExternalAgentTranscripts() {
     return data;
   } catch (e) {
     toast('error', '扫描外部对话失败', e.message);
-    if (dom.externalAgentTranscripts) dom.externalAgentTranscripts.innerHTML = `<div class="empty-state-lg"><p>${esc(e.message)}</p></div>`;
+    if (dom.externalAgentTranscripts) {
+      dom.externalAgentTranscripts.innerHTML = `
+        <div class="empty-block is-inline is-error">
+          <p class="empty-block-title">无法扫描本机对话</p>
+          <p class="empty-block-hint">${esc(e.message)}</p>
+          <div class="empty-block-actions">
+            <button class="btn-outline" type="button" onclick="loadExternalAgentTranscripts()">重试</button>
+          </div>
+        </div>`;
+    }
     return null;
   }
 }
@@ -203,7 +231,11 @@ function renderExternalAgentTranscripts() {
   if (!dom.externalAgentTranscripts) return;
   const transcripts = state.externalAgents.transcripts || [];
   if (!transcripts.length) {
-    dom.externalAgentTranscripts.innerHTML = `<div class="empty-state-lg"><p>没有发现可导入的 Codex / Claude Code 对话。</p></div>`;
+    dom.externalAgentTranscripts.innerHTML = `
+      <div class="empty-block is-inline">
+        <p class="empty-block-title">没有发现可导入的对话</p>
+        <p class="empty-block-hint">Symbio 会扫描本机 Codex / Claude Code 的历史记录目录。如果你确实用过它们，可能是记录存放在别的用户目录下，或安装位置不在默认路径。</p>
+      </div>`;
     return;
   }
   dom.externalAgentTranscripts.innerHTML = transcripts.map((transcript, index) => {
@@ -258,7 +290,7 @@ async function importExternalAgentTranscript(index) {
 }
 
 async function loadExternalAgentAudit() {
-  if (dom.externalAgentAudit) showLoading(dom.externalAgentAudit, 'Loading audit...');
+  if (dom.externalAgentAudit) showLoading(dom.externalAgentAudit, '加载运行审计...');
   try {
     const res = await fetch(`${API}/external-agents/audit`);
     const data = await res.json();
@@ -267,8 +299,17 @@ async function loadExternalAgentAudit() {
     renderExternalAgentAudit(data.records || []);
     return data;
   } catch (e) {
-    toast('error', 'External agent audit failed', e.message);
-    if (dom.externalAgentAudit) dom.externalAgentAudit.innerHTML = `<div class="empty-state-lg"><p>${esc(e.message)}</p></div>`;
+    toast('error', '加载审计记录失败', e.message);
+    if (dom.externalAgentAudit) {
+      dom.externalAgentAudit.innerHTML = `
+        <div class="empty-block is-inline is-error">
+          <p class="empty-block-title">无法加载审计记录</p>
+          <p class="empty-block-hint">${esc(e.message)}</p>
+          <div class="empty-block-actions">
+            <button class="btn-outline" type="button" onclick="loadExternalAgentAudit()">重试</button>
+          </div>
+        </div>`;
+    }
     return null;
   }
 }
@@ -276,14 +317,18 @@ async function loadExternalAgentAudit() {
 function renderExternalAgentAudit(records) {
   if (!dom.externalAgentAudit) return;
   if (!records.length) {
-    dom.externalAgentAudit.innerHTML = `<div class="empty-state-lg"><p>No external agent audit records.</p></div>`;
+    dom.externalAgentAudit.innerHTML = `
+      <div class="empty-block is-inline">
+        <p class="empty-block-title">暂无审计记录</p>
+        <p class="empty-block-hint">每次向外部 Agent 发送指令都会在此留痕，包含完整命令行、退出码与耗时——这是事后核对「它到底执行了什么」的依据。</p>
+      </div>`;
     return;
   }
   dom.externalAgentAudit.innerHTML = records.map(record => `
     <article class="sandbox-audit-card">
       <div class="sandbox-audit-head">
         <span class="sandbox-audit-command" title="${esc((record.command || []).join(' '))}">${esc((record.command || []).join(' '))}</span>
-        <span class="sandbox-result-status ${record.success ? 'success' : 'failed'}">${record.dry_run ? 'preview' : `exit ${record.exit_code}`}</span>
+        <span class="sandbox-result-status ${record.success ? 'success' : 'failed'}">${record.dry_run ? '仅预览' : `退出码 ${record.exit_code}`}</span>
       </div>
       <div class="sandbox-audit-meta">
         <span>${esc(record.provider)}</span>
@@ -328,7 +373,16 @@ async function loadLiveSessions() {
     renderLiveSessions();
     if (live.activeId) startLivePolling();
   } catch (e) {
-    if (list) list.innerHTML = `<div class="empty-state-lg"><p>${esc(e.message)}</p></div>`;
+    if (list) {
+      list.innerHTML = `
+        <div class="empty-block is-inline is-error">
+          <p class="empty-block-title">无法加载实时会话</p>
+          <p class="empty-block-hint">${esc(e.message)}</p>
+          <div class="empty-block-actions">
+            <button class="btn-outline" type="button" onclick="loadLiveSessions()">重试</button>
+          </div>
+        </div>`;
+    }
   }
 }
 
@@ -341,7 +395,11 @@ function renderLiveSessions() {
       <button class="external-live-session ${s.session_id === live.activeId ? 'active' : ''}" data-live-id="${esc(s.session_id)}">
         <span class="external-live-session-main">${esc(s.label || s.external_session_id)}</span>
         <span class="external-live-session-sub">${esc(s.provider)} · ${esc(s.external_session_id)}</span>
-      </button>`).join('') : `<div class="empty-state-lg"><p>还没有接管任何会话。</p></div>`;
+      </button>`).join('') : `
+      <div class="empty-block is-inline">
+        <p class="empty-block-title">还没有接管任何会话</p>
+        <p class="empty-block-hint">「接管」会与一个正在运行的外部会话建立双向通道：你在这里发的话它能收到，它的回复也会同步显示在这里。填入会话 ID 后点「接管会话」。</p>
+      </div>`;
   }
   const active = sessions.find(s => s.session_id === live.activeId);
   const hint = $('#live-active-hint');
@@ -354,12 +412,20 @@ function renderLiveStream() {
   if (!stream) return;
   const live = state.externalAgents.live;
   if (!live.activeId) {
-    stream.innerHTML = `<div class="empty-state-lg"><p>接管会话后，这里实时显示双向消息。</p></div>`;
+    stream.innerHTML = `
+      <div class="empty-block is-inline">
+        <p class="empty-block-title">尚未接管会话</p>
+        <p class="empty-block-hint">接管一个会话后，你和它之间的往来消息会实时出现在这里，包括它在终端里自己产生的输出。</p>
+      </div>`;
     return;
   }
   const msgs = live.messagesById[live.activeId] || [];
   if (!msgs.length) {
-    stream.innerHTML = `<div class="empty-state-lg"><p>等待消息…（发送一句，或在终端里继续该会话）</p></div>`;
+    stream.innerHTML = `
+      <div class="empty-block is-inline">
+        <p class="empty-block-title">通道已建立，等待消息</p>
+        <p class="empty-block-hint">这是正常状态，不是故障。在下方输入框发一句话，或者在原来的终端里继续这个会话，消息都会汇聚到这里。</p>
+      </div>`;
     return;
   }
   stream.innerHTML = msgs.map(m => `
@@ -481,7 +547,7 @@ async function runRelay() {
     dry_run: $('#relay-dry-run')?.checked || false,
   };
   if (!payload.seed_prompt) { toast('error', '接力失败', '请填写初始任务'); return; }
-  if (turnsEl) turnsEl.innerHTML = `<div class="empty-state-lg"><p>接力进行中…</p></div>`;
+  if (turnsEl) showLoading(turnsEl, '接力进行中…');
   if (btn) btn.disabled = true;
   try {
     const res = await fetch(`${API}/external-agents/relay`, {
@@ -493,7 +559,13 @@ async function runRelay() {
     toast(data.success ? 'success' : 'error', '接力完成', `${(data.result.turns || []).length} 轮`);
   } catch (e) {
     toast('error', '接力失败', e.message);
-    if (turnsEl) turnsEl.innerHTML = `<div class="empty-state-lg"><p>${esc(e.message)}</p></div>`;
+    if (turnsEl) {
+      turnsEl.innerHTML = `
+        <div class="empty-block is-inline is-error">
+          <p class="empty-block-title">接力中断</p>
+          <p class="empty-block-hint">${esc(e.message)}</p>
+        </div>`;
+    }
   } finally {
     if (btn) btn.disabled = false;
   }
@@ -503,13 +575,20 @@ function renderRelay(result) {
   const el = $('#relay-turns');
   if (!el) return;
   const turns = (result && result.turns) || [];
-  if (!turns.length) { el.innerHTML = `<div class="empty-state-lg"><p>没有产生任何轮次。</p></div>`; return; }
+  if (!turns.length) {
+    el.innerHTML = `
+      <div class="empty-block is-inline">
+        <p class="empty-block-title">没有产生任何轮次</p>
+        <p class="empty-block-hint">两个 Agent 都没有输出可交接的内容。检查一下初始任务是否足够具体，以及双方 CLI 是否都已安装（看上方提供方徽标）。</p>
+      </div>`;
+    return;
+  }
   el.innerHTML = turns.map(t => `
     <article class="external-relay-turn ${t.success ? '' : 'failed'}">
       <div class="external-relay-turn-head">
-        <span class="external-relay-turn-idx">#${t.index + 1}</span>
+        <span class="external-relay-turn-idx">第 ${t.index + 1} 轮</span>
         <span class="external-relay-turn-provider">${esc(t.provider)}</span>
-        <span class="sandbox-result-status ${t.success ? 'success' : 'failed'}">${t.success ? `exit ${t.exit_code}` : 'failed'}</span>
+        <span class="sandbox-result-status ${t.success ? 'success' : 'failed'}">${t.success ? `退出码 ${t.exit_code}` : '失败'}</span>
       </div>
       ${t.error ? `<div class="sandbox-error">${esc(t.error)}</div>` : ''}
       <div class="external-relay-turn-body">${esc(t.output || '(无输出)')}</div>

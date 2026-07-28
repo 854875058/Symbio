@@ -40,7 +40,11 @@ function renderThreatDist(dist, total) {
   const order = ['critical', 'high', 'medium', 'low', 'safe'];
   const entries = order.filter(k => dist[k]);
   if (!entries.length || !total) {
-    container.innerHTML = '<div class="cost-table-empty">暂无数据，发起对话或运行自检后这里会出现分布</div>';
+    container.innerHTML = `
+      <div class="empty-block is-inline">
+        <p class="empty-block-title">暂无威胁分布数据</p>
+        <p class="empty-block-hint">每一条进入 Agent 的输入都会先过一遍提示注入检测，判定结果按等级统计在这里。空着说明还没有输入被检测过——发起一次对话，或用下方的自检跑一遍攻击样本库。</p>
+      </div>`;
     return;
   }
   const max = Math.max(...entries.map(k => dist[k]), 1);
@@ -64,21 +68,32 @@ async function loadSecurityAudit() {
     const data = await res.json();
     const records = data.records || [];
     if (!records.length) {
-      container.innerHTML = '<div class="cost-table-empty">暂无审计记录</div>';
+      container.innerHTML = `
+        <div class="empty-block is-inline">
+          <p class="empty-block-title">暂无审计记录</p>
+          <p class="empty-block-hint">这里逐条记录被检测过的输入、判定等级和处置结果（放行 / 拦截 / 隔离）。它是事后复盘「有没有人试过绕过 Agent」的依据，空着说明本机还没有输入经过检测。</p>
+        </div>`;
       return;
     }
     container.innerHTML = records.map(r => {
       const meta = THREAT_META[r.threat_level] || { label: r.threat_level, color: 'var(--text-secondary)' };
       const blocked = r.action_taken === 'block' || r.action_taken === 'quarantine';
       return `<div class="security-audit-item">
-        <span class="security-badge" style="background:${meta.color}22;color:${meta.color}">${meta.label}</span>
+        <span class="security-badge" style="background:color-mix(in srgb, ${meta.color} 14%, transparent);color:${meta.color}">${meta.label}</span>
         <span class="security-audit-text" title="${esc(r.original_input)}">${esc(r.original_input)}</span>
         <span class="security-audit-meta">${esc(r.attack_type !== 'none' ? r.attack_type : '—')}</span>
         <span class="security-action ${blocked ? 'blocked' : ''}">${blocked ? '已拦截' : r.action_taken}</span>
       </div>`;
     }).join('');
   } catch (e) {
-    container.innerHTML = `<div class="cost-table-empty">加载审计失败: ${esc(e.message)}</div>`;
+    container.innerHTML = `
+      <div class="empty-block is-inline is-error">
+        <p class="empty-block-title">无法加载安全审计</p>
+        <p class="empty-block-hint">${esc(e.message)}</p>
+        <div class="empty-block-actions">
+          <button class="btn-outline" type="button" onclick="loadSecurityAudit()">重试</button>
+        </div>
+      </div>`;
   }
 }
 
@@ -100,7 +115,7 @@ async function runSecurityScan() {
       result.style.display = 'block';
       result.innerHTML = `
         <div class="security-scan-verdict" style="border-color:${meta.color}">
-          <span class="security-badge" style="background:${meta.color}22;color:${meta.color}">${meta.label}</span>
+          <span class="security-badge" style="background:color-mix(in srgb, ${meta.color} 14%, transparent);color:${meta.color}">${meta.label}</span>
           <span class="security-scan-verdict-text">${blocked ? '⛔ 会被拦截' : '✓ 放行'} · 攻击类型：${esc(data.attack_type)}</span>
         </div>
         <div class="security-scan-layers">三层防御均已执行：${(data.defense_layers || []).map(l => `<code>${esc(l)}</code>`).join(' ')}</div>
@@ -118,12 +133,20 @@ async function runSecuritySelftest() {
   const body = document.getElementById('security-selftest-body');
   const sub = document.getElementById('security-selftest-sub');
   if (panel) panel.style.display = 'block';
-  if (body) body.innerHTML = '<div class="cost-table-empty">正在用攻击样本库测试防火墙…</div>';
+  if (body) body.innerHTML = '<div class="empty-block is-inline"><p class="empty-block-hint">正在用攻击样本库测试防火墙…</p></div>';
   try {
     const res = await fetch(`${API}/security/selftest`, { method: 'POST' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    if (!data.available) { if (body) body.innerHTML = `<div class="cost-table-empty">自检不可用: ${esc(data.error || '')}</div>`; return; }
+    if (!data.available) {
+      if (body) body.innerHTML = `
+        <div class="empty-block is-inline is-error">
+          <p class="empty-block-title">自检不可用</p>
+          <p class="empty-block-hint">${esc(data.error || '服务端未提供攻击样本库。')}</p>
+          <p class="empty-block-hint">自检靠内置的攻击样本库逐条打防火墙，样本库缺失时无法给出拦截率——上方单条扫描仍然可用。</p>
+        </div>`;
+      return;
+    }
     if (sub) sub.textContent = `${data.total_samples} 条攻击样本 · 拦截 ${data.blocked} 条 · 拦截率 ${Math.round(data.block_rate * 100)}%`;
     const cats = Object.entries(data.by_category || {}).sort((a, b) => (b[1].blocked / b[1].total) - (a[1].blocked / a[1].total));
     const rows = cats.map(([cat, v]) => {
@@ -143,7 +166,14 @@ async function runSecuritySelftest() {
       <div class="security-cat-list">${rows}</div>`;
     await loadSecurityStats();
   } catch (e) {
-    if (body) body.innerHTML = `<div class="cost-table-empty">自检失败: ${esc(e.message)}</div>`;
+    if (body) body.innerHTML = `
+      <div class="empty-block is-inline is-error">
+        <p class="empty-block-title">自检失败</p>
+        <p class="empty-block-hint">${esc(e.message)}</p>
+        <div class="empty-block-actions">
+          <button class="btn-outline" type="button" onclick="runSecuritySelftest()">重新自检</button>
+        </div>
+      </div>`;
   }
 }
 

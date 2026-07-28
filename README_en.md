@@ -216,7 +216,8 @@ open http://localhost:9090
 | [Feature List](docs/features.md) | 33 killer features detailed definition |
 | [Architecture](docs/architecture.md) | 4-layer architecture + security/observability |
 | [Module Whitepaper](docs/module-design-whitepaper.md) | 17 modules with forward-looking design |
-| [UI Design](docs/ui-design.md) | 28 pages + component system + interactions |
+| [Page Handbook](docs/pages.md) | All 18 pages: what each does, why it exists, how to use it |
+| [Design System](../DESIGN.md) | Tokens, named rules, component specs |
 | [Roadmap](docs/roadmap.md) | 10 Phases complete development plan |
 | [Module Plan](docs/modules.md) | Module tree + code skeleton |
 | [Tech Stack](docs/tech-stack.md) | Technology selection + dependencies |
@@ -389,7 +390,8 @@ open http://localhost:9090
 | [功能清单](docs/features.md) | 33 个杀手级亮点详细定义 |
 | [架构设计](docs/architecture.md) | 四层架构 + 安全/可观测性架构 |
 | [模块设计白皮书](docs/module-design-whitepaper.md) | 17 个模块的超前设计哲学 |
-| [UI 设计方案](docs/ui-design.md) | 28 个页面 + 组件系统 + 交互设计 |
+| [页面手册](docs/pages.md) | 全部 18 个页面：是什么 / 为什么 / 怎么用 |
+| [设计系统](../DESIGN.md) | 设计令牌、命名规则、组件规格 |
 | [开发路线图](docs/roadmap.md) | 10 Phase 完整开发计划 |
 | [模块规划](docs/modules.md) | 模块目录树 + 代码骨架 |
 | [技术栈选型](docs/tech-stack.md) | 技术选型 + 依赖管理 |

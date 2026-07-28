@@ -80,6 +80,7 @@ const state = {
   tasks: [],
   taskFilter: 'all',
   memories: [],
+  memoryImportance: 'all',
   ontologyGraph: { stats: {}, nodes: [], edges: [] },
   ontologySelection: null,
   ontologySim: null,   // Obsidian 风格力导向仿真运行态（见 renderOntologyGraph）
@@ -142,6 +143,7 @@ const dom = {
   tasksGrid: $('#tasks-grid'),
   memoryGrid: $('#memory-grid'),
   memorySearch: $('#memory-search'),
+  memoryImportanceFilter: $('#memory-importance-filter'),
   ontologySummary: $('#ontology-summary'),
   ontologyGraph: $('#ontology-graph'),
   ontologyEmpty: $('#ontology-empty'),
@@ -265,11 +267,30 @@ function toast(type, title, msg) {
 }
 
 // ============ Utility ============
+// 转义 HTML 文本内容。textContent -> innerHTML 只处理 & < >，不处理引号，
+// 所以额外手工转义 " 和 '：属性上下文（尤其是 onclick="fn('${...}')"）
+// 缺了引号转义就能被 payload 闭合属性并注入可执行表达式。
 function esc(text) {
-  if (!text) return '';
+  if (text === null || text === undefined || text === '') return '';
   const d = document.createElement('div');
-  d.textContent = text;
-  return d.innerHTML;
+  d.textContent = String(text);
+  return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// 用于内联 JS 字符串字面量（onclick="fn('${escJs(x)}')"）。
+// 先按 JS 字面量转义反斜杠与引号，再交给 esc() 做 HTML 层转义。
+// 不可信数据尽量改用 dataset + addEventListener，本函数是过渡期的兜底。
+function escJs(text) {
+  if (text === null || text === undefined || text === '') return '';
+  return esc(String(text).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\r?\n/g, '\\n'));
+}
+
+// 高风险动作确认。统一入口的目的不是弹窗好看，而是保证「危险程度」和
+// 「确认强度」成正比：以前删 Skill 有确认、放开沙箱全权限却没有，
+// 用户学到的规律是「没弹窗 = 安全」，恰好在最危险的地方失效。
+// consequence 必须写清楚不可逆的后果，不能只写「确定吗」。
+function confirmDanger(title, consequence) {
+  return confirm(`${title}\n\n${consequence}`);
 }
 
 function showLoading(container, message = '加载中...') {
@@ -293,10 +314,17 @@ function formatTime(isoStr) {
   }
 }
 
+// 数字格式化。两个此前的坑：
+// 1) 传进 undefined / null / NaN 时会 String() 出字面量 "undefined" 显示在页面上；
+// 2) 1000 以下不加千分位没问题，但 K/M 之下的整数（如 4 位以内）也该易读，
+//    所以四位以上统一走 toLocaleString。
 function formatNumber(n) {
-  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
-  if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
-  return String(n);
+  const v = Number(n);
+  if (!Number.isFinite(v)) return '—';
+  const abs = Math.abs(v);
+  if (abs >= 1000000) return (v / 1000000).toFixed(1) + 'M';
+  if (abs >= 1000) return (v / 1000).toFixed(1) + 'K';
+  return v.toLocaleString('zh-CN');
 }
 
 // 键盘快捷键：让新页面的输入框支持回车直接触发主操作

@@ -20,16 +20,27 @@ async function loadMCPServers() {
     mcpState.servers = data.servers || [];
     renderMCPServers(list, data.servers || []);
   } catch (e) {
-    list.innerHTML = `<div class="empty-state-lg"><p>加载失败: ${esc(e.message)}</p></div>`;
+    list.innerHTML = `
+      <div class="empty-block is-error">
+        <p class="empty-block-title">无法加载 MCP Server 列表</p>
+        <p class="empty-block-hint">${esc(e.message)}</p>
+        <div class="empty-block-actions">
+          <button class="btn-outline" type="button" onclick="loadMCPServers()">重试</button>
+        </div>
+      </div>`;
   }
 }
 
 function renderMCPServers(container, servers) {
   if (!servers.length) {
-    container.innerHTML = `<div class="empty-state-lg">
-      <p>暂无 MCP Server 配置</p>
-      <span class="empty-hint">添加 MCP server 让 Agent 使用标准 MCP 工具（如 filesystem、browser、database 等）</span>
-    </div>`;
+    container.innerHTML = `
+      <div class="empty-block">
+        <p class="empty-block-title">还没有配置 MCP Server</p>
+        <p class="empty-block-hint">MCP 是 Agent 的标准工具接口：接上一个 server，它就获得对应的一整套手脚（文件系统、浏览器、数据库等），无需你为每个工具写胶水代码。挂载前可以先「探测工具」看清它到底暴露了哪些能力。</p>
+        <div class="empty-block-actions">
+          <button class="btn-primary" type="button" onclick="document.getElementById('btn-add-mcp-server')?.click()">添加 MCP Server</button>
+        </div>
+      </div>`;
     return;
   }
   container.innerHTML = servers.map(s => `
@@ -40,11 +51,11 @@ function renderMCPServers(container, servers) {
         <div class="a2a-session-time">${esc(s.description || '')} ${s.source === 'yaml' ? '(来自 symbio.yaml)' : ''}</div>
       </div>
       <div style="display:flex;gap:6px;flex-shrink:0;align-items:center;flex-wrap:wrap;justify-content:flex-end">
-        <button class="btn-outline" style="padding:4px 10px;font-size:var(--fs-xs)" onclick="probeMCPTools('${esc(s.id || '')}', '${esc(s.name)}')">探测工具</button>
-        <button class="btn-outline" style="padding:4px 10px;font-size:var(--fs-xs)" onclick="probeMCPExtra('${esc(s.id || '')}', '${esc(s.name)}', 'resources')">资源</button>
-        <button class="btn-outline" style="padding:4px 10px;font-size:var(--fs-xs)" onclick="probeMCPExtra('${esc(s.id || '')}', '${esc(s.name)}', 'prompts')">Prompts</button>
-        <button class="btn-primary" style="padding:4px 10px;font-size:var(--fs-xs)" onclick="mountMCPServer('${esc(s.id || '')}', '${esc(s.name)}')">挂载到 Agent</button>
-        ${s.source !== 'yaml' ? `<button class="btn-outline" style="padding:4px 10px;font-size:var(--fs-xs)" onclick="deleteMCPServer('${esc(s.id || '')}')">删除</button>` : ''}
+        <button class="btn-outline" style="padding:4px 10px;font-size:var(--fs-xs)" onclick="probeMCPTools('${escJs(s.id || '')}', '${escJs(s.name)}')">探测工具</button>
+        <button class="btn-outline" style="padding:4px 10px;font-size:var(--fs-xs)" onclick="probeMCPExtra('${escJs(s.id || '')}', '${escJs(s.name)}', 'resources')">资源</button>
+        <button class="btn-outline" style="padding:4px 10px;font-size:var(--fs-xs)" onclick="probeMCPExtra('${escJs(s.id || '')}', '${escJs(s.name)}', 'prompts')">Prompts</button>
+        <button class="btn-primary" style="padding:4px 10px;font-size:var(--fs-xs)" onclick="mountMCPServer('${escJs(s.id || '')}', '${escJs(s.name)}')">挂载到 Agent</button>
+        ${s.source !== 'yaml' ? `<button class="btn-outline" style="padding:4px 10px;font-size:var(--fs-xs)" onclick="deleteMCPServer('${escJs(s.id || '')}')">删除</button>` : ''}
       </div>
     </div>
   `).join('');
@@ -58,7 +69,7 @@ async function probeMCPTools(serverId, serverName) {
   if (!panel || !listEl) return;
   panel.style.display = 'block';
   if (titleEl) titleEl.textContent = `${serverName} — 探测中...`;
-  listEl.innerHTML = '<div class="empty-state-lg"><p>连接中...</p></div>';
+  showLoading(listEl, '正在连接 MCP Server...');
   try {
     const res = await fetch(`${API}/mcp/servers/${encodeURIComponent(serverId)}/tools`, { method: 'POST' });
     const data = await res.json();
@@ -72,9 +83,18 @@ async function probeMCPTools(serverId, serverName) {
           <div style="font-size:var(--fs-sm);color:var(--text-secondary);margin-top:2px">${esc(t.description || '—')}</div>
         </div>
       </div>
-    `).join('') || '<div class="empty-state-lg"><p>无可用工具</p></div>';
+    `).join('') || `
+      <div class="empty-block is-inline">
+        <p class="empty-block-title">连接成功，但该 Server 没有暴露任何工具</p>
+        <p class="empty-block-hint">握手正常，说明配置没问题，只是它当前不提供工具。挂载它不会给 Agent 增加任何能力——可以试试「资源」或「Prompts」。</p>
+      </div>`;
   } catch (e) {
-    listEl.innerHTML = `<div class="empty-state-lg"><p>探测失败: ${esc(e.message)}</p></div>`;
+    listEl.innerHTML = `
+      <div class="empty-block is-inline is-error">
+        <p class="empty-block-title">探测失败</p>
+        <p class="empty-block-hint">${esc(e.message)}</p>
+        <p class="empty-block-hint">常见原因：命令或参数写错、依赖没装（多数 MCP Server 需要 npx / uvx）、或该 Server 启动超时。</p>
+      </div>`;
   }
 }
 
@@ -87,7 +107,7 @@ async function probeMCPExtra(serverId, serverName, kind) {
   panel.style.display = 'block';
   const label = kind === 'resources' ? '资源' : 'Prompts';
   if (titleEl) titleEl.textContent = `${serverName} — ${label} 探测中...`;
-  listEl.innerHTML = '<div class="empty-state-lg"><p>连接中...</p></div>';
+  showLoading(listEl, `正在获取 ${label}...`);
   try {
     const res = await fetch(`${API}/mcp/servers/${encodeURIComponent(serverId)}/${kind}`, { method: 'POST' });
     const data = await res.json();
@@ -101,9 +121,17 @@ async function probeMCPExtra(serverId, serverName, kind) {
           <div style="font-size:var(--fs-sm);color:var(--text-secondary);margin-top:2px">${esc(it.description || it.uri || '—')}</div>
         </div>
       </div>
-    `).join('') || `<div class="empty-state-lg"><p>无${label}</p></div>`;
+    `).join('') || `
+      <div class="empty-block is-inline">
+        <p class="empty-block-title">该 Server 没有提供${label}</p>
+        <p class="empty-block-hint">${data.supported === false ? '它在握手时并未声明这项能力，属于正常情况——不是所有 MCP Server 都提供' + label + '。' : '连接正常，只是当前列表为空。'}</p>
+      </div>`;
   } catch (e) {
-    listEl.innerHTML = `<div class="empty-state-lg"><p>探测失败: ${esc(e.message)}</p></div>`;
+    listEl.innerHTML = `
+      <div class="empty-block is-inline is-error">
+        <p class="empty-block-title">探测${label}失败</p>
+        <p class="empty-block-hint">${esc(e.message)}</p>
+      </div>`;
   }
 }
 
@@ -120,6 +148,8 @@ async function mountMCPServer(serverId, serverName) {
 }
 
 async function deleteMCPServer(serverId) {
+  const name = (mcpState.servers || []).find(s => (s.id || '') === serverId)?.name || serverId;
+  if (!confirmDanger(`删除 MCP Server「${name}」？`, '删除后 Agent 将立即失去这个 Server 提供的全部工具。已经挂载到 Agent 的引用也会失效，正在依赖这些工具的任务可能中途失败。此操作不可撤销，需要重新填写命令与参数才能恢复。')) return;
   try {
     const res = await fetch(`${API}/mcp/servers/${encodeURIComponent(serverId)}`, { method: 'DELETE' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);

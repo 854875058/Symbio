@@ -4,13 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Symbio — AI Infra Multi-Agent Platform</title>
-  <!-- Web 字体是渐进增强：离线/内网时不阻塞首屏，直接落到系统字体
-       （--font-body / --font-mono 里已排好 Segoe UI、PingFang SC、Consolas 等回退） -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap"
-        rel="stylesheet" media="print" onload="this.media='all'">
-  <link rel="stylesheet" href="/static/style.css?v=5">
+  <!-- 不加载 Web 字体。三个理由：
+       1) 这一页的三方库全部本地打包，就为了内网/离线可用，再挂一张 CDN 字体表自相矛盾；
+       2) media="print" 延后加载会带来一次可见的字体跳动（FOUT），控制台类界面里数字一跳很扎眼；
+       3) Inter 这类面已经是 AI 生成界面的默认长相，没有辨识度。
+       改用系统原生 UI 字体（见 style.css 的 --font-body）：零请求、零跳动，
+       在各自平台上就是「本机工具」的观感，而不是网页的观感。 -->
+  <link rel="stylesheet" href="/static/style.css?v=10">
   <link rel="stylesheet" href="/static/xterm.min.css">
   <!-- 三方库全部本地打包，不走 CDN：离线 / 内网隔离环境可用 -->
   <script src="/static/chart.umd.min.js"></script>
@@ -76,6 +76,10 @@
             <button class="nav-tab" data-page="workbench" title="Agent 工作台（多开平铺 · 交互终端 · 接管会话）">
               <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
               <span class="nav-label">工作台</span>
+            </button>
+            <button class="nav-tab" data-page="external-agents" title="外部 Agent（接管本机 Codex / Claude Code 会话）">
+              <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+              <span class="nav-label">外部 Agent</span>
             </button>
             <button class="nav-tab" data-page="a2a" title="A2A 协议">
               <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="12" r="3"/><circle cx="18" cy="12" r="3"/><path d="M9 12h6"/><path d="M6 9V6a2 2 0 012-2h8a2 2 0 012 2v3"/><path d="M6 15v3a2 2 0 002 2h8a2 2 0 002-2v-3"/></svg>
@@ -294,11 +298,15 @@
           <div class="panel-content">
             <div class="panel-section">
               <div class="section-title">记忆检索</div>
-              <div class="empty-state">暂无相关记忆</div>
+              <div class="empty-block is-inline">
+                <p class="empty-block-hint">提问后，这里会列出它为了回答你而调取的记忆——可以据此判断它的依据对不对。</p>
+              </div>
             </div>
             <div class="panel-section">
               <div class="section-title">工具调用</div>
-              <div class="empty-state">暂无工具调用</div>
+              <div class="empty-block is-inline">
+                <p class="empty-block-hint">它每次动用工具（读写文件、执行命令、联网）都会记在这里，按发生顺序。</p>
+              </div>
             </div>
             <div class="panel-section">
               <div class="section-title">Token 统计</div>
@@ -330,9 +338,12 @@
           </div>
         </div>
         <div class="tasks-grid" id="tasks-grid">
-          <div class="empty-state-lg">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
-            <p>暂无运行中的任务</p>
+          <div class="empty-block">
+            <p class="empty-block-title">还没有任何任务</p>
+            <p class="empty-block-hint">任务不在这里手动创建，而是 Agent 拆解你的需求时自动生成的：去「对话」页提一个需要多步完成的目标。</p>
+            <div class="empty-block-actions">
+              <button class="btn-primary" type="button" onclick="switchPage('chat')">去对话页提一个目标</button>
+            </div>
           </div>
         </div>
       </div>
@@ -365,18 +376,23 @@
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               <input type="text" placeholder="语义搜索记忆..." id="memory-search">
             </div>
-            <select class="select-input" id="memory-type-filter">
-              <option value="all">全部类型</option>
-              <option value="short_term">短期记忆</option>
-              <option value="long_term">长期记忆</option>
+            <!-- 按重要度筛选，而不是按「短期/长期」：接口返回的记忆里没有类型字段，
+                 那样的下拉框永远筛不出东西。重要度是真实存在且卡片上已经画出来的量。 -->
+            <select class="select-input" id="memory-importance-filter" aria-label="按重要度筛选记忆">
+              <option value="all">全部重要度</option>
+              <option value="high">高（≥ 80%）</option>
+              <option value="mid">中（50% – 80%）</option>
+              <option value="low">低（&lt; 50%）</option>
             </select>
           </div>
         </div>
         <div class="memory-grid" id="memory-grid">
-          <div class="empty-state-lg">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-            <p>记忆库为空</p>
-            <span class="empty-hint">对话中的重要信息会自动存储</span>
+          <div class="empty-block">
+            <p class="empty-block-title">记忆库还是空的</p>
+            <p class="empty-block-hint">记忆不需要你手动录入：在「对话」页交流时，Agent 会自行判断哪些信息值得长期保留（你的偏好、项目约束、结论），并按重要度存进这里。</p>
+            <div class="empty-block-actions">
+              <button class="btn-primary" type="button" onclick="switchPage('chat')">去对话页聊几句</button>
+            </div>
           </div>
         </div>
       </div>
@@ -405,7 +421,7 @@
           <div class="ontology-summary" id="ontology-summary"></div>
           <div class="ontology-graph-shell">
             <svg class="ontology-graph" id="ontology-graph" role="img" aria-label="本体图谱"></svg>
-            <div class="ontology-graph-hint">滚轮缩放 · 拖背景平移 · 拖节点重排 · 悬停高亮邻居</div>
+            <div class="ontology-graph-hint">Ctrl/⌘ + 滚轮缩放 · 拖背景平移 · 拖节点重排 · 悬停高亮邻居</div>
             <div class="ontology-empty" id="ontology-empty" style="display:none;">
               <p>暂无可展示的本体节点</p>
               <span>对话、记忆或工具执行产生结构化实体后会在这里形成图谱</span>
@@ -532,9 +548,12 @@
       <!-- Capabilities Page -->
       <div class="page" id="page-capabilities">
         <div class="page-header">
-          <h2>能力账本</h2>
+          <div class="page-header-titles">
+            <h2>能力账本</h2>
+            <p class="page-subtitle">每一条声明都指向具体代码，点击证据路径可当场核对。<code>部分实现</code> 如实标注，不粉饰为完成。</p>
+          </div>
           <div class="page-header-bar">
-            <select class="select-input" id="capability-filter">
+            <select class="select-input" id="capability-filter" aria-label="按实现状态筛选能力">
               <option value="all">全部</option>
               <option value="implemented">已实现</option>
               <option value="partial">部分实现</option>
@@ -548,9 +567,11 @@
         </div>
         <div class="capability-content">
           <div class="capability-summary" id="capability-summary"></div>
+          <span id="capability-generated-at"></span>
           <div class="capability-grid" id="capability-grid">
-            <div class="empty-state-lg">
-              <p>加载能力账本...</p>
+            <div class="loading-state" role="status" aria-live="polite" aria-busy="true">
+              <div class="loading-spinner" aria-hidden="true"></div>
+              <p>正在读取能力账本…</p>
             </div>
           </div>
         </div>
@@ -601,10 +622,13 @@
             <section class="evolution-panel">
               <div class="evolution-panel-head">
                 <div><h3>失效分析与根因</h3><p>PatternAnalyzer 归纳的失败模式</p></div>
-                <button class="btn-outline" id="btn-record-failure-demo">记录一条样例失败</button>
+                <button class="btn-outline" id="btn-record-failure-demo" title="写入一条虚构的失败记录，仅用于查看本模块的展示效果">写入一条演示数据</button>
               </div>
               <div class="flywheel-failures" id="flywheel-failures">
-                <div class="cost-table-empty">暂无失败记录</div>
+                <div class="empty-block is-inline">
+                  <p class="empty-block-title">暂无失败记录</p>
+                  <p class="empty-block-hint">这里收集 Agent 执行失败的样本，并归纳出反复出现的根因——它是「越用越强」的输入端：先知道栽在哪，才知道该改什么。任务跑失败后会自动进来，不需要你录入。</p>
+                </div>
               </div>
             </section>
 
@@ -614,7 +638,7 @@
                 <div><h3>标准操作流程 (SOP)</h3><p>种子 SOP + 从成功轨迹蒸馏</p></div>
               </div>
               <div class="flywheel-sops" id="flywheel-sops">
-                <div class="cost-table-empty">加载中…</div>
+                <div class="empty-block is-inline"><p class="empty-block-title">正在加载 SOP…</p></div>
               </div>
             </section>
           </div>
@@ -674,7 +698,7 @@
               <button class="btn-primary" id="btn-start-finetune">开始训练</button>
             </div>
             <div class="finetune-jobs" id="finetune-jobs">
-              <div class="cost-table-empty">还没有训练作业</div>
+              <div class="empty-block is-inline"><p class="empty-block-title">正在加载训练作业…</p></div>
             </div>
           </section>
 
@@ -690,7 +714,13 @@
               </div>
             </div>
             <div class="evolution-suite-grid" id="evolution-suite-grid">
-              <div class="empty-state-lg"><p>尚未加载评测集。</p></div>
+              <div class="empty-block is-inline">
+                <p class="empty-block-title">尚未加载评测集</p>
+                <p class="empty-block-hint">评测套件是一组固定的题目和期望答案，用来量化「它到底有没有变强」——没有套件，能力变化只能靠感觉判断。套件不会自动扫描，需要你点一次「加载评测集」，从上方路径读取。</p>
+                <div class="empty-block-actions">
+                  <button class="btn-outline" type="button" onclick="loadEvaluationSuites()">加载评测集</button>
+                </div>
+              </div>
             </div>
           </section>
         </div>
@@ -768,7 +798,10 @@
               <button class="btn-outline" id="btn-run-sandbox-approved">批准后执行</button>
             </div>
             <div class="sandbox-result" id="sandbox-result">
-              <div class="empty-state-lg"><p>尚未执行任何命令。</p></div>
+              <div class="empty-block is-inline">
+                <p class="empty-block-title">尚未执行任何命令</p>
+                <p class="empty-block-hint">这里是你亲手验证沙箱边界的地方：填一条命令执行，就能看到它在当前访问模式下究竟被放行、被拦截还是需要审批，以及完整的输出和退出码。在把权限放宽给 Agent 之前，建议先用这里试一遍。</p>
+              </div>
             </div>
           </section>
 
@@ -780,7 +813,10 @@
               </div>
             </div>
             <div class="sandbox-audit-list" id="sandbox-audit-list">
-              <div class="empty-state-lg"><p>暂无沙箱审计记录。</p></div>
+              <div class="empty-block is-inline">
+                <p class="empty-block-title">暂无执行记录</p>
+                <p class="empty-block-hint">每一条在沙箱里跑过的命令都会留痕：命令原文、权限级别、是否被拦截、退出码。这是事后追查「Agent 到底动了什么」的唯一依据，空着说明本机还没有任何命令经过沙箱。</p>
+              </div>
             </div>
           </section>
         </div>
@@ -789,11 +825,14 @@
       <!-- External Agents Page -->
       <div class="page" id="page-external-agents">
         <div class="page-header">
-          <h2>External Agent Control</h2>
+          <div class="page-header-titles">
+            <h2>外部 Agent</h2>
+            <p class="page-subtitle">接管本机已有的 Codex / Claude Code 会话：注册、实时同步、续写，或导入其历史对话。适合把别的 Agent 正在做的事接过来继续。</p>
+          </div>
           <div class="page-header-bar">
             <button class="btn-outline" id="btn-refresh-external-agents">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/><polyline points="21 3 21 9 15 9"/></svg>
-              Refresh
+              刷新
             </button>
           </div>
         </div>
@@ -801,67 +840,73 @@
           <section class="sandbox-panel external-agent-runner">
             <div class="sandbox-panel-head">
               <div>
-                <h3>Session Control</h3>
-                <p>Register existing Codex or Claude Code sessions, then send audited prompts.</p>
+                <h3>会话控制</h3>
+                <p>登记一个已存在的 Codex / Claude Code 会话，然后向它发送经审计的指令。</p>
               </div>
               <div class="sandbox-policy-badges" id="external-agent-provider-badges"></div>
             </div>
             <div class="sandbox-form-grid">
               <label class="sandbox-field">
-                <span>Provider</span>
+                <span>提供方</span>
                 <select id="external-agent-provider">
                   <option value="codex">codex</option>
                   <option value="claude-code">claude-code</option>
                 </select>
               </label>
               <label class="sandbox-field">
-                <span>Session label</span>
-                <input id="external-agent-label" type="text" placeholder="Frontend refactor agent">
+                <span>会话名称</span>
+                <input id="external-agent-label" type="text" placeholder="例如：前端重构 Agent">
               </label>
               <label class="sandbox-field sandbox-field-wide">
-                <span>Workspace</span>
-                <input id="external-agent-workspace" type="text" placeholder="Default project root">
+                <span>工作目录</span>
+                <input id="external-agent-workspace" type="text" placeholder="留空则用默认项目根目录">
               </label>
               <label class="sandbox-field">
-                <span>External session id</span>
-                <input id="external-agent-session-id" type="text" placeholder="Existing Codex/Claude session id">
+                <span>外部会话 ID</span>
+                <input id="external-agent-session-id" type="text" placeholder="已有的 Codex / Claude 会话 ID">
               </label>
               <label class="sandbox-field">
-                <span>Model</span>
-                <input id="external-agent-model" type="text" placeholder="CLI default">
+                <span>模型</span>
+                <input id="external-agent-model" type="text" placeholder="留空则用 CLI 默认模型">
               </label>
               <label class="sandbox-field">
-                <span>Sandbox</span>
+                <span>沙箱模式</span>
                 <select id="external-agent-sandbox-mode">
-                  <option value="workspace-write">workspace-write</option>
-                  <option value="read-only">read-only</option>
-                  <option value="danger-full-access">danger-full-access</option>
+                  <option value="workspace-write">workspace-write（可写工作区）</option>
+                  <option value="read-only">read-only（只读）</option>
+                  <option value="danger-full-access">danger-full-access（完全放开 · 危险）</option>
                 </select>
               </label>
               <label class="sandbox-field">
-                <span>Approval</span>
+                <span>审批策略</span>
                 <select id="external-agent-approval-policy">
-                  <option value="on-request">on-request</option>
-                  <option value="on-failure">on-failure</option>
-                  <option value="never">never</option>
-                  <option value="always">always</option>
+                  <option value="on-request">on-request（按需询问）</option>
+                  <option value="on-failure">on-failure（失败时询问）</option>
+                  <option value="never">never（从不询问 · 危险）</option>
+                  <option value="always">always（每步都问）</option>
                 </select>
               </label>
               <label class="sandbox-field sandbox-field-wide">
-                <span>Prompt</span>
+                <span>指令</span>
                 <textarea id="external-agent-prompt" spellcheck="false">查看当前项目状态并给出下一步建议</textarea>
               </label>
             </div>
             <div class="sandbox-actions">
-              <button class="btn-outline" id="btn-create-external-agent">Register session</button>
-              <button class="btn-outline" id="btn-run-external-agent-dry">Preview command</button>
-              <button class="btn-primary" id="btn-run-external-agent">Run</button>
+              <button class="btn-outline" id="btn-create-external-agent">登记会话</button>
+              <button class="btn-outline" id="btn-run-external-agent-dry">预览命令</button>
+              <button class="btn-primary" id="btn-run-external-agent">执行</button>
             </div>
             <div class="sandbox-result" id="external-agent-result">
-              <div class="empty-state-lg"><p>No external agent command has been sent.</p></div>
+              <div class="empty-block is-inline">
+                <p class="empty-block-title">尚未发送任何指令</p>
+                <p class="empty-block-hint">填好上方表单后，先点「预览命令」确认实际会执行什么，再点「执行」。执行结果与完整命令行会显示在这里。</p>
+              </div>
             </div>
             <div class="external-agent-session-list" id="external-agent-sessions">
-              <div class="empty-state-lg"><p>No sessions registered.</p></div>
+              <div class="empty-block is-inline">
+                <p class="empty-block-title">还没有登记任何会话</p>
+                <p class="empty-block-hint">「登记会话」只是把一个已存在的外部 Agent 会话纳入 Symbio 管理，不会新建或改动它。</p>
+              </div>
             </div>
           </section>
 
@@ -873,7 +918,13 @@
               </div>
             </div>
             <div class="external-transcript-list" id="external-agent-transcripts">
-              <div class="empty-state-lg"><p>还没有扫描到可导入对话。</p></div>
+              <div class="empty-block is-inline">
+                <p class="empty-block-title">还没有扫描到可导入对话</p>
+                <p class="empty-block-hint">Symbio 会读取本机 Codex / Claude Code 的历史记录目录。导入后这段对话会变成 Symbio 里的会话，可以接着往下问。</p>
+                <div class="empty-block-actions">
+                  <button class="btn-outline" type="button" onclick="loadExternalAgentTranscripts()">重新扫描</button>
+                </div>
+              </div>
             </div>
           </section>
 
@@ -887,7 +938,7 @@
             </div>
             <div class="sandbox-form-grid">
               <label class="sandbox-field">
-                <span>Provider</span>
+                <span>提供方</span>
                 <select id="live-provider">
                   <option value="claude-code">claude-code</option>
                   <option value="codex">codex</option>
@@ -898,7 +949,7 @@
                 <input id="live-session-id" type="text" placeholder="留空则用下方路径">
               </label>
               <label class="sandbox-field sandbox-field-wide">
-                <span>Transcript 路径（可选）</span>
+                <span>对话记录路径（可选）</span>
                 <input id="live-transcript-path" type="text" placeholder="~/.claude/projects/.../&lt;id&gt;.jsonl">
               </label>
             </div>
@@ -908,11 +959,17 @@
             </div>
             <div class="external-live-layout">
               <div class="external-live-sidebar" id="live-session-list">
-                <div class="empty-state-lg"><p>还没有接管任何会话。</p></div>
+                <div class="empty-block is-inline">
+                  <p class="empty-block-title">还没有接管任何会话</p>
+                  <p class="empty-block-hint">填入会话 ID 或记录路径后点「接管会话」，即可与它双向通话。</p>
+                </div>
               </div>
               <div class="external-live-main">
                 <div class="external-live-stream" id="live-stream">
-                  <div class="empty-state-lg"><p>接管会话后，这里实时显示双向消息。</p></div>
+                  <div class="empty-block is-inline">
+                    <p class="empty-block-title">尚未接管会话</p>
+                    <p class="empty-block-hint">接管后，你和它之间的往来消息会实时出现在这里，包括它在终端里自己产生的输出。</p>
+                  </div>
                 </div>
                 <div class="external-live-compose">
                   <textarea id="live-input" placeholder="输入要发给该会话的话，回车发送（Shift+Enter 换行）" spellcheck="false"></textarea>
@@ -970,19 +1027,25 @@
               <button class="btn-primary" id="btn-run-relay" type="button">开始接力</button>
             </div>
             <div class="external-relay-turns" id="relay-turns">
-              <div class="empty-state-lg"><p>还没有接力记录。</p></div>
+              <div class="empty-block is-inline">
+                <p class="empty-block-title">还没有接力记录</p>
+                <p class="empty-block-hint">接力让两个外部 Agent 轮流处理同一个任务：A 的输出作为 B 的输入，往复若干轮。适合让一个写、另一个审。</p>
+              </div>
             </div>
           </section>
 
           <section class="sandbox-panel">
             <div class="sandbox-panel-head">
               <div>
-                <h3>Runtime Audit</h3>
-                <p>Command previews, real executions, exit codes, and CLI discovery are tracked here.</p>
+                <h3>运行审计</h3>
+                <p>命令预览、真实执行、退出码与 CLI 探测结果都记录在此，用于事后核对外部 Agent 究竟做了什么。</p>
               </div>
             </div>
             <div class="sandbox-audit-list" id="external-agent-audit">
-              <div class="empty-state-lg"><p>No external agent audit records.</p></div>
+              <div class="empty-block is-inline">
+                <p class="empty-block-title">暂无审计记录</p>
+                <p class="empty-block-hint">每次向外部 Agent 发送指令都会在此留痕，包含完整命令行、退出码与耗时。</p>
+              </div>
             </div>
           </section>
         </div>
@@ -1012,10 +1075,13 @@
           </div>
         </div>
         <div class="workbench-grid" id="wb-grid">
-          <div class="empty-state-lg">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-            <p>还没有窗格</p>
-            <span class="empty-hint">「+ 新任务窗格」开一个新 agent，或选一个已有会话「接管」。多开后自动平铺。</span>
+          <div class="empty-block">
+            <p class="empty-block-title">还没有窗格</p>
+            <p class="empty-block-hint">工作台让你同时盯几个 Agent 干活：每个窗格是一个独立会话，多开后自动平铺，谁卡住了、谁在等审批一眼就能看到。「+ 新任务窗格」开一个新的，或从下拉框选一个已有会话「接管」。</p>
+            <div class="empty-block-actions">
+              <button class="btn-primary" type="button" onclick="document.getElementById('wb-new-task')?.click()">新任务窗格</button>
+              <button class="btn-outline" type="button" onclick="document.getElementById('wb-terminal')?.click()">起一个终端</button>
+            </div>
           </div>
         </div>
       </div>
@@ -1038,10 +1104,12 @@
           </div>
         </div>
         <div class="hitl-grid" id="hitl-grid">
-          <div class="empty-state-lg">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><polyline points="17 11 19 13 23 9"/></svg>
-            <p>暂无待审批项</p>
-            <span class="empty-hint">HITL 请求将在此显示</span>
+          <div class="empty-block">
+            <p class="empty-block-title">暂无待审批事项</p>
+            <p class="empty-block-hint">这是正常状态：Agent 目前没有触发需要你放行的高风险动作。当它要执行危险命令、动用敏感权限或超出预算时，请求会出现在这里，并按配置同步推送到你的 IM。</p>
+            <div class="empty-block-actions">
+              <button class="btn-outline" type="button" onclick="switchPage('models')">检查审批开关与通知渠道</button>
+            </div>
           </div>
         </div>
 
@@ -1111,7 +1179,9 @@
           </div>
 
           <div class="hitl-channels-list" id="hitl-channels-list">
-            <div class="empty-state-lg" style="padding:16px 0"><p>加载中...</p></div>
+            <div class="empty-block is-inline">
+              <p class="empty-block-hint">正在加载通知渠道…</p>
+            </div>
           </div>
         </div>
 
@@ -1183,10 +1253,13 @@
 
         <!-- Skills Grid -->
         <div class="skills-grid" id="skills-grid">
-          <div class="empty-state-lg">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
-            <p>暂无 Skills</p>
-            <span class="empty-hint">点击"自动检测"发现已安装的 Skills，或手动导入</span>
+          <div class="empty-block">
+            <p class="empty-block-title">还没有安装任何 Skill</p>
+            <p class="empty-block-hint">Skill 是 Agent 的可复用能力包：一段写好的流程 + 它需要的脚本和资源。装上之后，Agent 遇到对应场景会自己调用。</p>
+            <div class="empty-block-actions">
+              <button class="btn-primary" type="button" onclick="document.getElementById('btn-auto-detect')?.click()">自动检测已安装的 Skills</button>
+              <button class="btn-outline" type="button" onclick="document.getElementById('btn-import-dir')?.click()">从目录导入</button>
+            </div>
           </div>
         </div>
 
@@ -1202,7 +1275,9 @@
             <div class="marketplace-remote-results" id="marketplace-remote-results"></div>
           </div>
           <div class="marketplace-grid" id="marketplace-grid">
-            <div class="empty-state-lg"><p>Loading marketplace...</p></div>
+            <div class="empty-block is-inline">
+              <p class="empty-block-hint">正在加载 Skill 市场…</p>
+            </div>
           </div>
         </div>
 
@@ -1260,7 +1335,13 @@
               </button>
             </div>
             <div class="a2a-card-display" id="a2a-own-card">
-              <div class="empty-state-lg"><p>点击"加载名片"查看本机 AgentCard</p></div>
+              <div class="empty-block is-inline">
+                <p class="empty-block-title">尚未加载本机名片</p>
+                <p class="empty-block-hint">Agent Card 是本机对外声明「我能干什么」的清单，别的 Agent 靠读它来判断能把什么任务交给 Symbio。点「加载名片」查看当前实际对外暴露的内容。</p>
+                <div class="empty-block-actions">
+                  <button class="btn-outline" type="button" onclick="document.getElementById('btn-load-own-card')?.click()">加载名片</button>
+                </div>
+              </div>
             </div>
           </section>
 
@@ -1316,7 +1397,10 @@
               </div>
             </div>
             <div class="a2a-sessions-list" id="a2a-sessions-list">
-              <div class="empty-state-lg"><p>暂无出站会话</p></div>
+              <div class="empty-block is-inline">
+                <p class="empty-block-title">还没有向外部 Agent 发起过会话</p>
+                <p class="empty-block-hint">出站会话是 Symbio 主动把任务委派给别的 Agent。在上方填入对方地址「探测」，确认它的能力后即可建立连接并派活。</p>
+              </div>
             </div>
           </section>
 
@@ -1329,7 +1413,10 @@
               </div>
             </div>
             <div class="a2a-tasks-list" id="a2a-inbound-tasks">
-              <div class="empty-state-lg"><p>暂无入站 A2A 任务</p></div>
+              <div class="empty-block is-inline">
+                <p class="empty-block-title">还没有外部 Agent 给本机派过任务</p>
+                <p class="empty-block-hint">这是反方向：别的 Agent 读到本机的 Agent Card 后，可以把任务交给 Symbio 执行，记录会出现在这里。要让这条路可用，本机需要能被对方网络访问到。</p>
+              </div>
             </div>
           </section>
 
@@ -1373,7 +1460,9 @@
           <section class="a2a-panel">
             <div class="a2a-panel-head"><div><h3>已配置的 MCP Server</h3><p>通过 symbio.yaml 或手动添加的 MCP stdio 服务器</p></div></div>
             <div class="a2a-sessions-list" id="mcp-servers-list">
-              <div class="empty-state-lg"><p>加载中...</p></div>
+              <div class="empty-block is-inline">
+                <p class="empty-block-hint">正在加载 MCP Server 列表…</p>
+              </div>
             </div>
           </section>
 
@@ -1464,7 +1553,7 @@
             <section class="a2a-panel">
               <div class="a2a-panel-head"><div><h3>威胁等级分布</h3><p>来自防火墙审计日志</p></div></div>
               <div id="security-threat-dist" class="security-dist">
-                <div class="cost-table-empty">暂无数据，发起对话或运行自检后这里会出现分布</div>
+                <div class="empty-block is-inline"><p class="empty-block-title">正在读取威胁分布…</p></div>
               </div>
             </section>
           </div>
@@ -1479,7 +1568,7 @@
           <section class="a2a-panel">
             <div class="a2a-panel-head"><div><h3>安全审计轨迹</h3><p>最近被检测/拦截的输入</p></div></div>
             <div id="security-audit-list" class="security-audit-list">
-              <div class="cost-table-empty">暂无审计记录</div>
+              <div class="empty-block is-inline"><p class="empty-block-title">正在读取审计轨迹…</p></div>
             </div>
           </section>
 
@@ -1506,7 +1595,12 @@
               <input type="text" class="text-input" id="cu-start-url" placeholder="起始 URL（可选），如 https://example.com">
               <button class="btn-primary" id="btn-cu-create">创建会话</button>
             </div>
-            <div class="cu-sessions" id="cu-sessions"><div class="cost-table-empty">暂无会话</div></div>
+            <div class="cu-sessions" id="cu-sessions">
+              <div class="empty-block is-inline">
+                <p class="empty-block-title">暂无浏览器会话</p>
+                <p class="empty-block-hint">Computer Use 让 Agent 真的去操作一个浏览器：点按钮、填表单、读页面。适合那些没有 API、只能靠界面完成的事。填一个起始 URL 创建会话，之后每一步动作都会留痕，可回放。</p>
+              </div>
+            </div>
           </section>
 
           <section class="a2a-panel" id="cu-active-panel" style="display:none">
@@ -1542,7 +1636,7 @@
 
             <!-- 审计时间线 -->
             <div class="cu-timeline-head">动作审计轨迹</div>
-            <div class="cu-timeline" id="cu-timeline"><div class="cost-table-empty">还没有动作</div></div>
+            <div class="cu-timeline" id="cu-timeline"><div class="empty-block is-inline"><p class="empty-block-title">还没有动作</p><p class="empty-block-hint">创建会话并执行第一个动作后，每一步的耗时、成败和截图会按顺序记在这里。</p></div></div>
           </section>
 
         </div>
@@ -1572,7 +1666,9 @@
                   <p class="wx-qr-hint">内置 iLink Bot（clawbot）直连，无需部署任何外部网关</p>
                 </div>
                 <div id="wx-qr-canvas" class="wx-qr-img" style="display:none"></div>
-                <img id="wx-qr-img" class="wx-qr-img" alt="微信登录二维码" style="display:none">
+                <!-- 二维码图片元素不写在这里：src 只能在拉到 bridge 返回的图之后才知道，
+                     预先放一个空 src 的图片标签在页面里，等于先摆一个坏图占位符。
+                     由 35-wechat.js 的 ensureQrImg() 在真正拿到图时再建。 -->
                 <div class="wx-qr-link" id="wx-qr-link" style="display:none"></div>
               </div>
               <div class="wx-bind-actions">
@@ -1611,7 +1707,7 @@
               <span class="wx-stream-count" id="wx-stream-count">0 条</span>
             </div>
             <div class="wx-stream" id="wx-stream">
-              <div class="cost-table-empty">还没有消息 —— 让好友给机器人发一条试试</div>
+              <div class="empty-block is-inline"><p class="empty-block-title">正在读取消息流…</p></div>
             </div>
           </section>
 
@@ -1679,25 +1775,25 @@
        都是经典脚本、共享同一个全局作用域，所以加载顺序有意义：
        00 基础层 → 10 外壳 → 20~7x 各页面 → 99 收尾（init 与 DOMContentLoaded 必须最后）。
        没有构建工具，改完直接刷新即可。 -->
-  <script src="/static/js/00-core.js?v=6"></script>
-  <script src="/static/js/10-shell.js?v=6"></script>
-  <script src="/static/js/20-chat.js?v=6"></script>
-  <script src="/static/js/30-tasks.js?v=6"></script>
-  <script src="/static/js/31-hitl.js?v=6"></script>
-  <script src="/static/js/32-workbench.js?v=6"></script>
-  <script src="/static/js/33-external-agents.js?v=6"></script>
-  <script src="/static/js/34-a2a.js?v=6"></script>
-  <script src="/static/js/35-wechat.js?v=6"></script>
-  <script src="/static/js/40-skills.js?v=6"></script>
-  <script src="/static/js/41-sandbox.js?v=6"></script>
-  <script src="/static/js/42-mcp.js?v=6"></script>
-  <script src="/static/js/43-security.js?v=6"></script>
-  <script src="/static/js/44-computer-use.js?v=6"></script>
-  <script src="/static/js/50-memory.js?v=6"></script>
-  <script src="/static/js/60-dashboard.js?v=6"></script>
-  <script src="/static/js/61-evolution.js?v=6"></script>
-  <script src="/static/js/62-capabilities.js?v=6"></script>
-  <script src="/static/js/70-models.js?v=6"></script>
-  <script src="/static/js/99-init.js?v=6"></script>
+  <script src="/static/js/00-core.js?v=10"></script>
+  <script src="/static/js/10-shell.js?v=10"></script>
+  <script src="/static/js/20-chat.js?v=10"></script>
+  <script src="/static/js/30-tasks.js?v=10"></script>
+  <script src="/static/js/31-hitl.js?v=10"></script>
+  <script src="/static/js/32-workbench.js?v=10"></script>
+  <script src="/static/js/33-external-agents.js?v=10"></script>
+  <script src="/static/js/34-a2a.js?v=10"></script>
+  <script src="/static/js/35-wechat.js?v=10"></script>
+  <script src="/static/js/40-skills.js?v=10"></script>
+  <script src="/static/js/41-sandbox.js?v=10"></script>
+  <script src="/static/js/42-mcp.js?v=10"></script>
+  <script src="/static/js/43-security.js?v=10"></script>
+  <script src="/static/js/44-computer-use.js?v=10"></script>
+  <script src="/static/js/50-memory.js?v=10"></script>
+  <script src="/static/js/60-dashboard.js?v=10"></script>
+  <script src="/static/js/61-evolution.js?v=10"></script>
+  <script src="/static/js/62-capabilities.js?v=10"></script>
+  <script src="/static/js/70-models.js?v=10"></script>
+  <script src="/static/js/99-init.js?v=10"></script>
 </body>
 </html>

@@ -15,24 +15,40 @@ async function loadSkills(query) {
     renderSkills(query);
   } catch (e) {
     toast('error', '加载 Skills 失败', e.message);
-    dom.skillsGrid.innerHTML = `<div class="empty-state-lg"><p>加载失败，请重试</p></div>`;
+    dom.skillsGrid.innerHTML = `
+      <div class="empty-block is-error">
+        <p class="empty-block-title">无法加载 Skills</p>
+        <p class="empty-block-hint">${esc(e.message)}</p>
+        <div class="empty-block-actions">
+          <button class="btn-outline" type="button" onclick="loadSkills()">重试</button>
+        </div>
+      </div>`;
   }
 }
 
 function renderSkills(query) {
   if (state.skills.length === 0) {
-    dom.skillsGrid.innerHTML = `
-      <div class="empty-state-lg">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
-        <p>${query ? '未找到匹配的 Skills' : '暂无 Skills'}</p>
-        <span class="empty-hint">${query ? '尝试不同的搜索词' : '点击上方按钮导入或创建 Skill'}</span>
-      </div>
-    `;
+    dom.skillsGrid.innerHTML = query ? `
+      <div class="empty-block">
+        <p class="empty-block-title">没有匹配「${esc(query)}」的 Skill</p>
+        <p class="empty-block-hint">可以清空搜索框浏览全部已安装的 Skill，或去下方的市场看看有没有现成的。</p>
+        <div class="empty-block-actions">
+          <button class="btn-outline" type="button" onclick="document.getElementById('skills-search').value='';loadSkills()">查看全部</button>
+        </div>
+      </div>` : `
+      <div class="empty-block">
+        <p class="empty-block-title">还没有安装任何 Skill</p>
+        <p class="empty-block-hint">Skill 是 Agent 的可复用能力包：一段写好的流程 + 它需要的脚本和资源。装上之后，Agent 遇到对应场景会自己调用，不需要你每次重复交代。可以自动检测本机已有的，也可以从目录导入或去市场安装。</p>
+        <div class="empty-block-actions">
+          <button class="btn-primary" type="button" onclick="document.getElementById('btn-auto-detect')?.click()">自动检测已安装的 Skills</button>
+          <button class="btn-outline" type="button" onclick="document.getElementById('btn-import-dir')?.click()">从目录导入</button>
+        </div>
+      </div>`;
     return;
   }
 
   dom.skillsGrid.innerHTML = state.skills.map(sk => `
-    <div class="skill-card" data-id="${sk.id}" onclick="showSkillDetailPage('${sk.id}')">
+    <div class="skill-card" data-id="${sk.id}" onclick="showSkillDetailPage('${escJs(sk.id)}')">
       <div class="skill-card-header">
         <div class="skill-card-info">
           <div class="skill-card-name">
@@ -55,13 +71,13 @@ function renderSkills(query) {
       </div>
       ${sk.relevance !== undefined ? `<div class="skill-relevance">匹配度 ${(sk.relevance * 100).toFixed(0)}%</div>` : ''}
       <div class="skill-card-actions" onclick="event.stopPropagation()">
-        <button class="skill-action-btn" onclick="showSkillDetail('${sk.id}')" title="查看详情" aria-label="查看技能 ${esc(sk.name || sk.id)} 详情">
+        <button class="skill-action-btn" onclick="showSkillDetail('${escJs(sk.id)}')" title="查看详情" aria-label="查看技能 ${esc(sk.name || sk.id)} 详情">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
         </button>
-        <button class="skill-action-btn" onclick="editSkill('${sk.id}')" title="编辑" aria-label="编辑技能 ${esc(sk.name || sk.id)}">
+        <button class="skill-action-btn" onclick="editSkill('${escJs(sk.id)}')" title="编辑" aria-label="编辑技能 ${esc(sk.name || sk.id)}">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
         </button>
-        <button class="skill-action-btn skill-action-danger" onclick="deleteSkill('${sk.id}')" title="删除" aria-label="删除技能 ${esc(sk.name || sk.id)}">
+        <button class="skill-action-btn skill-action-danger" onclick="deleteSkill('${escJs(sk.id)}')" title="删除" aria-label="删除技能 ${esc(sk.name || sk.id)}">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
         </button>
       </div>
@@ -104,7 +120,7 @@ function setSkillsMode(mode) {
 
 async function loadMarketplace(query) {
   if (!dom.marketplaceGrid) return;
-  showLoading(dom.marketplaceGrid, query ? 'Searching marketplace...' : 'Loading marketplace...');
+  showLoading(dom.marketplaceGrid, query ? '搜索 Skill 市场...' : '加载 Skill 市场...');
   try {
     const url = query ? `${API}/skills/marketplace?q=${encodeURIComponent(query)}` : `${API}/skills/marketplace`;
     const res = await fetch(url);
@@ -121,8 +137,15 @@ async function loadMarketplace(query) {
     };
     renderMarketplace(query);
   } catch (e) {
-    toast('error', 'Marketplace load failed', e.message);
-    dom.marketplaceGrid.innerHTML = `<div class="empty-state-lg"><p>Marketplace load failed</p><span class="empty-hint">${esc(e.message)}</span></div>`;
+    toast('error', '加载市场失败', e.message);
+    dom.marketplaceGrid.innerHTML = `
+      <div class="empty-block is-error">
+        <p class="empty-block-title">无法加载 Skill 市场</p>
+        <p class="empty-block-hint">${esc(e.message)}</p>
+        <div class="empty-block-actions">
+          <button class="btn-outline" type="button" onclick="loadMarketplace()">重试</button>
+        </div>
+      </div>`;
   }
 }
 
@@ -138,26 +161,29 @@ function renderMarketplace(query) {
     dom.marketplaceSummary.innerHTML = `
       <div class="marketplace-stat">
         <span class="marketplace-stat-value">${stats.total_packages ?? packages.length}</span>
-        <span class="marketplace-stat-label">Packages</span>
+        <span class="marketplace-stat-label">可安装</span>
       </div>
       <div class="marketplace-stat">
         <span class="marketplace-stat-value">${state.marketplace.installed?.length || 0}</span>
-        <span class="marketplace-stat-label">Installed</span>
+        <span class="marketplace-stat-label">已安装</span>
       </div>
       <div class="marketplace-stat marketplace-stat-wide">
-        <span class="marketplace-stat-value">${categories.length ? categories.map(esc).join(' / ') : 'Seeded registry'}</span>
-        <span class="marketplace-stat-label">Categories</span>
+        <span class="marketplace-stat-value">${categories.length ? categories.map(esc).join(' / ') : '内置registry'}</span>
+        <span class="marketplace-stat-label">分类</span>
       </div>
     `;
   }
 
   if (packages.length === 0) {
-    dom.marketplaceGrid.innerHTML = `
-      <div class="empty-state-lg">
-        <p>${query ? 'No marketplace packages matched' : 'No marketplace packages'}</p>
-        <span class="empty-hint">${query ? 'Try another search term' : 'Publish or seed packages to make them visible here'}</span>
-      </div>
-    `;
+    dom.marketplaceGrid.innerHTML = query ? `
+      <div class="empty-block">
+        <p class="empty-block-title">市场里没有匹配「${esc(query)}」的包</p>
+        <p class="empty-block-hint">本地 registry 收录的包有限。可以在上方「网络 Skills」里填 GitHub 仓库（默认 anthropics/skills），从真实仓库拉取更多。</p>
+      </div>` : `
+      <div class="empty-block">
+        <p class="empty-block-title">市场暂无可安装的包</p>
+        <p class="empty-block-hint">本地 registry 是空的。在上方「网络 Skills」填入一个 GitHub 仓库即可接入真实的 Agent Skills 列表。</p>
+      </div>`;
     return;
   }
 
@@ -177,9 +203,9 @@ function renderMarketplace(query) {
               <div class="marketplace-title" title="${esc(title)}">${esc(title)}</div>
               <div class="marketplace-subtitle">v${esc(pkg.version || '1.0.0')} · ${esc(pkg.author || 'Symbio')}</div>
             </div>
-            <span class="marketplace-status ${installed ? 'installed' : ''}">${installed ? 'Installed' : 'Available'}</span>
+            <span class="marketplace-status ${installed ? 'installed' : ''}">${installed ? '已安装' : '可安装'}</span>
           </div>
-          <div class="marketplace-description">${esc(pkg.description || 'No description')}</div>
+          <div class="marketplace-description">${esc(pkg.description || '（无描述）')}</div>
           <div class="marketplace-tags">
             ${categories.map(tag => `<span class="marketplace-tag category">${esc(tag)}</span>`).join('')}
             ${tags.map(tag => `<span class="marketplace-tag">${esc(tag)}</span>`).join('')}
@@ -187,11 +213,11 @@ function renderMarketplace(query) {
         </div>
         <div class="marketplace-card-footer">
           <div class="marketplace-metrics">
-            <span>${Number(pkg.downloads || 0).toLocaleString()} downloads</span>
-            <span>${Number(pkg.rating || 0).toFixed(1)} rating</span>
+            <span>${Number(pkg.downloads || 0).toLocaleString()} 次下载</span>
+            <span>评分 ${Number(pkg.rating || 0).toFixed(1)}</span>
           </div>
           <button class="btn-primary marketplace-install-btn" type="button" data-package-install="${esc(pkg.package_id)}" ${installed ? 'disabled' : ''}>
-            ${installed ? 'Installed' : 'Install'}
+            ${installed ? '已安装' : '安装'}
           </button>
         </div>
       </div>
@@ -743,7 +769,11 @@ function renderSkillDocs(data) {
   if (data.readme) {
     el.innerHTML = `<div class="skill-doc-content">${formatContent(data.readme)}</div>`;
   } else {
-    el.innerHTML = `<div class="empty-state"><p>暂无文档</p><span class="empty-hint">在 Skill 目录下创建 skill.md 或 README.md 即可显示</span></div>`;
+    el.innerHTML = `
+      <div class="empty-block is-inline">
+        <p class="empty-block-title">这个 Skill 没有说明文档</p>
+        <p class="empty-block-hint">在 Skill 目录下创建 skill.md 或 README.md，内容会渲染在这里。Agent 也会读它来判断何时该用这个 Skill，所以写清楚适用场景很有价值。</p>
+      </div>`;
   }
 }
 
@@ -752,7 +782,15 @@ function renderSkillFiles(data, skillId) {
   if (!el) return;
 
   if (!data.files || data.files.length === 0) {
-    el.innerHTML = `<div class="empty-state"><p>暂无文件</p><span class="empty-hint">${data.directory ? '目录为空' : '未找到 Skill 目录'}</span></div>`;
+    el.innerHTML = data.directory ? `
+      <div class="empty-block is-inline">
+        <p class="empty-block-title">Skill 目录是空的</p>
+        <p class="empty-block-hint">目录存在但没有任何文件：<code>${esc(data.directory)}</code>。把脚本、模板、参考资料放进去，它们会一并作为这个 Skill 的资源被 Agent 使用。</p>
+      </div>` : `
+      <div class="empty-block is-inline is-error">
+        <p class="empty-block-title">找不到这个 Skill 的目录</p>
+        <p class="empty-block-hint">元数据里记录的路径在磁盘上不存在，可能是目录被移动或删除了。这个 Skill 现在无法真正执行，建议重新导入。</p>
+      </div>`;
     return;
   }
 
@@ -804,7 +842,7 @@ function renderTreeNode(node, skillId, depth) {
     const indent = depth * 16;
     if (val.file) {
       const icon = getFileIcon(val.file.type);
-      html += `<div class="ft-item ft-file" style="padding-left:${indent + 8}px" onclick="loadSkillFile('${skillId}', '${esc(val.file.name)}')">
+      html += `<div class="ft-item ft-file" style="padding-left:${indent + 8}px" onclick="loadSkillFile('${escJs(skillId)}', '${escJs(val.file.name)}')">
         ${icon}<span class="ft-name">${esc(name)}</span>
         <span class="ft-size">${formatFileSize(val.file.size)}</span>
       </div>`;
@@ -856,7 +894,7 @@ async function loadSkillFile(skillId, filePath) {
         <span class="fv-size">${formatFileSize(data.size)}</span>
         <div class="fv-actions">
           <button class="fv-btn fv-copy" onclick="navigator.clipboard.writeText(document.querySelector('.fv-content-edit')?.value || document.querySelector('.fv-content')?.textContent)">复制</button>
-          <button class="fv-btn fv-edit" onclick="toggleSkillFileEdit('${skillId}', '${esc(filePath)}')">编辑</button>
+          <button class="fv-btn fv-edit" onclick="toggleSkillFileEdit('${escJs(skillId)}', '${escJs(filePath)}')">编辑</button>
         </div>
       </div>
       <div class="fv-content" data-raw="${esc(data.content).replace(/"/g, '&quot;')}">${isCode ? highlightSyntax(data.content) : esc(data.content)}</div>
@@ -944,7 +982,11 @@ function renderSkillConfig(data) {
   if (!el) return;
   const manifest = data.manifest;
   if (!manifest) {
-    el.innerHTML = `<div class="empty-state"><p>暂无配置</p><span class="empty-hint">在 Skill 目录下创建 skill.yaml 或 manifest.json 即可</span></div>`;
+    el.innerHTML = `
+      <div class="empty-block is-inline">
+        <p class="empty-block-title">这个 Skill 没有配置文件</p>
+        <p class="empty-block-hint">没有配置也能正常工作。如果需要声明依赖、参数或触发条件，在 Skill 目录下创建 skill.yaml 或 manifest.json。</p>
+      </div>`;
     return;
   }
 
@@ -960,7 +1002,11 @@ function renderSkillTests(data) {
   const el = document.getElementById('panel-tests');
   if (!el) return;
   if (!data.tests || data.tests.length === 0) {
-    el.innerHTML = `<div class="empty-state"><p>暂无测试</p><span class="empty-hint">在 Skill 目录下创建 test_*.py 或 *.test.js 文件</span></div>`;
+    el.innerHTML = `
+      <div class="empty-block is-inline">
+        <p class="empty-block-title">这个 Skill 没有自带测试</p>
+        <p class="empty-block-hint">在 Skill 目录下放 test_*.py 或 *.test.js，就能在这一页直接跑，用来确认它改动之后还能正常工作。</p>
+      </div>`;
     return;
   }
 

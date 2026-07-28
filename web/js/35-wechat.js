@@ -38,7 +38,11 @@ async function refreshWeChatMessages() {
     const msgs = data.messages || [];
     if (countEl) countEl.textContent = `${data.total || msgs.length} 条`;
     if (!msgs.length) {
-      container.innerHTML = '<div class="cost-table-empty">还没有消息 —— 让好友给机器人发一条试试</div>';
+      container.innerHTML = `
+        <div class="empty-block is-inline">
+          <p class="empty-block-title">还没有收到消息</p>
+          <p class="empty-block-hint">让好友给绑定的微信号发一条消息试试。这一栏是「机器人到底收到了什么」的唯一凭据——回复不对时，先看这里能不能确认消息进来了，再去查是不是回复逻辑的问题。</p>
+        </div>`;
       return;
     }
     container.innerHTML = msgs.map(m => {
@@ -79,15 +83,32 @@ window.QRCanvas = {
   },
 };
 
+// 二维码图片元素按需创建。HTML 里预置一个空 src 的 <img> 会被浏览器
+// 当成加载失败的图，画出边框和碎图标——用户看到的是"这里坏了"，
+// 而实际情况只是还没拉二维码。只有真的拿到图时才需要这个元素。
+function ensureQrImg() {
+  let el = document.getElementById('wx-qr-img');
+  if (el) return el;
+  const box = document.getElementById('wx-qr-box');
+  if (!box) return null;
+  el = document.createElement('img');
+  el.id = 'wx-qr-img';
+  el.className = 'wx-qr-img';
+  el.alt = '微信登录二维码';
+  box.appendChild(el);
+  return el;
+}
+
 function renderWeChatLogin(state) {
   const meta = WX_STATUS[state.status] || WX_STATUS.logged_out;
   const badge = document.getElementById('wx-status-badge');
   if (badge) { badge.textContent = meta.label + (state.user ? ` · ${state.user}` : ''); badge.className = `wx-status-badge ${meta.cls}`; }
 
   const empty = document.getElementById('wx-qr-empty');
-  const img = document.getElementById('wx-qr-img');
   const canvas = document.getElementById('wx-qr-canvas');
   const link = document.getElementById('wx-qr-link');
+  // 二维码 <img> 按需创建：空 src 的 img 预置在 HTML 里会渲染成坏图占位符。
+  const img = document.getElementById('wx-qr-img');
   const bindStatus = document.getElementById('wx-bind-status');
   const loginBtn = document.getElementById('btn-wx-login');
   const logoutBtn = document.getElementById('btn-wx-logout');
@@ -112,7 +133,8 @@ function renderWeChatLogin(state) {
   if (state.qr_image) {
     // 外部 bridge 直接给图
     show(empty, false); show(link, false); show(canvas, false);
-    if (img) { img.src = state.qr_image; show(img, true); }
+    const el = ensureQrImg();
+    if (el) { el.src = state.qr_image; show(el, true); }
   } else if (state.qr) {
     // 内置 iLink：拿到二维码内容字符串，前端渲染成二维码
     show(empty, false); show(img, false); show(link, false);

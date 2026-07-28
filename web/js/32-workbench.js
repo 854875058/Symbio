@@ -55,7 +55,15 @@ function renderWorkbench() {
   if (countEl) countEl.textContent = `${panes.length} 个窗格`;
   if (!panes.length) {
     grid.style.gridTemplateColumns = '';
-    grid.innerHTML = `<div class="empty-state-lg"><p>还没有窗格</p><span class="empty-hint">「+ 新任务窗格」开一个新 agent，或选一个已有会话「接管」。多开后自动平铺。</span></div>`;
+    grid.innerHTML = `
+      <div class="empty-block">
+        <p class="empty-block-title">还没有窗格</p>
+        <p class="empty-block-hint">工作台让你同时盯几个 Agent 干活：每个窗格是一个独立会话，多开后自动平铺，谁卡住了、谁在等审批一眼就能看到。「+ 新任务窗格」开一个新的，或从下拉框选一个已有会话「接管」。</p>
+        <div class="empty-block-actions">
+          <button class="btn-primary" type="button" onclick="document.getElementById('wb-new-task')?.click()">新任务窗格</button>
+          <button class="btn-outline" type="button" onclick="document.getElementById('wb-terminal')?.click()">起一个终端</button>
+        </div>
+      </div>`;
     return;
   }
   grid.style.gridTemplateColumns = `repeat(${wbGridCols(panes.length)}, minmax(0, 1fr))`;

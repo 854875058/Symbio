@@ -16,7 +16,14 @@ async function loadHitl() {
     renderHitl();
   } catch (e) {
     toast('error', '加载审批列表失败', e.message);
-    dom.hitlGrid.innerHTML = `<div class="empty-state-lg"><p>加载失败，请重试</p></div>`;
+    dom.hitlGrid.innerHTML = `
+      <div class="empty-block is-error">
+        <p class="empty-block-title">无法加载审批列表</p>
+        <p class="empty-block-hint">${esc(e.message)}</p>
+        <div class="empty-block-actions">
+          <button class="btn-outline" type="button" onclick="loadHitl()">重试</button>
+        </div>
+      </div>`;
   }
 }
 
@@ -26,13 +33,25 @@ function renderHitl() {
     : state.hitlItems.filter(i => i.status === state.hitlFilter);
 
   if (filtered.length === 0) {
-    dom.hitlGrid.innerHTML = `
-      <div class="empty-state-lg">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><polyline points="17 11 19 13 23 9"/></svg>
-        <p>${state.hitlFilter === 'pending' ? '暂无待审批项' : '无匹配记录'}</p>
-        <span class="empty-hint">${state.hitlFilter === 'pending' ? 'HITL 请求将在此显示' : '尝试切换筛选条件'}</span>
-      </div>
-    `;
+    // 「暂无待审批」在本产品里是好消息，不是故障——必须说清楚这是正常状态。
+    // 而且审批总开关在「模型与配置」页，关掉后本页会永久空白；
+    // 不在这里指出去哪开，用户只会以为页面坏了（见 PRODUCT.md 原则 2）。
+    const isPending = state.hitlFilter === 'pending';
+    dom.hitlGrid.innerHTML = isPending ? `
+      <div class="empty-block">
+        <p class="empty-block-title">暂无待审批事项</p>
+        <p class="empty-block-hint">这是正常状态：Agent 目前没有触发需要你放行的高风险动作。当它要执行危险命令、动用敏感权限或超出预算时，请求会出现在这里，并按配置同步推送到你的 IM。</p>
+        <div class="empty-block-actions">
+          <button class="btn-outline" type="button" onclick="switchPage('models')">检查审批开关与通知渠道</button>
+        </div>
+      </div>` : `
+      <div class="empty-block">
+        <p class="empty-block-title">没有符合当前筛选的记录</p>
+        <p class="empty-block-hint">当前筛选条件是「${esc(hitlStatusLabel(state.hitlFilter))}」。换成「全部」可以看到历史上所有审批请求及其结果。</p>
+        <div class="empty-block-actions">
+          <button class="btn-outline" type="button" onclick="document.getElementById('hitl-filter').value='all';document.getElementById('hitl-filter').dispatchEvent(new Event('change'))">查看全部</button>
+        </div>
+      </div>`;
     return;
   }
 
@@ -166,13 +185,29 @@ async function loadHitlChannels() {
     const data = await res.json();
     renderHitlChannels(list, data.channels || []);
   } catch (e) {
-    if (list) list.innerHTML = `<div class="empty-state-lg"><p>加载失败: ${esc(e.message)}</p></div>`;
+    if (list) {
+      list.innerHTML = `
+        <div class="empty-block is-inline is-error">
+          <p class="empty-block-title">无法加载通知渠道</p>
+          <p class="empty-block-hint">${esc(e.message)}</p>
+          <div class="empty-block-actions">
+            <button class="btn-outline" type="button" onclick="loadHitlChannels()">重试</button>
+          </div>
+        </div>`;
+    }
   }
 }
 
 function renderHitlChannels(container, channels) {
   if (!channels.length) {
-    container.innerHTML = '<div class="empty-state-lg" style="padding:12px 0"><p>暂无配置的通知渠道</p><span class="empty-hint">点击"添加渠道"配置 QQ / 企业微信 / 飞书 / 钉钉 / Telegram 等</span></div>';
+    container.innerHTML = `
+      <div class="empty-block is-inline">
+        <p class="empty-block-title">暂无通知渠道</p>
+        <p class="empty-block-hint">没有渠道时，审批请求只会停留在本页面，你必须主动打开才能看到。配置一个渠道后，Agent 卡住等你放行时会主动推送到 IM——这是「无人值守」能成立的前提。支持企业微信 / 飞书 / 钉钉 / Telegram / QQ。</p>
+        <div class="empty-block-actions">
+          <button class="btn-outline" type="button" onclick="document.getElementById('btn-add-channel')?.click()">添加渠道</button>
+        </div>
+      </div>`;
     return;
   }
   container.innerHTML = channels.map(ch => `
@@ -186,7 +221,7 @@ function renderHitlChannels(container, channels) {
       </div>
       <span class="hitl-channel-badge ${ch.enabled ? '' : 'disabled'}">${ch.enabled ? '启用' : '停用'}</span>
       <div class="hitl-channel-actions">
-        ${ch.deletable ? `<button class="btn-outline" style="padding:4px 10px;font-size:var(--fs-xs)" onclick="deleteHitlChannel('${esc(ch.id)}')">删除</button>` : ''}
+        ${ch.deletable ? `<button class="btn-outline" style="padding:4px 10px;font-size:var(--fs-xs)" onclick="deleteHitlChannel('${escJs(ch.id)}')">删除</button>` : ''}
       </div>
     </div>
   `).join('');
@@ -248,6 +283,7 @@ function gatherChannelForm() {
 }
 
 async function deleteHitlChannel(channelId) {
+  if (!confirmDanger('删除这个通知渠道？', '删除后，需要你放行的审批请求将不再推送到该渠道。如果这是唯一的渠道，Agent 卡住等待时你不会收到任何通知，只能靠主动打开审批中心才能发现。')) return;
   try {
     const res = await fetch(`${API}/hitl/channels/${encodeURIComponent(channelId)}`, { method: 'DELETE' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);

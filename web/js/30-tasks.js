@@ -15,8 +15,19 @@ async function loadTasks() {
     renderTasks();
   } catch (e) {
     toast('error', '加载任务失败', e.message);
-    dom.tasksGrid.innerHTML = `<div class="empty-state-lg"><p>加载失败，请重试</p></div>`;
+    dom.tasksGrid.innerHTML = `
+      <div class="empty-block is-error">
+        <p class="empty-block-title">无法加载任务列表</p>
+        <p class="empty-block-hint">${esc(e.message)}</p>
+        <div class="empty-block-actions">
+          <button class="btn-outline" type="button" onclick="loadTasks()">重试</button>
+        </div>
+      </div>`;
   }
+}
+
+function taskFilterLabel(filter) {
+  return { running: '运行中', completed: '已完成', failed: '失败', all: '全部' }[filter] || filter;
 }
 
 function renderTasks() {
@@ -31,12 +42,23 @@ function renderTasks() {
   `;
 
   if (state.tasks.length === 0) {
+    // 任务不是在这一页创建的——是 Agent 拆解对话时自动产生的。
+    // 空状态必须说明这一点，否则用户会在这页找「新建任务」按钮而找不到。
+    const isAll = state.taskFilter === 'all';
     dom.tasksGrid.innerHTML = `
       ${filtersHtml}
-      <div class="empty-state-lg">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
-        <p>暂无${state.taskFilter === 'all' ? '' : '匹配的'}任务</p>
-      </div>
+      ${isAll ? `
+      <div class="empty-block">
+        <p class="empty-block-title">还没有任何任务</p>
+        <p class="empty-block-hint">任务不在这里手动创建，而是 Agent 拆解你的需求时自动生成的：去「对话」页提一个需要多步完成的目标，它会把目标拆成有依赖关系的子任务，执行过程和每一步的结果都会回到这一页。</p>
+        <div class="empty-block-actions">
+          <button class="btn-primary" type="button" onclick="switchPage('chat')">去对话页提一个目标</button>
+        </div>
+      </div>` : `
+      <div class="empty-block">
+        <p class="empty-block-title">没有${esc(taskFilterLabel(state.taskFilter))}的任务</p>
+        <p class="empty-block-hint">切到「全部」可以看到所有任务及其当前状态。</p>
+      </div>`}
     `;
     attachFilterListeners();
     return;
@@ -158,27 +180,27 @@ function renderWorkflowPolicyPanel(item, mode = 'card') {
   const policy = collectWorkflowPolicy(item);
   const checklist = Array.isArray(policy.checklist) ? policy.checklist.filter(Boolean) : [];
   const flags = [
-    ['Plan', policy.require_plan],
-    ['TDD', policy.require_tdd],
-    ['Root cause', policy.require_root_cause_before_fix],
-    ['Verification', policy.require_verification_before_completion],
-    ['Spec review', policy.require_spec_review],
-    ['Clarify', policy.require_clarification_on_ambiguity],
+    ['先出方案', policy.require_plan],
+    ['测试先行', policy.require_tdd],
+    ['先定根因', policy.require_root_cause_before_fix],
+    ['完成前须验证', policy.require_verification_before_completion],
+    ['需评审规格', policy.require_spec_review],
+    ['歧义须澄清', policy.require_clarification_on_ambiguity],
   ].filter(([, value]) => value === true);
 
   if (!Object.keys(policy).length) {
     return `
       <div class="evidence-panel evidence-muted">
-        <div class="evidence-panel-title">Workflow policy</div>
-        <div class="evidence-empty">No workflow policy recorded for this item.</div>
+        <div class="evidence-panel-title">执行准则</div>
+        <div class="evidence-empty">这条任务没有记录执行准则——说明它是按默认方式跑的，没有额外约束。</div>
       </div>
     `;
   }
 
   return `
     <div class="evidence-panel">
-      <div class="evidence-panel-title">Workflow policy</div>
-      ${flags.length ? `<div class="evidence-chips">${flags.map(([label]) => `<span class="evidence-chip">${esc(label)}</span>`).join('')}</div>` : '<div class="evidence-empty">Policy flags are present but none are enabled.</div>'}
+      <div class="evidence-panel-title">执行准则</div>
+      ${flags.length ? `<div class="evidence-chips">${flags.map(([label]) => `<span class="evidence-chip">${esc(label)}</span>`).join('')}</div>` : '<div class="evidence-empty">记录了准则字段，但没有一条被启用。</div>'}
       ${checklist.length ? `
         <ul class="evidence-list ${mode === 'compact' ? 'evidence-list-compact' : ''}">
           ${checklist.slice(0, mode === 'compact' ? 3 : 8).map(item => `<li>${esc(item)}</li>`).join('')}
@@ -216,15 +238,15 @@ function renderVerificationEvidencePanel(item, mode = 'card') {
   if (!evidence.length) {
     return `
       <div class="evidence-panel evidence-muted">
-        <div class="evidence-panel-title">Verification evidence</div>
-        <div class="evidence-empty">No verification evidence recorded yet.</div>
+        <div class="evidence-panel-title">验证证据</div>
+        <div class="evidence-empty">还没有验证证据。也就是说这条任务声称的结果没有留下可核对的凭据（测试输出、命令回显），只能当作「它自己说完成了」。</div>
       </div>
     `;
   }
 
   return `
     <div class="evidence-panel">
-      <div class="evidence-panel-title">Verification evidence</div>
+      <div class="evidence-panel-title">验证证据</div>
       <ul class="evidence-list ${mode === 'compact' ? 'evidence-list-compact' : ''}">
         ${evidence.slice(0, mode === 'compact' ? 3 : 10).map(item => `<li>${esc(item)}</li>`).join('')}
       </ul>
@@ -255,35 +277,35 @@ function collectApprovalContext(item) {
 function renderApprovalContextPanel(item, mode = 'card') {
   const ctx = collectApprovalContext(item);
   const rows = [
-    ['Risk', ctx.risk],
-    ['Action', ctx.action],
-    ['Impact', ctx.impact],
-    ['Reason', ctx.reason],
-    ['Blocked', stringifyEvidence(ctx.blocked)],
-    ['Request', ctx.requestId],
-    ['Code', ctx.code],
-    ['Required', ctx.requiredApprovers],
+    ['风险等级', ctx.risk],
+    ['动作', ctx.action],
+    ['影响范围', ctx.impact],
+    ['原因', ctx.reason],
+    ['阻塞上下文', stringifyEvidence(ctx.blocked)],
+    ['请求 ID', ctx.requestId],
+    ['代码', ctx.code],
+    ['需谁批准', ctx.requiredApprovers],
   ].filter(([, value]) => value !== undefined && value !== null && value !== '');
 
   const approvalLines = ctx.approvals.map(a => {
-    const decision = firstValue(a.decision, a.status, 'approval');
-    const approver = firstValue(a.approver_id, a.approver, a.user, 'unknown');
+    const decision = firstValue(a.decision, a.status, '审批');
+    const approver = firstValue(a.approver_id, a.approver, a.user, '未知审批人');
     const comment = firstValue(a.comment, '');
-    return `${decision} by ${approver}${comment ? ` - ${comment}` : ''}`;
+    return `${decision} — ${approver}${comment ? `：${comment}` : ''}`;
   });
 
   if (!rows.length && !approvalLines.length && !ctx.alternatives.length) {
     return `
       <div class="evidence-panel evidence-muted">
-        <div class="evidence-panel-title">Approval / blocked context</div>
-        <div class="evidence-empty">No approval or blocked context recorded.</div>
+        <div class="evidence-panel-title">审批与阻塞信息</div>
+        <div class="evidence-empty">这条任务没有走过审批，也没有被阻塞——全程自主完成。</div>
       </div>
     `;
   }
 
   return `
     <div class="evidence-panel">
-      <div class="evidence-panel-title">Approval / blocked context</div>
+      <div class="evidence-panel-title">审批与阻塞信息</div>
       ${rows.length ? `
         <div class="evidence-kv">
           ${rows.slice(0, mode === 'compact' ? 5 : 10).map(([label, value]) => `
@@ -296,7 +318,7 @@ function renderApprovalContextPanel(item, mode = 'card') {
       ` : ''}
       ${ctx.alternatives.length ? `
         <ul class="evidence-list ${mode === 'compact' ? 'evidence-list-compact' : ''}">
-          ${ctx.alternatives.slice(0, mode === 'compact' ? 2 : 6).map(item => `<li>Alternative: ${esc(item)}</li>`).join('')}
+          ${ctx.alternatives.slice(0, mode === 'compact' ? 2 : 6).map(item => `<li>备选方案：${esc(item)}</li>`).join('')}
         </ul>
       ` : ''}
       ${approvalLines.length ? `
@@ -364,9 +386,9 @@ function collectPlannerReviewer(item) {
     findings,
     extraFindings,
     sections: [
-      ['plan', 'Plan', firstValue(reviewer.plan, result.plan, sectionsSource.plan, sectionsSource.planning, '')],
-      ['spec_review', 'Spec review', firstValue(reviewer.spec_review, reviewer.specReview, result.spec_review, result.specReview, sectionsSource.spec_review, '')],
-      ['quality_review', 'Quality review', firstValue(reviewer.quality_review, reviewer.qualityReview, result.quality_review, result.qualityReview, sectionsSource.quality_review, '')],
+      ['plan', '方案', firstValue(reviewer.plan, result.plan, sectionsSource.plan, sectionsSource.planning, '')],
+      ['spec_review', '规格评审', firstValue(reviewer.spec_review, reviewer.specReview, result.spec_review, result.specReview, sectionsSource.spec_review, '')],
+      ['quality_review', '质量评审', firstValue(reviewer.quality_review, reviewer.qualityReview, result.quality_review, result.qualityReview, sectionsSource.quality_review, '')],
     ].map(([key, label, value]) => ({ key, label, body: normalizeReviewSection(value) })).filter(section => section.body),
   };
 }
@@ -376,8 +398,8 @@ function renderPlannerReviewerControls(item, mode = 'card') {
   if (!review.hasData) {
     return `
       <div class="review-panel review-muted">
-        <div class="review-panel-title">Planner reviewer</div>
-        <div class="evidence-empty">No planner_reviewer result recorded.</div>
+        <div class="review-panel-title">方案自审</div>
+        <div class="evidence-empty">这条任务没有走方案自审。自审是让 Agent 在动手前先审自己的计划，没有记录说明它是直接执行的。</div>
       </div>
     `;
   }
@@ -389,22 +411,22 @@ function renderPlannerReviewerControls(item, mode = 'card') {
     <div class="review-panel" data-review-panel>
       <div class="review-panel-header">
         <div>
-          <div class="review-panel-title">Planner reviewer</div>
+          <div class="review-panel-title">方案自审</div>
           <div class="review-panel-subtitle">${esc(review.reviewer)}${review.updatedAt ? ` / ${esc(formatTime(review.updatedAt))}` : ''}</div>
         </div>
         <span class="task-status task-status-${tone}">${esc(statusLabel(review.status || tone))}</span>
       </div>
       <div class="review-summary">
-        <span class="review-chip">${review.findings.length} blocking</span>
-        <span class="review-chip">${review.extraFindings.length} findings</span>
-        <span class="review-chip">${review.sections.length} sections</span>
+        <span class="review-chip">${review.findings.length} 项阻塞</span>
+        <span class="review-chip">${review.extraFindings.length} 项发现</span>
+        <span class="review-chip">${review.sections.length} 个章节</span>
       </div>
       ${review.summary ? `<div class="review-status-summary">${esc(String(review.summary))}</div>` : ''}
       ${review.findings.length ? `
         <div class="review-quick-actions">
-          <button type="button" class="review-action-btn" data-review-jump="blocking">Blocked reason</button>
-          <button type="button" class="review-action-btn" data-review-expand="all">Expand all</button>
-          <button type="button" class="review-action-btn" data-review-expand="none">Collapse</button>
+          <button type="button" class="review-action-btn" data-review-jump="blocking">跳到阻塞原因</button>
+          <button type="button" class="review-action-btn" data-review-expand="all">全部展开</button>
+          <button type="button" class="review-action-btn" data-review-expand="none">全部收起</button>
         </div>
         <div class="review-findings" data-review-section="blocking">
           ${review.findings.slice(0, compact ? 2 : 12).map((finding, index) => `
@@ -414,12 +436,12 @@ function renderPlannerReviewerControls(item, mode = 'card') {
                 <strong>${esc(finding.title)}</strong>
               </div>
               ${finding.detail ? `<div class="review-finding-detail">${esc(finding.detail)}</div>` : ''}
-              ${index === 0 ? '<span class="review-anchor-label">Primary blocked reason</span>' : ''}
+              ${index === 0 ? '<span class="review-anchor-label">主要阻塞原因</span>' : ''}
             </div>
           `).join('')}
-          ${review.findings.length > (compact ? 2 : 12) ? `<div class="evidence-empty">Showing ${compact ? 2 : 12} of ${review.findings.length} blocking findings.</div>` : ''}
+          ${review.findings.length > (compact ? 2 : 12) ? `<div class="evidence-empty">共 ${review.findings.length} 项阻塞，这里只显示前 ${compact ? 2 : 12} 项。</div>` : ''}
         </div>
-      ` : '<div class="review-status-summary">No blocking findings recorded.</div>'}
+      ` : '<div class="review-status-summary">自审没有发现阻塞项——方案可以照此执行。</div>'}
       ${sections.length ? `
         <div class="review-section-list">
           ${sections.map(section => `
@@ -570,7 +592,7 @@ function renderExecutionNodeDetails(node) {
     error: node.error,
   };
   const compactDetail = Object.fromEntries(Object.entries(detail).filter(([, value]) => value !== undefined && value !== null && value !== ''));
-  return renderExecutionDetails('Details', Object.keys(compactDetail).length ? safeExecutionJson(compactDetail) : '');
+  return renderExecutionDetails('详情', Object.keys(compactDetail).length ? safeExecutionJson(compactDetail) : '');
 }
 
 function getArtifactPreviewValue(artifact) {
@@ -611,10 +633,10 @@ function buildArtifactPreview(artifact) {
   if (isBinary && typeof content === 'string' && content.length > 300) {
     return {
       body: [
-        'Binary artifact content is not expanded inline.',
-        path ? `path: ${path}` : '',
-        contentType ? `type: ${contentType}` : '',
-        size ? `size: ${size}` : '',
+        '二进制产物不在页面里展开，只显示元信息。',
+        path ? `路径：${path}` : '',
+        contentType ? `类型：${contentType}` : '',
+        size ? `大小：${size}` : '',
       ].filter(Boolean).join('\n'),
       truncated: false,
       reason: 'binary',
@@ -646,8 +668,8 @@ function renderArtifactPreview(artifact) {
       <div class="execution-row-main">
         <div class="execution-row-title">${esc(type)}</div>
         ${artifactMeta.length ? `<div class="execution-artifact-meta">${artifactMeta.map(item => `<span>${esc(String(item))}</span>`).join('')}</div>` : ''}
-        <div class="execution-row-subtitle">${esc(firstValue(path, stringifyEvidence(content), 'No artifact detail'))}</div>
-        ${preview.body ? renderExecutionDetails('Preview', preview.body, { compact: true }) : '<div class="execution-empty execution-empty-inline">No previewable artifact content.</div>'}
+        <div class="execution-row-subtitle">${esc(firstValue(path, stringifyEvidence(content), '（无产物详情）'))}</div>
+        ${preview.body ? renderExecutionDetails('预览', preview.body, { compact: true }) : '<div class="execution-empty execution-empty-inline">这个产物没有可预览的内容。</div>'}
       </div>
       <span class="execution-row-time">${esc(formatTime(artifact.created_at) || '')}</span>
     </div>
@@ -665,8 +687,8 @@ function getEventGroupLabel(event, groupMode) {
   if (groupMode === 'node') {
     return {
       key: nodeId,
-      title: nodeId === 'unassigned' ? 'Unassigned node' : compactId(nodeId, 14, 8),
-      subtitle: 'node',
+      title: nodeId === 'unassigned' ? '未归属节点' : compactId(nodeId, 14, 8),
+      subtitle: '节点',
       tone,
     };
   }
@@ -674,20 +696,20 @@ function getEventGroupLabel(event, groupMode) {
     return {
       key: tone,
       title: statusLabel(tone),
-      subtitle: 'status',
+      subtitle: '状态',
       tone,
     };
   }
   return {
     key: `${nodeId}::${tone}`,
-    title: nodeId === 'unassigned' ? 'Unassigned node' : compactId(nodeId, 12, 8),
+    title: nodeId === 'unassigned' ? '未归属节点' : compactId(nodeId, 12, 8),
     subtitle: statusLabel(status),
     tone,
   };
 }
 
 function renderExecutionEventGroups(events, groupMode = 'node-status') {
-  if (!events.length) return '<div class="execution-empty">No timeline events recorded.</div>';
+  if (!events.length) return '<div class="execution-empty">这次执行没有留下时间线事件。</div>';
 
   const latestEvents = events.slice(-80).reverse();
   const groups = new Map();
@@ -718,9 +740,9 @@ function renderExecutionEventGroups(events, groupMode = 'node-status') {
             return `
               <div class="execution-row execution-event-row" data-node-id="${esc(nodeId)}" data-status="${esc(tone)}">
                 <div class="execution-row-main">
-                  <div class="execution-row-title">${esc(firstValue(event.event_type, event.type, 'event'))}</div>
-                  <div class="execution-row-subtitle">${esc(firstValue(stringifyEvidence(event.payload), nodeId, 'No payload detail'))}</div>
-                  ${renderExecutionDetails('Payload', payload, { compact: true })}
+                  <div class="execution-row-title">${esc(firstValue(event.event_type, event.type, '事件'))}</div>
+                  <div class="execution-row-subtitle">${esc(firstValue(stringifyEvidence(event.payload), nodeId, '（无载荷详情）'))}</div>
+                  ${renderExecutionDetails('载荷', payload, { compact: true })}
                 </div>
                 <span class="execution-row-time">${esc(formatTime(event.timestamp) || '')}</span>
               </div>
@@ -738,8 +760,8 @@ function renderExecutionPanel(task, executionBundle = null) {
   if (!executionId) {
     return `
       <div class="execution-panel execution-panel-muted">
-        <div class="evidence-panel-title">Execution / DAG</div>
-        <div class="execution-empty">No execution record is linked to this task yet.</div>
+        <div class="evidence-panel-title">执行图（DAG）</div>
+        <div class="execution-empty">这条任务还没有关联执行记录。执行图只在任务真正被编排成 DAG 跑起来之后才生成——简单的一问一答不会产生。</div>
       </div>
     `;
   }
@@ -757,47 +779,47 @@ function renderExecutionPanel(task, executionBundle = null) {
     .map(artifact => normalizeExecutionValue(firstValue(artifact.node_id, artifact.nodeId, artifact.source_node_id, asObj(artifact.metadata).node_id, ''), ''))
     .filter(Boolean))).sort();
   const rows = [
-    ['Task', execution.task_id || task.id],
-    ['Plan', execution.plan_version],
-    ['Replan', execution.replan_generation],
-    ['Created', formatTime(execution.created_at)],
-    ['Completed', formatTime(execution.completed_at)],
-    ['Graph', latestGraph ? `v${latestGraph.graph_version}` : 'v1'],
+    ['任务 ID', execution.task_id || task.id],
+    ['计划版本', execution.plan_version],
+    ['重规划次数', execution.replan_generation],
+    ['创建时间', formatTime(execution.created_at)],
+    ['完成时间', formatTime(execution.completed_at)],
+    ['图版本', latestGraph ? `v${latestGraph.graph_version}` : 'v1'],
   ].filter(([, value]) => value !== undefined && value !== null && value !== '');
 
   return `
     <div class="execution-panel">
       <div class="execution-panel-header">
         <div class="execution-panel-heading">
-          <div class="execution-panel-title">Execution / DAG</div>
+          <div class="execution-panel-title">执行图（DAG）</div>
           <div class="execution-panel-id">${esc(executionId)}</div>
         </div>
         <span class="task-status task-status-${statusTone(status)}">${esc(statusLabel(status))}</span>
       </div>
 
       <div class="execution-chip-row">
-        <span class="execution-chip">${nodes.length} nodes</span>
-        <span class="execution-chip">${events.length} events</span>
-        <span class="execution-chip">${artifacts.length} artifacts</span>
-        <span class="execution-chip">${graphVersions.length || 1} graph versions</span>
+        <span class="execution-chip">${nodes.length} 个节点</span>
+        <span class="execution-chip">${events.length} 条事件</span>
+        <span class="execution-chip">${artifacts.length} 个产物</span>
+        <span class="execution-chip">${graphVersions.length || 1} 个图版本</span>
         ${executionBundle?.error ? `<span class="execution-chip execution-chip-warning">${esc(executionBundle.error)}</span>` : ''}
       </div>
 
-      <div class="execution-view-tabs" role="tablist" aria-label="Execution views">
-        <button type="button" class="execution-view-tab active" data-execution-view-tab="graph">Graph</button>
-        <button type="button" class="execution-view-tab" data-execution-view-tab="timeline">Timeline</button>
-        <button type="button" class="execution-view-tab" data-execution-view-tab="artifacts">Artifacts</button>
+      <div class="execution-view-tabs" role="tablist" aria-label="执行视图切换">
+        <button type="button" class="execution-view-tab active" data-execution-view-tab="graph">依赖图</button>
+        <button type="button" class="execution-view-tab" data-execution-view-tab="timeline">时间线</button>
+        <button type="button" class="execution-view-tab" data-execution-view-tab="artifacts">产物</button>
       </div>
 
       <div class="execution-summary-grid">
         <div class="execution-summary-card">
-          <div class="execution-meta-label">Node status</div>
-          <div class="execution-chip-row">${renderExecutionStatusSummary(nodes, node => node.status, 'No node statuses')}</div>
+          <div class="execution-meta-label">节点状态</div>
+          <div class="execution-chip-row">${renderExecutionStatusSummary(nodes, node => node.status, '没有节点状态')}</div>
           ${renderExecutionNodeStatusBreakdown(nodes)}
         </div>
         <div class="execution-summary-card">
-          <div class="execution-meta-label">Event status</div>
-          <div class="execution-chip-row">${renderExecutionStatusSummary(events, getEventStatus, 'No event statuses')}</div>
+          <div class="execution-meta-label">事件状态</div>
+          <div class="execution-chip-row">${renderExecutionStatusSummary(events, getEventStatus, '没有事件状态')}</div>
         </div>
       </div>
 
@@ -815,7 +837,7 @@ function renderExecutionPanel(task, executionBundle = null) {
       <div class="execution-stack">
         <div class="execution-section" data-execution-view="graph">
           <div class="execution-section-header">
-            <div class="execution-section-title">Graph nodes</div>
+            <div class="execution-section-title">依赖图节点</div>
             <span class="execution-section-count">${nodes.length}</span>
           </div>
           ${nodes.length ? `
@@ -829,51 +851,51 @@ function renderExecutionPanel(task, executionBundle = null) {
                   </div>
                   <div class="execution-row-actions">
                     <span class="task-status task-status-${statusTone(node.status)}">${esc(statusLabel(node.status))}</span>
-                    <button type="button" class="execution-filter-btn execution-row-btn" data-execution-node-jump="${esc(node.node_id || node.name || 'unassigned')}">Events</button>
+                    <button type="button" class="execution-filter-btn execution-row-btn" data-execution-node-jump="${esc(node.node_id || node.name || 'unassigned')}">看事件</button>
                   </div>
                 </div>
               `).join('')}
             </div>
-          ` : '<div class="execution-empty">No execution nodes recorded.</div>'}
+          ` : '<div class="execution-empty">这次执行没有记录任何节点。</div>'}
         </div>
 
         <div class="execution-section" data-execution-view="timeline" hidden>
           <div class="execution-section-header">
-            <div class="execution-section-title">Timeline</div>
+            <div class="execution-section-title">时间线</div>
             <span class="execution-section-count" data-execution-visible-count>${events.length}</span>
           </div>
           ${events.length ? `
             <div class="execution-filter-bar">
               <label>
-                <span>Search</span>
-                <input class="execution-filter-select" data-execution-filter="text" placeholder="event text or payload">
+                <span>搜索</span>
+                <input class="execution-filter-select" data-execution-filter="text" placeholder="事件名或载荷内容">
               </label>
               <label>
-                <span>Node</span>
+                <span>节点</span>
                 <select class="execution-filter-select" data-execution-filter="node">
-                  <option value="all">All nodes</option>
-                  ${eventNodeIds.map(nodeId => `<option value="${esc(nodeId)}">${esc(nodeId === 'unassigned' ? 'Unassigned' : compactId(nodeId, 18, 8))}</option>`).join('')}
+                  <option value="all">全部节点</option>
+                  ${eventNodeIds.map(nodeId => `<option value="${esc(nodeId)}">${esc(nodeId === 'unassigned' ? '未归属' : compactId(nodeId, 18, 8))}</option>`).join('')}
                 </select>
               </label>
               <label>
-                <span>Status</span>
+                <span>状态</span>
                 <select class="execution-filter-select" data-execution-filter="status">
-                  <option value="all">All statuses</option>
+                  <option value="all">全部状态</option>
                   ${eventStatuses.map(eventStatus => `<option value="${esc(eventStatus)}">${esc(statusLabel(eventStatus))}</option>`).join('')}
                 </select>
               </label>
               <label>
-                <span>Group by</span>
+                <span>分组方式</span>
                 <select class="execution-filter-select" data-execution-filter="group">
-                  <option value="node-status">Node + status</option>
-                  <option value="node">Node</option>
-                  <option value="status">Status</option>
+                  <option value="node-status">节点 + 状态</option>
+                  <option value="node">按节点</option>
+                  <option value="status">按状态</option>
                 </select>
               </label>
               <div class="execution-filter-actions">
-                <button type="button" class="execution-filter-btn" data-execution-details="open">Expand payloads</button>
-                <button type="button" class="execution-filter-btn" data-execution-details="close">Collapse</button>
-                <button type="button" class="execution-filter-btn" data-execution-reset>Reset</button>
+                <button type="button" class="execution-filter-btn" data-execution-details="open">展开载荷</button>
+                <button type="button" class="execution-filter-btn" data-execution-details="close">收起</button>
+                <button type="button" class="execution-filter-btn" data-execution-reset>重置筛选</button>
               </div>
             </div>
             <div class="execution-filter-result" data-execution-filter-result></div>
@@ -883,15 +905,15 @@ function renderExecutionPanel(task, executionBundle = null) {
 
         <div class="execution-section" data-execution-view="artifacts" hidden>
           <div class="execution-section-header">
-            <div class="execution-section-title">Artifacts</div>
+            <div class="execution-section-title">产物</div>
             <span class="execution-section-count">${artifacts.length}</span>
           </div>
           ${artifactNodeIds.length ? `
             <div class="execution-filter-bar execution-artifact-filter-bar">
               <label>
-                <span>Node</span>
+                <span>节点</span>
                 <select class="execution-filter-select" data-artifact-filter="node">
-                  <option value="all">All nodes</option>
+                  <option value="all">全部节点</option>
                   ${artifactNodeIds.map(nodeId => `<option value="${esc(nodeId)}">${esc(compactId(nodeId, 18, 8))}</option>`).join('')}
                 </select>
               </label>
@@ -901,9 +923,9 @@ function renderExecutionPanel(task, executionBundle = null) {
           ${artifacts.length ? `
             <div class="execution-artifact-list">
               ${artifacts.slice(-20).reverse().map(renderArtifactPreview).join('')}
-              ${artifacts.length > 20 ? `<div class="execution-empty">Showing latest 20 of ${artifacts.length} artifacts.</div>` : ''}
+              ${artifacts.length > 20 ? `<div class="execution-empty">共 ${artifacts.length} 个产物，这里只显示最近 20 个。</div>` : ''}
             </div>
-          ` : '<div class="execution-empty">No artifacts recorded.</div>'}
+          ` : '<div class="execution-empty">这次执行没有产出文件。产物指执行过程中真正写下来的东西（代码、报告、数据），没有说明这次任务只是读取或推理。</div>'}
         </div>
       </div>
     </div>
@@ -961,10 +983,10 @@ function attachExecutionPanelInteractions(root) {
       if (counter) counter.textContent = String(visibleRows);
       if (result) {
         const parts = [];
-        if (query) parts.push(`text "${query}"`);
-        if (selectedNode !== 'all') parts.push(`node ${selectedNode === 'unassigned' ? 'Unassigned' : compactId(selectedNode, 18, 8)}`);
+        if (query) parts.push(`包含「${query}」`);
+        if (selectedNode !== 'all') parts.push(`节点 ${selectedNode === 'unassigned' ? '未归属' : compactId(selectedNode, 18, 8)}`);
         if (selectedStatus !== 'all') parts.push(statusLabel(selectedStatus));
-        result.textContent = parts.length ? `${visibleRows} matching events for ${parts.join(' / ')}` : `${visibleRows} timeline events shown`;
+        result.textContent = parts.length ? `符合 ${parts.join(' / ')} 的事件 ${visibleRows} 条` : `共显示 ${visibleRows} 条时间线事件`;
       }
     };
 
@@ -979,16 +1001,16 @@ function attachExecutionPanelInteractions(root) {
       const groups = new Map();
       rows.forEach(row => {
         let key = `${row.nodeId}::${row.status}`;
-        let title = row.nodeId === 'unassigned' ? 'Unassigned node' : compactId(row.nodeId, 12, 8);
+        let title = row.nodeId === 'unassigned' ? '未归属节点' : compactId(row.nodeId, 12, 8);
         let subtitle = statusLabel(row.status);
         if (groupMode === 'node') {
           key = row.nodeId;
-          title = row.nodeId === 'unassigned' ? 'Unassigned node' : compactId(row.nodeId, 14, 8);
-          subtitle = 'node';
+          title = row.nodeId === 'unassigned' ? '未归属节点' : compactId(row.nodeId, 14, 8);
+          subtitle = '节点';
         } else if (groupMode === 'status') {
           key = row.status;
           title = statusLabel(row.status);
-          subtitle = 'status';
+          subtitle = '状态';
         }
         if (!groups.has(key)) groups.set(key, { key, title, subtitle, tone: row.status, rows: [] });
         groups.get(key).rows.push(row.html);
@@ -1134,7 +1156,7 @@ async function showTaskDetail(taskId) {
           <div class="detail-value">${esc(task.description || '无')}</div>
         </div>
         <div class="detail-section">
-          <div class="detail-label">Agent</div>
+          <div class="detail-label">执行者</div>
           <div class="detail-value">${esc(task.agent)}</div>
         </div>
         <div class="detail-section">
@@ -1168,11 +1190,11 @@ async function showTaskDetail(taskId) {
           </div>
         ` : ''}
         <div class="detail-section">
-          <div class="detail-label">Execution / DAG</div>
+          <div class="detail-label">执行图（DAG）</div>
           ${renderExecutionPanel(task, executionBundle)}
         </div>
         <div class="detail-section">
-          <div class="detail-label">Workflow / evidence</div>
+          <div class="detail-label">准则与证据</div>
           <div class="detail-evidence-grid">
             ${renderPlannerReviewerControls(task)}
             ${renderWorkflowPolicyPanel(task)}

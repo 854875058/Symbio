@@ -1093,6 +1093,93 @@ async def capabilities():
     return get_capability_report()
 
 
+def _repo_root() -> Path:
+    """仓库根目录：api.py 位于 src/symbio/interfaces/ 下三层。"""
+    return Path(__file__).resolve().parents[3]
+
+
+@app.get("/api/source")
+async def read_source(path: str = Query(..., description="仓库相对路径")):
+    """只读返回仓库内文本文件，供能力账本的证据链跳转核对。
+
+    能力账本声称每条能力都有代码证据，但证据路径此前只是不可点的文本。
+    这个端点让「可验证」真正可验证：UI 直接把 evidence 路径打开给用户看。
+
+    安全模型是**白名单**，不是黑名单。这一点是被实测教育出来的：本端点开发期间
+    曾用「文件名里含 secret/token 就拒绝」的黑名单写法，提交前探测发现
+    `GET /api/source?path=symbio.yaml` 返回 200，正文里带着真实的
+    anthropic_api_key——那个文件名毫无可疑之处，黑名单根本看不见它。
+    凡是"列举所有危险的东西"的思路都会漏，所以改成"列举允许的东西"。
+    （该写法未曾进入任何提交，此处记录是为了别再走回去。）
+
+    分界线不是"不许读 yaml"（账本确实要指 config/*.yml），而是**不许读仓库根下
+    的散装文件**：本机私有配置都住在根上（symbio.yaml、*.env），而账本的证据
+    全部住在子目录里。唯一的例外 docker-compose.observability.yml 是已提交进
+    仓库的文件，内容本来就是公开的。
+
+    边界由 tests/test_source_endpoint.py 两侧钉住：该挡的挡住，该放的放行。
+    """
+    root = _repo_root()
+    target = (root / path).resolve()
+
+    # 防路径穿越：必须落在仓库根内
+    try:
+        rel = target.relative_to(root)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="路径超出仓库范围")
+
+    # 目录白名单：能力账本的 evidence 只出现在这几处（见 capabilities.py）。
+    allowed_roots = {"src", "web", "tests", "docs", "config", "benchmarks", "tools"}
+    # 根目录下逐个点名放行的文件。symbio.yaml 存着真实密钥且被 .gitignore 忽略，
+    # 它永远不会进这张表；这里只有已随仓库公开的编排文件。
+    allowed_root_files = {"docker-compose.observability.yml"}
+
+    parts = rel.parts
+    if len(parts) == 1:
+        if rel.name not in allowed_root_files:
+            raise HTTPException(status_code=403, detail=f"根目录下的文件不开放读取：{rel.name}")
+    elif parts[0] not in allowed_roots:
+        raise HTTPException(
+            status_code=403,
+            detail=f"只允许读取这些目录下的文件：{'、'.join(sorted(allowed_roots))}",
+        )
+
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail=f"文件不存在：{path}")
+
+    # 只放行文本类源码/文档/配置。yaml 之所以还在表里，是因为账本要指
+    # config/otel/collector.yaml 这类文件；挡住密钥靠的是上面的目录白名单，
+    # 不是靠后缀——config/ 整个目录都已随仓库公开，里面没有凭据。
+    allowed_suffixes = {
+        ".py", ".js", ".mjs", ".ts", ".css", ".html", ".md",
+        ".json", ".yaml", ".yml", ".toml",
+    }
+    if target.suffix.lower() not in allowed_suffixes:
+        raise HTTPException(status_code=415, detail=f"不支持的文件类型：{target.suffix or '(无扩展名)'}")
+
+    # 目录白名单之外再加一道文件名兜底：万一以后有人往 config/ 放
+    # credentials.yaml，这里还能挡一次。纵深防御，不是主防线。
+    lowered = target.name.lower()
+    sensitive_markers = ("secret", "credential", "password", "private", "id_rsa", ".env")
+    if any(marker in lowered for marker in sensitive_markers):
+        raise HTTPException(status_code=403, detail="该文件可能包含凭据，已拒绝读取")
+
+    if target.stat().st_size > 512_000:
+        raise HTTPException(status_code=413, detail="文件过大（超过 500 KB）")
+
+    try:
+        content = target.read_text(encoding="utf-8", errors="replace")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"读取失败：{exc}")
+
+    return {
+        "path": path,
+        "content": content,
+        "size": target.stat().st_size,
+        "lines": content.count("\n") + 1,
+    }
+
+
 @app.get("/api/sandbox/policy")
 async def sandbox_policy():
     """Expose the active local sandbox policy."""

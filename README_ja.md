@@ -215,7 +215,8 @@ open http://localhost:9090
 | [機能一覧](docs/features.md) | 33 のキラー機能詳細定義 |
 | [アーキテクチャ](docs/architecture.md) | 4 層アーキテクチャ |
 | [モジュール設計白書](docs/module-design-whitepaper.md) | 17 モジュールの先進設計 |
-| [UI 設計](docs/ui-design.md) | 28 ページ + コンポーネントシステム |
+| [ページハンドブック](docs/pages.md) | 全 18 ページ：機能・存在理由・使い方 |
+| [デザインシステム](../DESIGN.md) | トークン・命名規則・コンポーネント仕様 |
 | [ロードマップ](docs/roadmap.md) | 10 Phase 開発計画 |
 
 ---

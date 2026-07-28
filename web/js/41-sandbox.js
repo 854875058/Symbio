@@ -17,11 +17,11 @@ async function loadSandboxPolicy() {
     state.sandbox.policy = data;
     renderSandboxPolicy(data);
     if (dom.sandboxWorkingDir && !dom.sandboxWorkingDir.value) {
-      dom.sandboxWorkingDir.placeholder = data.workspace_roots?.[0] || 'Default workspace root';
+      dom.sandboxWorkingDir.placeholder = data.workspace_roots?.[0] || '默认工作区根目录';
     }
     return data;
   } catch (e) {
-    toast('error', 'Sandbox policy failed', e.message);
+    toast('error', '加载沙箱策略失败', e.message);
     return null;
   }
 }
@@ -32,7 +32,7 @@ function renderSandboxPolicy(policy) {
   dom.sandboxPolicy.innerHTML = `
     <span class="sandbox-badge">${esc(policy.access_mode || '')}</span>
     <span class="sandbox-badge">${esc(policy.approval_policy || '')}</span>
-    <span class="sandbox-badge">${policy.allow_network ? 'network:on' : 'network:off'}</span>
+    <span class="sandbox-badge">${policy.allow_network ? '联网：开' : '联网：关'}</span>
     ${roots[0] ? `<span class="sandbox-badge sandbox-root" title="${esc(roots[0])}">${esc(roots[0])}</span>` : ''}
   `;
 }
@@ -51,12 +51,27 @@ function sandboxPayload(forceApproved = false) {
 }
 
 async function runSandbox(forceApproved = false) {
+  const payload = sandboxPayload(forceApproved);
+
+  // 危险程度必须和确认强度成正比。这两条是本页真正不可逆的入口：
+  // 1) danger-full-access 等于取消沙箱隔离，命令能碰工作区之外的任何东西；
+  // 2) forceApproved（「批准后执行」）直接绕过人工审批闸门。
+  // 二者以前都是点一下就跑，而删一个 Skill 反倒有确认——用户由此学到
+  // 「没弹窗 = 安全」，恰恰在最危险处失效。
+  if (payload.access_mode === 'danger-full-access'
+    && !confirmDanger('以完全放开权限执行？', '当前访问模式是 danger-full-access：命令不再被限制在工作目录内，可以读写本机任意文件、访问网络、修改系统配置。相当于没有沙箱。确认这条命令你完全清楚它会做什么。')) {
+    return;
+  }
+  if (forceApproved
+    && !confirmDanger('跳过审批直接执行？', '「批准后执行」会带着已批准标记提交，绕过本应由你逐条确认的人工审批环节。这条命令会立即执行，不再询问。')) {
+    return;
+  }
+
   if (dom.sandboxResult) {
-    dom.sandboxResult.innerHTML = `<div class="empty-state-lg"><p>Running sandbox command...</p></div>`;
+    showLoading(dom.sandboxResult, '正在沙箱中执行...');
   }
   try {
-    const payload = sandboxPayload(forceApproved);
-    if (!payload.command.trim()) throw new Error('Command is required');
+    if (!payload.command.trim()) throw new Error('请填写要执行的命令');
     const res = await fetch(`${API}/sandbox/execute`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -68,15 +83,21 @@ async function runSandbox(forceApproved = false) {
     renderSandboxResult(data);
     await loadSandboxAudit();
     if (data.approval_required) {
-      toast('info', 'Approval required', 'Toggle approved or use Run approved to execute.');
+      toast('info', '需要审批', '这条命令触发了审批策略。勾选「已批准」或点「批准后执行」才会真正运行。');
     } else if (data.success) {
-      toast('success', 'Sandbox command finished', `exit_code=${data.result.exit_code}`);
+      toast('success', '执行完成', `退出码 ${data.result.exit_code}`);
     } else {
-      toast('error', 'Sandbox command blocked/failed', data.result.error_message || `exit_code=${data.result.exit_code}`);
+      toast('error', '被拦截或执行失败', data.result.error_message || `退出码 ${data.result.exit_code}`);
     }
   } catch (e) {
-    toast('error', 'Sandbox run failed', e.message);
-    if (dom.sandboxResult) dom.sandboxResult.innerHTML = `<div class="empty-state-lg"><p>${esc(e.message)}</p></div>`;
+    toast('error', '执行失败', e.message);
+    if (dom.sandboxResult) {
+      dom.sandboxResult.innerHTML = `
+        <div class="empty-block is-inline is-error">
+          <p class="empty-block-title">执行失败</p>
+          <p class="empty-block-hint">${esc(e.message)}</p>
+        </div>`;
+    }
   }
 }
 
@@ -87,8 +108,8 @@ function renderSandboxResult(data) {
   const statusClass = data.approval_required ? 'approval' : (data.success ? 'success' : 'failed');
   dom.sandboxResult.innerHTML = `
     <div class="sandbox-result-head">
-      <span class="sandbox-result-status ${statusClass}">${data.approval_required ? 'approval required' : (data.success ? 'success' : 'blocked/failed')}</span>
-      <span>exit=${esc(result.exit_code)}</span>
+      <span class="sandbox-result-status ${statusClass}">${data.approval_required ? '待审批' : (data.success ? '成功' : '被拦截 / 失败')}</span>
+      <span>退出码 ${esc(result.exit_code)}</span>
       <span>${Math.round(result.duration_ms || 0)}ms</span>
       <span>${esc(result.permission_level || '')}</span>
     </div>
@@ -104,10 +125,10 @@ function renderSandboxResult(data) {
       </div>
     </div>
     <div class="sandbox-meta">
-      <span>access: ${esc(meta.policy?.access_mode || '')}</span>
-      <span>approval_policy: ${esc(meta.policy?.approval_policy || '')}</span>
-      <span>approved: ${meta.approved ? 'yes' : 'no'}</span>
-      <span>approval_required: ${meta.approval_required ? 'yes' : 'no'}</span>
+      <span>访问模式：${esc(meta.policy?.access_mode || '—')}</span>
+      <span>审批策略：${esc(meta.policy?.approval_policy || '—')}</span>
+      <span>已批准：${meta.approved ? '是' : '否'}</span>
+      <span>需审批：${meta.approval_required ? '是' : '否'}</span>
       <span>${esc(result.working_dir || '')}</span>
     </div>
   `;
@@ -115,7 +136,7 @@ function renderSandboxResult(data) {
 
 async function loadSandboxAudit() {
   if (dom.sandboxAuditList) {
-    showLoading(dom.sandboxAuditList, 'Loading audit...');
+    showLoading(dom.sandboxAuditList, '正在加载审计记录...');
   }
   try {
     const res = await fetch(`${API}/sandbox/audit`);
@@ -125,8 +146,17 @@ async function loadSandboxAudit() {
     renderSandboxAudit(data.records || []);
     return data;
   } catch (e) {
-    toast('error', 'Sandbox audit failed', e.message);
-    if (dom.sandboxAuditList) dom.sandboxAuditList.innerHTML = `<div class="empty-state-lg"><p>${esc(e.message)}</p></div>`;
+    toast('error', '加载审计记录失败', e.message);
+    if (dom.sandboxAuditList) {
+      dom.sandboxAuditList.innerHTML = `
+        <div class="empty-block is-inline is-error">
+          <p class="empty-block-title">无法加载审计记录</p>
+          <p class="empty-block-hint">${esc(e.message)}</p>
+          <div class="empty-block-actions">
+            <button class="btn-outline" type="button" onclick="loadSandboxAudit()">重试</button>
+          </div>
+        </div>`;
+    }
     return null;
   }
 }
@@ -134,7 +164,11 @@ async function loadSandboxAudit() {
 function renderSandboxAudit(records) {
   if (!dom.sandboxAuditList) return;
   if (!records.length) {
-    dom.sandboxAuditList.innerHTML = `<div class="empty-state-lg"><p>No sandbox audit records.</p></div>`;
+    dom.sandboxAuditList.innerHTML = `
+      <div class="empty-block is-inline">
+        <p class="empty-block-title">暂无执行记录</p>
+        <p class="empty-block-hint">每一条在沙箱里跑过的命令都会留痕：命令原文、权限级别、是否被拦截、退出码。这是事后追查「Agent 到底动了什么」的唯一依据。</p>
+      </div>`;
     return;
   }
   dom.sandboxAuditList.innerHTML = records.map(record => `

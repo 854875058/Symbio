@@ -15,27 +15,86 @@ async function loadMemories(query) {
     renderMemories(query);
   } catch (e) {
     toast('error', '加载记忆失败', e.message);
-    dom.memoryGrid.innerHTML = `<div class="empty-state-lg"><p>加载失败，请重试</p></div>`;
+    dom.memoryGrid.innerHTML = `
+      <div class="empty-block is-error">
+        <p class="empty-block-title">无法加载记忆库</p>
+        <p class="empty-block-hint">${esc(e.message)}</p>
+        <div class="empty-block-actions">
+          <button class="btn-outline" type="button" onclick="loadMemories()">重试</button>
+        </div>
+      </div>`;
   }
 }
 
+// 重要度分档。阈值取 0.8 / 0.5：与卡片上进度条的观感一致，
+// 也和后端存入时的默认 0.5 对齐（默认值落在「中」而不是边界上）。
+function memoryTier(importance) {
+  const v = importance || 0;
+  if (v >= 0.8) return 'high';
+  if (v >= 0.5) return 'mid';
+  return 'low';
+}
+
+function memoryTierLabel(tier) {
+  return { high: '高重要度', mid: '中等重要度', low: '低重要度' }[tier] || '该重要度';
+}
+
+// 语义搜索走 MemoryManager，返回的字段和 SQLite 列表不同：没有 title，
+// 主键叫 memory_id。不在这里兜住，搜索结果的卡片会显示 undefined 且点不开。
+function memoryFallbackTitle(m) {
+  const body = (m.content || '').trim().replace(/\s+/g, ' ');
+  if (!body) return '(无内容)';
+  return body.length > 40 ? `${body.slice(0, 40)}…` : body;
+}
+
+function setMemoryImportance(tier) {
+  state.memoryImportance = tier;
+  if (dom.memoryImportanceFilter) dom.memoryImportanceFilter.value = tier;
+  renderMemories(dom.memorySearch?.value.trim() || undefined);
+}
+
 function renderMemories(query) {
-  if (state.memories.length === 0) {
-    dom.memoryGrid.innerHTML = `
-      <div class="empty-state-lg">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-        <p>${query ? '未找到匹配的记忆' : '记忆库为空'}</p>
-        <span class="empty-hint">${query ? '尝试不同的搜索词' : '对话中的重要信息会自动存储'}</span>
-      </div>
-    `;
+  const all = state.memories;
+  const tier = state.memoryImportance || 'all';
+  const list = tier === 'all' ? all : all.filter(m => memoryTier(m.importance) === tier);
+
+  if (list.length === 0) {
+    // 三种「空」的原因完全不同，不能共用一句「暂无记忆」：
+    // 库是空的 / 搜索没命中 / 筛选把结果滤光了——后两种用户需要的是撤销自己的操作。
+    if (all.length > 0) {
+      dom.memoryGrid.innerHTML = `
+      <div class="empty-block">
+        <p class="empty-block-title">没有${esc(memoryTierLabel(tier))}的记忆</p>
+        <p class="empty-block-hint">当前共 ${all.length} 条记忆，但没有一条落在这个重要度区间。重要度由 Agent 在存入时自行判定，不是你设置的，所以某个区间空着是正常的。</p>
+        <div class="empty-block-actions">
+          <button class="btn-outline" type="button" onclick="setMemoryImportance('all')">看全部 ${all.length} 条</button>
+        </div>
+      </div>`;
+      return;
+    }
+    dom.memoryGrid.innerHTML = query ? `
+      <div class="empty-block">
+        <p class="empty-block-title">没有匹配「${esc(query)}」的记忆</p>
+        <p class="empty-block-hint">这里的检索是语义检索，不要求字面命中，所以换一个说法通常比换关键词更有效。也可以清空搜索框浏览全部记忆。</p>
+        <div class="empty-block-actions">
+          <button class="btn-outline" type="button" onclick="document.getElementById('memory-search').value='';loadMemories()">查看全部记忆</button>
+        </div>
+      </div>` : `
+      <div class="empty-block">
+        <p class="empty-block-title">记忆库还是空的</p>
+        <p class="empty-block-hint">记忆不需要你手动录入：在「对话」页交流时，Agent 会自行判断哪些信息值得长期保留（你的偏好、项目约束、结论），并按重要度存进这里。跨会话它靠这些记忆记住你是谁、在做什么。</p>
+        <div class="empty-block-actions">
+          <button class="btn-primary" type="button" onclick="switchPage('chat')">去对话页聊几句</button>
+        </div>
+      </div>`;
     return;
   }
 
-  dom.memoryGrid.innerHTML = state.memories.map(m => `
-    <div class="memory-card" data-id="${m.id}">
+  dom.memoryGrid.innerHTML = list.map(m => `
+    <div class="memory-card" data-id="${esc(m.id || m.memory_id || '')}">
       <div class="memory-card-header">
-        <div class="memory-card-title">${esc(m.title)}</div>
-        <div class="memory-card-importance">
+        <div class="memory-card-title">${esc(m.title || memoryFallbackTitle(m))}</div>
+        <div class="memory-card-importance" title="重要度 ${((m.importance || 0) * 100).toFixed(0)}%（由 Agent 存入时判定）">
           <div class="importance-bar">
             <div class="importance-fill" style="width:${(m.importance || 0) * 100}%"></div>
           </div>
@@ -60,7 +119,8 @@ function renderMemories(query) {
 }
 
 function showMemoryDetail(memoryId) {
-  const mem = state.memories.find(m => m.id === memoryId);
+  // 两个来源的主键字段名不一样（列表 id / 语义搜索 memory_id），都要认。
+  const mem = state.memories.find(m => (m.id || m.memory_id) === memoryId);
   if (!mem) return;
 
   document.querySelector('.modal-overlay')?.remove();
@@ -70,7 +130,7 @@ function showMemoryDetail(memoryId) {
   overlay.innerHTML = `
     <div class="modal modal-wide">
       <div class="modal-header">
-        <h3>${esc(mem.title)}</h3>
+        <h3>${esc(mem.title || memoryFallbackTitle(mem))}</h3>
         <button class="icon-btn modal-close-btn" title="关闭" aria-label="关闭对话框">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
@@ -125,7 +185,19 @@ dom.memorySearch?.addEventListener('input', () => {
   }, 300);
 });
 
+// 重要度筛选是纯前端过滤：记忆总量本来就不大，没必要为它多跑一次请求。
+dom.memoryImportanceFilter?.addEventListener('change', () => {
+  setMemoryImportance(dom.memoryImportanceFilter.value || 'all');
+});
+
 // ============ Ontology Page ============
+// 图谱在加载完成前是一整块空白。原来既没有加载提示，也没有区分
+// 「加载中 / 真的没数据 / 请求失败」，用户看到空白只能猜。
+// 这里三种状态各有明确文案，并且失败时不覆盖原有的空状态 HTML —— 见 loadOntology。
+const ONTOLOGY_EMPTY_DEFAULT = `
+  <p>暂无可展示的本体节点</p>
+  <span>对话、记忆或工具执行产生结构化实体后会在这里形成图谱</span>`;
+
 async function loadOntology() {
   if (dom.ontologySummary) {
     dom.ontologySummary.innerHTML = '';
@@ -134,7 +206,8 @@ async function loadOntology() {
     dom.ontologyGraph.innerHTML = '';
   }
   if (dom.ontologyEmpty) {
-    dom.ontologyEmpty.style.display = 'none';
+    dom.ontologyEmpty.style.display = 'flex';
+    dom.ontologyEmpty.innerHTML = '<p>正在加载本体图谱…</p><span>节点较多时布局需要几秒收敛</span>';
   }
 
   try {
@@ -145,6 +218,8 @@ async function loadOntology() {
     if (!nodeIds.has(state.ontologySelection)) {
       state.ontologySelection = null;
     }
+    // 渲染前把空状态还原成默认文案，否则上一次的「加载中」会残留下来。
+    if (dom.ontologyEmpty) dom.ontologyEmpty.innerHTML = ONTOLOGY_EMPTY_DEFAULT;
     renderOntology();
   } catch (e) {
     toast('error', '加载本体图谱失败', e.message);
@@ -156,7 +231,10 @@ async function loadOntology() {
     }
     if (dom.ontologyEmpty) {
       dom.ontologyEmpty.style.display = 'flex';
-      dom.ontologyEmpty.innerHTML = '<p>加载失败</p><span>请稍后重试</span>';
+      dom.ontologyEmpty.innerHTML = `
+        <p>图谱加载失败</p>
+        <span>${esc(e.message)}</span>
+        <span>请确认服务仍在运行，然后点右上角「刷新」重试。</span>`;
     }
     if (dom.ontologyDetail) {
       dom.ontologyDetail.innerHTML = `
@@ -506,6 +584,10 @@ function ontologyWireInteractions(svg, sim, nodeEls, viewState, applyViewTransfo
 
   // 滚轮缩放（以光标为中心）
   svg.addEventListener('wheel', (e) => {
+    // 只在按住 Ctrl/⌘ 时接管滚轮缩放。图谱占满整个视口高度，
+    // 无条件 preventDefault 会让用户在图上滚动时整页都动不了——
+    // 想往下看统计卡都做不到，只能先把鼠标移出图区，这是个隐蔽的死结。
+    if (!e.ctrlKey && !e.metaKey) return;
     e.preventDefault();
     const rect = svg.getBoundingClientRect();
     const vb = svg.viewBox.baseVal;
