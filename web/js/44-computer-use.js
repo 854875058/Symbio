@@ -39,12 +39,17 @@ function renderCuSessions(sessions) {
       </div>`;
     return;
   }
-  container.innerHTML = sessions.map(s => `
-    <div class="cu-session-item ${s.session_id === cuState.activeId ? 'active' : ''}" data-id="${esc(s.session_id)}">
+  // 会话项是 <button>：选择当前会话是个动作，键盘必须能到、回车必须能选。
+  container.innerHTML = sessions.map(s => {
+    const on = s.session_id === cuState.activeId;
+    return `
+    <button type="button" class="cu-session-item ${on ? 'active' : ''}" data-id="${esc(s.session_id)}"
+            ${on ? 'aria-current="true"' : ''}>
       <span class="cu-session-id">${esc(s.session_id)}</span>
       <span class="cu-session-url">${esc(s.current_url || '(空白)')}</span>
-      <span class="cu-session-meta">${s.step_count} 步 · ${s.status}</span>
-    </div>`).join('');
+      <span class="cu-session-meta">${s.step_count} 步 · ${esc(s.status)}</span>
+    </button>`;
+  }).join('');
   container.querySelectorAll('.cu-session-item').forEach(el => {
     el.addEventListener('click', () => { cuState.activeId = el.dataset.id; loadCuSession(el.dataset.id); loadComputerUse(); });
   });

@@ -69,7 +69,11 @@ function renderTasks() {
     ${state.tasks.map(t => `
       <div class="task-card" data-id="${t.id}">
         <div class="task-card-header">
-          <div class="task-card-title">${esc(t.name)}</div>
+          <!-- 标题本身就是打开详情的按钮。整卡不能做成 <button>：卡片内部已经
+               有审批按钮和 <details> 面板，按钮里套可交互元素是非法结构，
+               读屏会把整块念成一个巨大的按钮名。把"打开详情"这个动作绑在
+               标题上，键盘 Tab 能到、回车能开，整卡点击照旧保留。 -->
+          <button type="button" class="task-card-title" data-task-open="${esc(t.id)}">${esc(t.name)}</button>
           <span class="task-status task-status-${t.status}">${statusLabel(t.status)}</span>
         </div>
         <div class="task-card-desc">${esc(t.description || '')}</div>
@@ -102,9 +106,19 @@ function renderTasks() {
   attachFilterListeners();
   attachReviewControlsInteractions(dom.tasksGrid);
 
-  // Task detail click
+  // 打开详情有两条路：标题按钮（键盘可达）和整卡点击（鼠标习惯，保留）。
+  // 整卡那条要跳过卡内的其他交互元素，否则点审批按钮会连带弹出详情。
+  dom.tasksGrid.querySelectorAll('[data-task-open]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      showTaskDetail(btn.dataset.taskOpen);
+    });
+  });
   dom.tasksGrid.querySelectorAll('.task-card').forEach(card => {
-    card.addEventListener('click', () => showTaskDetail(card.dataset.id));
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('button, a, summary, details, input, select, textarea')) return;
+      showTaskDetail(card.dataset.id);
+    });
   });
 }
 
@@ -1142,7 +1156,7 @@ async function showTaskDetail(taskId) {
   overlay.innerHTML = `
     <div class="modal modal-wide">
       <div class="modal-header">
-        <h3>${esc(task.name)}</h3>
+        <h2>${esc(task.name)}</h2>
         <div style="display:flex;align-items:center;gap:8px;">
           <span class="task-status task-status-${task.status}">${statusLabel(task.status)}</span>
           <button class="icon-btn modal-close-btn" title="关闭" aria-label="关闭对话框">

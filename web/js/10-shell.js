@@ -14,8 +14,27 @@ const PAGE_TITLES = {
   workbench: 'Agent 工作台',
 };
 
-async function switchPage(name) {
+/**
+ * 切换页面。
+ *
+ * @param {string} name 页面名（对应 #page-<name> 与 nav-tab 的 data-page）
+ * @param {{ updateHash?: boolean }} [opts]
+ *        updateHash 为 false 时不回写 location.hash——用于响应 hashchange，
+ *        否则会形成"改 hash → 触发切页 → 又改 hash"的回环。
+ */
+async function switchPage(name, opts = {}) {
+  const { updateHash = true } = opts;
+  // 未知页面名一律落回对话页：hash 是可以被手输/被旧书签带进来的，
+  // 不校验的话会切到一个所有 .page 都不 active 的空白界面。
+  if (!PAGE_TITLES[name]) name = 'chat';
+
   state.page = name;
+  if (updateHash) {
+    // 写 location.hash 会自动进浏览器历史，于是前进/后退天然可用。
+    // 相等时不写：否则同一页的重复点击会堆出一串无意义的后退记录。
+    const target = `#/${name}`;
+    if (location.hash !== target) location.hash = target;
+  }
   dom.navTabs.forEach(t => {
     const on = t.dataset.page === name;
     t.classList.toggle('active', on);
@@ -28,6 +47,9 @@ async function switchPage(name) {
 
   // Update topbar title
   if (dom.topbarTitle) dom.topbarTitle.textContent = PAGE_TITLES[name] || name;
+  // 同步文档标题：浏览器的历史列表、书签、标签页都只显示 document.title。
+  // 不改的话后退菜单里会是一串一模一样的"Symbio"，认不出哪条是哪页。
+  document.title = name === 'chat' ? 'Symbio' : `${PAGE_TITLES[name]} · Symbio`;
 
   // 会话列表抽屉只属于对话页；切走时收起并隐藏入口
   const sessBtn = $('#topbar-sessions-toggle');
@@ -60,6 +82,44 @@ async function switchPage(name) {
 dom.navTabs.forEach(tab => {
   tab.addEventListener('click', () => switchPage(tab.dataset.page));
 });
+
+// ============ Hash 路由 ============
+// 页面状态此前只活在 DOM class 里：刷新回到对话页，浏览器前进/后退按钮
+// 完全失效，也没法把「我正在看审批中心」这个位置收藏或发给别人。
+// 用 hash 而非 History API 是因为整个 UI 是 /static/index.html 下的单文件，
+// pushState 改出来的路径刷新后会 404（静态服务器不会把任意路径回落到 index）。
+
+/** 从 location.hash 解析页面名。支持 #/tasks 与 #tasks 两种写法。 */
+function pageFromHash() {
+  const raw = decodeURIComponent(location.hash.replace(/^#\/?/, '')).trim();
+  return raw && PAGE_TITLES[raw] ? raw : null;
+}
+
+window.addEventListener('hashchange', () => {
+  const name = pageFromHash();
+  if (!name) {
+    // hash 无效（手输错了、旧书签）。留在当前页，但把 hash 改回真实位置——
+    // 否则地址栏写着 #/does-not-exist、界面显示的却是别的页，URL 在说谎。
+    const target = `#/${state.page}`;
+    if (location.hash !== target) location.replace(target);
+    return;
+  }
+  // 已经在这一页就不重复切（hash 由 switchPage 自己写入时会走到这里）
+  if (name === state.page) return;
+  switchPage(name, { updateHash: false });
+});
+
+/** 首屏按 hash 恢复页面。没有 hash 或 hash 无效时留在对话页。 */
+function initRouter() {
+  const name = pageFromHash();
+  if (name) {
+    if (name !== 'chat') switchPage(name, { updateHash: false });
+    return;
+  }
+  // 带着无效 hash 进来（旧书签、手输错）：用 replaceState 把它抹掉，
+  // 不留历史条目——用户没主动导航过，不该在后退栈里凭空多一格。
+  if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+}
 
 // 侧栏内方向键在可见导航项之间移动焦点（跨分组连续），Home/End 跳首尾
 document.querySelector('.sidebar-nav')?.addEventListener('keydown', (e) => {

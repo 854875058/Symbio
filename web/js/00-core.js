@@ -90,7 +90,9 @@ const state = {
   marketplace: { packages: [], stats: {}, installed: [], categories: [], remoteAutoLoaded: false },
   tokens: { input: 0, output: 0, total: 0 },
   cost: 0,
-  connected: false,
+  // null = 还没探测过（首次 /health 未返回）。用 false 起步会让界面在
+  // 问过后端之前就断言"已断开"，跟原先硬编码"已连接"是同一类谎话。
+  connected: null,
   ws: null,
   wsReconnectDelay: 1000,
   wsMaxReconnectDelay: 30000,

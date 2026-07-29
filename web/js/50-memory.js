@@ -130,7 +130,7 @@ function showMemoryDetail(memoryId) {
   overlay.innerHTML = `
     <div class="modal modal-wide">
       <div class="modal-header">
-        <h3>${esc(mem.title || memoryFallbackTitle(mem))}</h3>
+        <h2>${esc(mem.title || memoryFallbackTitle(mem))}</h2>
         <button class="icon-btn modal-close-btn" title="关闭" aria-label="关闭对话框">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>

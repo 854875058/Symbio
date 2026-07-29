@@ -567,9 +567,15 @@ body {
 }
 
 .sessions-list { flex:1; overflow-y:auto; padding:8px; }
+/* 会话列表是 ul > li > button（键盘可达），去掉列表默认的项目符号与缩进 */
+.session-list-ul { list-style:none; margin:0; padding:0; }
+/* .session-item 现在是 <button>：清掉按钮默认外观，宽度撑满，文字左对齐。
+   字体必须显式继承——按钮默认用系统 UI 字体，不写就和旁边的列表不是一套字。 */
 .session-item {
   display:flex; align-items:center; gap:10px;
-  padding:10px 12px; border-radius:var(--radius-md);
+  width:100%; padding:10px 12px; border-radius:var(--radius-md);
+  background:none; border:0; text-align:left;
+  font-family:inherit; font-size:inherit; color:inherit;
   cursor:pointer; transition:all 150ms; margin-bottom:2px;
 }
 .session-item:hover { background:var(--bg-hover); }
@@ -581,9 +587,11 @@ body {
 .session-item.active .session-dot { background:var(--accent); }
 /* 选中态底色叠加后三级文字只剩 4.46:1，选中项的时间戳提一档 */
 .session-item.active .session-time { color:var(--text-secondary); }
-.session-info { min-width:0; flex:1; }
-.session-title { font-size:var(--fs-sm); font-weight:500; color:var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.session-time { font-size:var(--fs-xs); color:var(--text-tertiary); font-family:var(--font-mono); }
+/* 这几个原本是 div，改按钮后变成 span（按钮里不能放块级交互内容），
+   所以要显式声明 display——span 默认 inline，flex:1 和溢出省略号都不生效。 */
+.session-info { display:block; min-width:0; flex:1; }
+.session-title { display:block; font-size:var(--fs-sm); font-weight:500; color:var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.session-time { display:block; font-size:var(--fs-xs); color:var(--text-tertiary); font-family:var(--font-mono); }
 
 /* Chat Area */
 .chat-area { flex:1; display:flex; flex-direction:column; min-width:0; }
@@ -646,6 +654,19 @@ body {
   padding:12px 16px; border-radius:var(--radius-lg);
   font-size:var(--fs-md); line-height:1.7; word-wrap:break-word;
 }
+/* 消息里的标题显式定尺寸，不吃浏览器默认值。
+   模型写的 `#` 现在渲染成 h2（见 formatContent：整体下移一级，避免和
+   页面 h1 抢层级），而浏览器默认 h2 会突然变大一号——层级是给读屏用的，
+   视觉上一条回复内部的小标题不该比页面标题还显眼。 */
+.message-bubble h2, .message-bubble h3,
+.message-bubble h4, .message-bubble h5 {
+  margin:14px 0 6px; font-weight:600; line-height:1.4; color:inherit;
+}
+.message-bubble h2:first-child, .message-bubble h3:first-child,
+.message-bubble h4:first-child, .message-bubble h5:first-child { margin-top:0; }
+.message-bubble h2 { font-size:var(--fs-lg); }
+.message-bubble h3 { font-size:var(--fs-md); }
+.message-bubble h4, .message-bubble h5 { font-size:var(--fs-sm); }
 .message.user .message-bubble {
   background:var(--accent);
   color:var(--on-accent); border-bottom-right-radius:4px;
@@ -848,13 +869,16 @@ textarea::placeholder { color:var(--text-tertiary); }
   border-bottom:1px solid var(--border);
   flex-shrink:0;
 }
-.page-header h2 {
+/* 页面标题是 h1：每一屏只有一个 .page.active，所以文档里恰好一个 h1。
+   此前全站 0 个 h1、标题一律从 h2 起跳，读屏用户按"跳到标题"时拿不到
+   顶层锚点，只能听到一串同级的 h2。视觉尺寸不变（--fs-lg）。 */
+.page-header h1 {
   font-size:var(--fs-lg); font-weight:600;
   padding:16px 24px 12px 24px;
 }
-/* 带副标题时，h2 收紧下边距，副标题接着说明这一页的用途。
+/* 带副标题时，h1 收紧下边距，副标题接着说明这一页的用途。
    页面副标题回答「我为什么要打开这一页」，不重复标题已说的话。 */
-.page-header-titles h2 { padding-bottom:4px; }
+.page-header-titles h1 { padding-bottom:4px; }
 .page-subtitle {
   padding:0 24px 12px 24px;
   max-width:80ch;
@@ -1292,8 +1316,11 @@ textarea::placeholder { color:var(--text-tertiary); }
 .status-left, .status-center, .status-right {
   display:flex; align-items:center; gap:12px;
 }
+/* 裸 .status-dot 是"还不知道"：灰色，与旁边"检测中…"一致。
+   绿/红只在 /health 真的回话之后才由 JS 加上。 */
 .status-dot {
   width:6px; height:6px; border-radius:50%;
+  background:var(--text-tertiary);
 }
 .status-dot.online { background:var(--green); }
 .status-dot.offline { background:var(--red); }
@@ -1459,6 +1486,8 @@ textarea::placeholder { color:var(--text-tertiary); }
   justify-content: space-between;
   margin-bottom: 8px;
 }
+/* 标题是 <button>（打开详情的键盘入口）。外观保持纯文本：这一块在视觉上
+   仍然是卡片标题，不该长成一颗按钮；可点性由光标和 hover 下划线交代。 */
 .task-card-title {
   font-size: var(--fs-md);
   font-weight: 600;
@@ -1468,7 +1497,14 @@ textarea::placeholder { color:var(--text-tertiary); }
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  background: none;
+  border: 0;
+  padding: 0;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
 }
+.task-card-title:hover { text-decoration: underline; text-underline-offset: 2px; }
 .task-status {
   font-size: var(--fs-xs);
   font-family: var(--font-mono);
@@ -2449,7 +2485,7 @@ textarea::placeholder { color:var(--text-tertiary); }
   flex-shrink: 0;
   min-width: 0;
 }
-.modal-header h3 {
+.modal-header h2 {
   font-size: var(--fs-md);
   font-weight: 600;
   min-width: 0;
@@ -2871,6 +2907,7 @@ textarea::placeholder { color:var(--text-tertiary); }
   flex: 1;
   min-width: 0;
 }
+/* <button>（打开技能详情的键盘入口），外观仍是卡片标题 */
 .skill-card-name {
   font-size: var(--fs-md);
   font-weight: 600;
@@ -2880,7 +2917,13 @@ textarea::placeholder { color:var(--text-tertiary); }
   gap: 8px;
   font-family: var(--font-mono);
   min-width: 0;
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
 }
+.skill-card-name:hover .skill-name-text { text-decoration: underline; text-underline-offset: 2px; }
 .skill-name-text {
   min-width: 0;
   overflow: hidden;
@@ -3111,7 +3154,7 @@ textarea::placeholder { color:var(--text-tertiary); }
   padding: 16px 20px;
   border-bottom: 1px solid var(--border);
 }
-.config-card-header h3 {
+.config-card-header h2 {
   font-size: var(--fs-md);
   font-weight: 600;
   color: var(--text-primary);
@@ -3230,7 +3273,7 @@ textarea::placeholder { color:var(--text-tertiary); }
   gap: 16px;
   margin-bottom: 16px;
 }
-.a2a-panel-head h3 {
+.a2a-panel-head h2 {
   font-size: var(--fs-md);
   font-weight: 600;
   color: var(--text-primary);
@@ -3686,7 +3729,7 @@ textarea::placeholder { color:var(--text-tertiary); }
   color: var(--on-accent);
   background: var(--accent);
 }
-.security-layer-body h4 { margin: 0 0 3px; font-size: var(--fs-md); color: var(--text-primary); }
+.security-layer-body h3 { margin: 0 0 3px; font-size: var(--fs-md); color: var(--text-primary); }
 .security-layer-body p { margin: 0; font-size: var(--fs-xs); color: var(--text-secondary); line-height: 1.4; }
 .security-layer-arrow {
   display: grid;
@@ -3806,15 +3849,21 @@ textarea::placeholder { color:var(--text-tertiary); }
 }
 .cu-action-row .text-input { flex: 1; min-width: 180px; }
 .cu-sessions { display: flex; flex-direction: column; gap: 6px; }
+/* <button>：宽度撑满、字体继承、文字左对齐（按钮默认居中且用系统字体） */
 .cu-session-item {
   display: grid;
   grid-template-columns: 130px 1fr 110px;
   gap: 10px; align-items: center;
+  width: 100%;
   padding: 8px 12px;
+  background: none;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   cursor: pointer;
+  font-family: inherit;
   font-size: var(--fs-sm);
+  color: inherit;
+  text-align: left;
 }
 .cu-session-item:hover { background: var(--bg-secondary); }
 .cu-session-item.active { border-color: var(--accent-text); background: var(--accent-dim); }
@@ -3937,7 +3986,7 @@ textarea::placeholder { color:var(--text-tertiary); }
   color: var(--on-accent);
   background: var(--accent);
 }
-.flywheel-stage h4 { margin: 0 0 6px; font-size: var(--fs-sm); color: var(--text-primary); }
+.flywheel-stage h3 { margin: 0 0 6px; font-size: var(--fs-sm); color: var(--text-primary); }
 .flywheel-stage-metric {
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
@@ -4019,7 +4068,7 @@ textarea::placeholder { color:var(--text-tertiary); }
   gap: 16px;
   margin-bottom: 14px;
 }
-.evolution-panel-head h3 {
+.evolution-panel-head h2 {
   color: var(--text-primary);
   margin: 0 0 5px;
   font-size: var(--fs-md);
@@ -4190,7 +4239,7 @@ textarea::placeholder { color:var(--text-tertiary); }
   gap: 12px;
   margin-bottom: 14px;
 }
-.sandbox-panel-head h3 {
+.sandbox-panel-head h2 {
   font-size: var(--fs-md);
   margin-bottom: 4px;
 }
@@ -4648,7 +4697,7 @@ textarea::placeholder { color:var(--text-tertiary); }
   align-items: flex-start;
   margin-bottom: 12px;
 }
-.capability-card h3 {
+.capability-card h2 {
   margin: 4px 0 0;
   color: var(--text-primary);
   font-size: var(--fs-md);
@@ -5009,7 +5058,7 @@ textarea::placeholder { color:var(--text-tertiary); }
   flex-shrink: 0;
 }
 .sdh-title { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.sdh-title h1 { margin: 0; font-size: var(--fs-xl); color: var(--text-primary); }
+.sdh-title h2 { margin: 0; font-size: var(--fs-xl); color: var(--text-primary); }
 .skill-version-badge {
   background: var(--accent-dim);
   color: var(--accent-text);
@@ -5059,13 +5108,13 @@ textarea::placeholder { color:var(--text-tertiary); }
   border-radius: var(--radius-md);
   padding: 16px;
 }
-.so-card h4 { margin: 0 0 12px; font-size: var(--fs-md); color: var(--text-primary); }
+.so-card h3 { margin: 0 0 12px; font-size: var(--fs-md); color: var(--text-primary); }
 .so-card p { margin: 0; color: var(--text-secondary); font-size: var(--fs-sm); line-height: 1.6; }
 .so-meta { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: var(--fs-sm); }
 .so-meta:last-child { border-bottom: none; }
 .so-meta span:first-child { color: var(--text-secondary); }
 .so-deps { margin-top: 8px; }
-.so-deps h5 { margin: 0 0 6px; font-size: var(--fs-sm); color: var(--text-secondary); }
+.so-deps h4 { margin: 0 0 6px; font-size: var(--fs-sm); color: var(--text-secondary); }
 .so-dep-tag {
   display: inline-block;
   background: var(--bg-hover);
@@ -5092,7 +5141,8 @@ textarea::placeholder { color:var(--text-tertiary); }
   line-height: 1.8;
   font-size: var(--fs-md);
 }
-.skill-doc-content h1, .skill-doc-content h2, .skill-doc-content h3 { margin-top: 20px; }
+/* README 走同一个 formatContent，所以这里也是 h2 起（不再有 h1） */
+.skill-doc-content h2, .skill-doc-content h3, .skill-doc-content h4 { margin-top: 20px; }
 .skill-doc-content code {
   background: var(--bg-tertiary);
   padding: 1px 6px;
@@ -5125,12 +5175,20 @@ textarea::placeholder { color:var(--text-tertiary); }
   background: var(--bg-secondary);
   padding: 8px 0;
 }
+/* <button>：清默认外观、撑满宽度、文字左对齐。
+   注意 .ft-collapsed + .ft-children 这条相邻兄弟选择器仍然成立——
+   目录项和它的子树是并列兄弟，标签换成 button 不影响。 */
 .ft-item {
   display: flex;
   align-items: center;
   gap: 6px;
+  width: 100%;
   padding: 5px 8px;
+  background: none;
+  border: 0;
+  text-align: left;
   cursor: pointer;
+  font-family: inherit;
   font-size: var(--fs-sm);
   color: var(--text-secondary);
   transition: background 0.15s;
@@ -5228,7 +5286,7 @@ textarea::placeholder { color:var(--text-tertiary); }
 
 /* Config viewer */
 .skill-config-section { margin-bottom: 16px; }
-.skill-config-section h4 { margin: 0 0 12px; color: var(--text-primary); }
+.skill-config-section h3 { margin: 0 0 12px; color: var(--text-primary); }
 .skill-config-viewer {
   background: var(--bg-tertiary);
   border-radius: var(--radius-md);

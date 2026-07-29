@@ -51,12 +51,14 @@ function renderSkills(query) {
     <div class="skill-card" data-id="${sk.id}" onclick="showSkillDetailPage('${escJs(sk.id)}')">
       <div class="skill-card-header">
         <div class="skill-card-info">
-          <div class="skill-card-name">
+          <!-- 技能名是打开详情的按钮。整卡不能做成 <button>：右下角已经有
+               查看/编辑/删除三颗按钮，嵌套不合法。整卡点击照旧保留给鼠标。 -->
+          <button type="button" class="skill-card-name" onclick="event.stopPropagation(); showSkillDetailPage('${escJs(sk.id)}')">
             <span class="skill-icon-wrap">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
             </span>
             <span class="skill-name-text" title="${esc(sk.name)}">${esc(sk.name)}</span>
-          </div>
+          </button>
           <div class="skill-card-version">v${esc(sk.version)}</div>
         </div>
         <span class="skill-source-badge skill-source-${sk.source}" title="${esc(sk.source)}">${esc(sk.source)}</span>
@@ -383,7 +385,7 @@ function showImportDirModal() {
   overlay.innerHTML = `
     <div class="modal">
       <div class="modal-header">
-        <h3>从目录导入 Skills</h3>
+        <h2>从目录导入 Skills</h2>
         <button class="icon-btn modal-close-btn" title="关闭" aria-label="关闭对话框">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
@@ -442,7 +444,7 @@ function showImportSkillModal() {
   overlay.innerHTML = `
     <div class="modal">
       <div class="modal-header">
-        <h3>导入 Skill</h3>
+        <h2>导入 Skill</h2>
         <button class="icon-btn modal-close-btn" title="关闭" aria-label="关闭对话框">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
@@ -537,7 +539,7 @@ function showSkillDetail(id) {
   overlay.innerHTML = `
     <div class="modal modal-wide">
       <div class="modal-header">
-        <h3>${esc(sk.name)}</h3>
+        <h2>${esc(sk.name)}</h2>
         <button class="icon-btn modal-close-btn" title="关闭" aria-label="关闭对话框">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
@@ -580,7 +582,7 @@ function editSkill(id) {
   overlay.innerHTML = `
     <div class="modal">
       <div class="modal-header">
-        <h3>编辑 Skill</h3>
+        <h2>编辑 Skill</h2>
         <button class="icon-btn modal-close-btn" title="关闭" aria-label="关闭对话框">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
@@ -702,7 +704,9 @@ function renderSkillDetailHeader(sk) {
   el.innerHTML = `
     <div class="sdh-info">
       <div class="sdh-title">
-        <h1>${esc(sk.name)}</h1>
+        <!-- h2 而非 h1：详情面板是嵌在 Skills 页里展开的（页头「Skills 管理」
+             那个 h1 仍在上方可见），这里是它的下一级，不是新的页面标题。 -->
+        <h2>${esc(sk.name)}</h2>
         <span class="skill-version-badge">v${esc(sk.version)}</span>
         <span class="skill-source-badge skill-source-${sk.source}">${esc(sk.source)}</span>
       </div>
@@ -730,10 +734,10 @@ function renderSkillOverview(data) {
   let html = `<div class="skill-overview-grid">`;
 
   // Description card
-  html += `<div class="so-card"><h4>描述</h4><p>${esc(sk.description || '暂无描述')}</p></div>`;
+  html += `<div class="so-card"><h3>描述</h3><p>${esc(sk.description || '暂无描述')}</p></div>`;
 
   // Metadata card
-  html += `<div class="so-card"><h4>基本信息</h4>
+  html += `<div class="so-card"><h3>基本信息</h3>
     <div class="so-meta"><span>名称</span><span>${esc(sk.name)}</span></div>
     <div class="so-meta"><span>版本</span><span>v${esc(sk.version)}</span></div>
     <div class="so-meta"><span>来源</span><span>${esc(sk.source)}</span></div>
@@ -743,11 +747,11 @@ function renderSkillOverview(data) {
 
   // Manifest info
   if (manifest.author || manifest.license || manifest.dependencies) {
-    html += `<div class="so-card"><h4>包信息</h4>`;
+    html += `<div class="so-card"><h3>包信息</h3>`;
     if (manifest.author) html += `<div class="so-meta"><span>作者</span><span>${esc(manifest.author)}</span></div>`;
     if (manifest.license) html += `<div class="so-meta"><span>许可证</span><span>${esc(manifest.license)}</span></div>`;
     if (manifest.dependencies) {
-      html += `<div class="so-deps"><h5>依赖</h5>`;
+      html += `<div class="so-deps"><h4>依赖</h4>`;
       for (const [dep, ver] of Object.entries(manifest.dependencies)) {
         html += `<span class="so-dep-tag">${esc(dep)}: ${esc(ver)}</span>`;
       }
@@ -757,7 +761,7 @@ function renderSkillOverview(data) {
   }
 
   // Directory info
-  html += `<div class="so-card"><h4>目录</h4><p class="so-path">${esc(data.directory || '未找到本地目录')}</p></div>`;
+  html += `<div class="so-card"><h3>目录</h3><p class="so-path">${esc(data.directory || '未找到本地目录')}</p></div>`;
 
   html += `</div>`;
   el.innerHTML = html;
@@ -840,18 +844,21 @@ function renderTreeNode(node, skillId, depth) {
 
   for (const [name, val] of entries) {
     const indent = depth * 16;
+    // 文件树的每一项都是 <button>：打开文件、展开目录都是动作，
+    // 键盘必须能到。目录项带 aria-expanded 让读屏知道当前是展开还是收起。
     if (val.file) {
       const icon = getFileIcon(val.file.type);
-      html += `<div class="ft-item ft-file" style="padding-left:${indent + 8}px" onclick="loadSkillFile('${escJs(skillId)}', '${escJs(val.file.name)}')">
+      html += `<button type="button" class="ft-item ft-file" style="padding-left:${indent + 8}px" onclick="loadSkillFile('${escJs(skillId)}', '${escJs(val.file.name)}')">
         ${icon}<span class="ft-name">${esc(name)}</span>
         <span class="ft-size">${formatFileSize(val.file.size)}</span>
-      </div>`;
+      </button>`;
     } else {
-      html += `<div class="ft-item ft-folder" style="padding-left:${indent}px" onclick="this.classList.toggle('ft-collapsed')">
-        <span class="ft-arrow">&#9660;</span>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
+      html += `<button type="button" class="ft-item ft-folder" style="padding-left:${indent}px" aria-expanded="true"
+        onclick="const c=this.classList.toggle('ft-collapsed'); this.setAttribute('aria-expanded', String(!c));">
+        <span class="ft-arrow" aria-hidden="true">&#9660;</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
         <span class="ft-name">${esc(name)}</span>
-      </div>
+      </button>
       <div class="ft-children">${renderTreeNode(val, skillId, depth + 1)}</div>`;
     }
   }
@@ -992,7 +999,7 @@ function renderSkillConfig(data) {
 
   el.innerHTML = `
     <div class="skill-config-section">
-      <h4>Manifest 配置</h4>
+      <h3>Manifest 配置</h3>
       <div class="skill-config-viewer">${highlightSyntax(JSON.stringify(manifest, null, 2))}</div>
     </div>
   `;

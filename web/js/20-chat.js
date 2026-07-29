@@ -5,16 +5,28 @@
    ============================================ */
 
 // ============ Sessions ============
+// 会话项是 <button>，不是带 onclick 的 <div>。div 点得动但 Tab 到不了、
+// 回车也不响应，读屏软件更不会把它念成"可点击"——对只用键盘的人来说，
+// 这份列表等于不存在。用真按钮就自带焦点、键盘激活和 role。
+// 外层 <ul>/<li> 让读屏能报出"共 N 项，第 3 项"。
 function renderSessions() {
-  dom.sessionsList.innerHTML = state.sessions.map(s => `
-    <div class="session-item ${s.id === state.currentSession ? 'active' : ''}" data-id="${s.id}">
-      <div class="session-dot"></div>
-      <div class="session-info">
-        <div class="session-title">${esc(s.title)}</div>
-        <div class="session-time">${s.time}</div>
-      </div>
-    </div>
-  `).join('');
+  dom.sessionsList.innerHTML = `
+    <ul class="session-list-ul">
+      ${state.sessions.map(s => {
+        const on = s.id === state.currentSession;
+        return `
+        <li>
+          <button type="button" class="session-item ${on ? 'active' : ''}" data-id="${esc(s.id)}"
+                  ${on ? 'aria-current="true"' : ''}>
+            <span class="session-dot" aria-hidden="true"></span>
+            <span class="session-info">
+              <span class="session-title">${esc(s.title)}</span>
+              <span class="session-time">${esc(s.time)}</span>
+            </span>
+          </button>
+        </li>`;
+      }).join('')}
+    </ul>`;
 
   dom.sessionsList.querySelectorAll('.session-item').forEach(el => {
     el.addEventListener('click', () => {
@@ -161,11 +173,13 @@ function formatContent(text) {
   // Strikethrough
   html = html.replace(/~~([^~]+)~~/g, '<del>$1</del>');
 
-  // Headers
-  html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
-  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  // Headers：整体下移一级。消息正文是页面的下级内容，模型写的 `#` 不该
+  // 变成与页面标题平级的 h1——否则读屏用户按标题浏览时，每条回复都伪装成
+  // 一个新页面。h5/h6 已是底部，`####` 及更深都并到 h5。
+  html = html.replace(/^#{4,6} (.+)$/gm, '<h5>$1</h5>');
+  html = html.replace(/^### (.+)$/gm, '<h4>$1</h4>');
+  html = html.replace(/^## (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^# (.+)$/gm, '<h2>$1</h2>');
 
   // Blockquotes
   html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
@@ -336,17 +350,27 @@ function removeStreaming() {
   document.getElementById('streaming-msg')?.remove();
 }
 
+/**
+ * 写底部状态栏的连接指示。
+ *
+ * online 有三个值：true 已连接 / false 已断开 / null 还不知道。
+ * 第三种必须存在——页面刚加载、首次 /health 尚未回话时，界面既不该说
+ * 已连接（后端可能根本没起）也不该说已断开（还没问过）。
+ *
+ * 连接状态只有底部状态栏一处（此前顶栏 + 底栏各显示一份，且文案还不一致：
+ * 顶栏"断开" / 底栏"已断开" / 再被下面一段改写成"未连接"）
+ */
 function updateConnectionStatus(online) {
-  // 连接状态只有底部状态栏一处（此前顶栏 + 底栏各显示一份，且文案还不一致：
-  // 顶栏"断开" / 底栏"已断开" / 再被下面一段改写成"未连接"）
+  const unknown = online === null || online === undefined;
   const dot = dom.statusDot;
   if (dot) {
-    dot.className = `status-dot ${online ? 'online' : 'offline'}`;
+    // 裸 .status-dot 即灰色未知态，颜色由 CSS 决定，这里不写内联色
+    dot.className = `status-dot ${unknown ? '' : online ? 'online' : 'offline'}`.trim();
   }
   const connText = document.getElementById('status-conn-text');
   if (connText) {
-    connText.textContent = online ? '已连接' : '已断开';
-    connText.style.color = online ? 'var(--green)' : 'var(--red)';
+    connText.textContent = unknown ? '检测中…' : online ? '已连接' : '已断开';
+    connText.style.color = unknown ? 'var(--text-tertiary)' : online ? 'var(--green)' : 'var(--red)';
   }
 }
 

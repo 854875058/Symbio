@@ -174,7 +174,7 @@ function renderCapabilities() {
       <div class="capability-card-head">
         <div>
           <div class="capability-module">${esc(item.module || '模块未标注')}</div>
-          <h3>${esc(capabilityClaimZh(item))}</h3>
+          <h2>${esc(capabilityClaimZh(item))}</h2>
         </div>
         <span class="capability-status status-${esc(item.status)}">${esc(capabilityStatusLabel(item.status))}</span>
       </div>
@@ -234,7 +234,7 @@ async function viewSourceFile(path) {
   overlay.innerHTML = `
     <div class="modal source-modal" role="dialog" aria-modal="true" aria-label="查看源码 ${esc(path)}">
       <div class="modal-head">
-        <h3 class="source-modal-path">${esc(path)}</h3>
+        <h2 class="source-modal-path">${esc(path)}</h2>
         <button class="modal-close" type="button" aria-label="关闭">&times;</button>
       </div>
       <div class="modal-body source-modal-body">

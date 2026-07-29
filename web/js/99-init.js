@@ -30,6 +30,11 @@ async function init() {
   connectWebSocket();
   setupVirtualScroll();
 
+  // 路由放在基础数据就绪之后：initRouter 可能直接切到某一页并触发它的
+  // 加载函数，而那些函数会读 state.models / state.config。
+  // 也必须在 initNavGroups 之后——恢复页面时要展开对应的侧栏分组。
+  initRouter();
+
   // Update status model name
   const modelName = state.selectedChatModel || (state.models?.[0]?.model_id) || '--';
   if (dom.statusModelName) dom.statusModelName.textContent = modelName;

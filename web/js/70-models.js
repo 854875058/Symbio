@@ -170,7 +170,7 @@ function showAddModelModal() {
   overlay.innerHTML = `
     <div class="modal">
       <div class="modal-header">
-        <h3>添加模型</h3>
+        <h2>添加模型</h2>
         <button class="icon-btn modal-close-btn" title="关闭" aria-label="关闭对话框">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
@@ -449,7 +449,7 @@ function renderConfig() {
     </div>
     <div class="config-card">
       <div class="config-card-header">
-        <h3>LLM 配置</h3>
+        <h2>LLM 配置</h2>
       </div>
       <div class="config-card-body">
         <div class="config-row">
@@ -486,7 +486,7 @@ function renderConfig() {
     </div>
     <div class="config-card">
       <div class="config-card-header">
-        <h3>外部审批配置</h3>
+        <h2>外部审批配置</h2>
       </div>
       <div class="config-card-body">
         <div class="config-row">
